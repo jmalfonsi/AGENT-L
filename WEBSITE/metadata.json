@@ -1,0 +1,6 @@
+{
+  "name": "AGENT-L",
+  "description": "Langage agentique déclaratif et compilé — Présentation, documentation, quickstart et simulateur de frontière LLM/Runtime.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,555 @@
+/* ==========================================================================
+   AGENT-L Studio — système de design (module M3)
+   Outil d'ingénieur : sobre, dense, lisible. Zéro dépendance, zéro CDN.
+   Palette alignée sur agentl/viz.py (lanes) et agentl/trace_html.py (thèmes).
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Jetons — thème clair (base)
+   -------------------------------------------------------------------------- */
+:root {
+  /* Surfaces et texte */
+  --paper:      #e9ecf1;   /* fond de l'application */
+  --surface:    #f7f9fc;   /* panneaux */
+  --surface-2:  #eef1f6;   /* en-têtes, zones creuses */
+  --surface-3:  #e3e8f0;   /* survol, sélection douce */
+  --ink:        #0e1420;   /* texte principal */
+  --muted:      #55606f;   /* texte secondaire (AA sur --surface) */
+  --hair:       #d3d9e2;   /* filets */
+  --hair-strong:#b9c2ce;
+  --accent:     #2c5fd6;   /* accent d'action */
+  --accent-ink: #ffffff;
+  --accent-soft:#dbe5fb;
+
+  /* Sémantique */
+  --ok:    #1f7a4a;
+  --warn:  #a86412;
+  --err:   #c22c31;
+  --info:  #0d6f8c;
+
+  /* Les 7 lanes du graphe (+ société), cohérentes avec viz.py */
+  --lane-observe:    #2e8b48;
+  --lane-hypothesis: #7a54d8;
+  --lane-goal:       #a2761a;
+  --lane-trigger:    #2c6fd0;
+  --lane-plan:       #c25b18;
+  --lane-tool:       #c04a3f;
+  --lane-policy:     #b23a7e;
+  --lane-society:    #0e8f86;
+
+  /* Géométrie de la grille (pilotée par app.js, persistée) */
+  --w-editor:    360px;
+  --w-inspector: 340px;
+  --h-timeline:  220px;
+  --topbar-h:    44px;
+  --gutter:      6px;
+  --radius:      6px;
+
+  /* Typographie */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+               "Liberation Mono", monospace;
+  --fs:      13px;
+  --fs-sm:   11.5px;
+  --fs-code: 12.5px;
+
+  /* Mouvement : court, jamais clignotant */
+  --t: 140ms cubic-bezier(.2, .6, .3, 1);
+
+  --shadow: 0 6px 20px rgba(12, 18, 30, .12);
+  color-scheme: light dark;
+}
+
+/* --------------------------------------------------------------------------
+   2. Thème sombre — préférence système…
+   -------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:      #0a0e15;
+    --surface:    #121926;
+    --surface-2:  #0f1622;
+    --surface-3:  #1b2534;
+    --ink:        #e4eaf3;
+    --muted:      #97a3b4;
+    --hair:       #1e2836;
+    --hair-strong:#334054;
+    --accent:     #5b8dfb;
+    --accent-ink: #07101f;
+    --accent-soft:#1a2740;
+
+    --ok:    #48c07d;
+    --warn:  #e6a34d;
+    --err:   #f2686c;
+    --info:  #41b6d8;
+
+    --lane-observe:    #3fb950;
+    --lane-hypothesis: #a371f7;
+    --lane-goal:       #e3b341;
+    --lane-trigger:    #58a6ff;
+    --lane-plan:       #f0883e;
+    --lane-tool:       #ec6a5e;
+    --lane-policy:     #db61a2;
+    --lane-society:    #2dd4bf;
+
+    --shadow: 0 8px 26px rgba(0, 0, 0, .55);
+  }
+}
+
+/* …et surcharges explicites, qui gagnent dans les DEUX sens (contrat §1). */
+:root[data-theme="light"] {
+  --paper:#e9ecf1; --surface:#f7f9fc; --surface-2:#eef1f6; --surface-3:#e3e8f0;
+  --ink:#0e1420; --muted:#55606f; --hair:#d3d9e2; --hair-strong:#b9c2ce;
+  --accent:#2c5fd6; --accent-ink:#ffffff; --accent-soft:#dbe5fb;
+  --ok:#1f7a4a; --warn:#a86412; --err:#c22c31; --info:#0d6f8c;
+  --lane-observe:#2e8b48; --lane-hypothesis:#7a54d8; --lane-goal:#a2761a;
+  --lane-trigger:#2c6fd0; --lane-plan:#c25b18; --lane-tool:#c04a3f;
+  --lane-policy:#b23a7e; --lane-society:#0e8f86;
+  --shadow:0 6px 20px rgba(12,18,30,.12);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper:#0a0e15; --surface:#121926; --surface-2:#0f1622; --surface-3:#1b2534;
+  --ink:#e4eaf3; --muted:#97a3b4; --hair:#1e2836; --hair-strong:#334054;
+  --accent:#5b8dfb; --accent-ink:#07101f; --accent-soft:#1a2740;
+  --ok:#48c07d; --warn:#e6a34d; --err:#f2686c; --info:#41b6d8;
+  --lane-observe:#3fb950; --lane-hypothesis:#a371f7; --lane-goal:#e3b341;
+  --lane-trigger:#58a6ff; --lane-plan:#f0883e; --lane-tool:#ec6a5e;
+  --lane-policy:#db61a2; --lane-society:#2dd4bf;
+  --shadow:0 8px 26px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   3. Base
+   -------------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: var(--fs)/1.45 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;                    /* la page ne défile jamais */
+  display: flex;
+  flex-direction: column;
+}
+
+code, pre, kbd, samp, .mono { font-family: var(--font-mono); font-size: var(--fs-code); }
+
+/* Accessibilité : libellé réservé aux lecteurs d'écran. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Focus toujours visible, y compris sur fond teinté. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+::selection { background: var(--accent-soft); color: var(--ink); }
+
+/* Barres de défilement discrètes. */
+* { scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--hair-strong); border-radius: 6px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* --------------------------------------------------------------------------
+   4. Barre supérieure
+   -------------------------------------------------------------------------- */
+.topbar {
+  flex: 0 0 auto;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--hair);
+  user-select: none;
+}
+
+.topbar__group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.topbar__group--file { flex: 0 1 auto; min-width: 0; }
+.topbar__group--end { margin-left: auto; }
+
+.brand { color: var(--accent); font-size: 14px; }
+
+.field { display: flex; align-items: center; gap: 5px; }
+.field__label {
+  font-size: var(--fs-sm); color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+
+/* Contrôles de formulaire */
+.control {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius);
+  padding: 4px 7px;
+  height: 27px;
+  transition: border-color var(--t), background var(--t);
+}
+.control:hover { border-color: var(--accent); }
+.control--file { max-width: 320px; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.control--host { max-width: 200px; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.control--num  { width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Boutons */
+.btn {
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius);
+  height: 27px;
+  padding: 0 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t), border-color var(--t), color var(--t);
+}
+.btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--accent); }
+.btn:active:not(:disabled) { background: var(--accent-soft); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn--primary {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+}
+.btn--primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+
+.btn--danger:not(:disabled) { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--hair-strong)); }
+.btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 12%, transparent); }
+
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+
+.btn--icon { width: 30px; padding: 0; font-size: 14px; line-height: 1; }
+
+/* Indicateurs (run + connexion) */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 27px; padding: 0 9px;
+  border: 1px solid var(--hair); border-radius: 999px;
+  background: var(--surface);
+  font-size: var(--fs-sm); color: var(--muted);
+  white-space: nowrap;
+}
+.badge__dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--hair-strong);
+  transition: background var(--t);
+}
+.badge__text { color: var(--ink); }
+.badge__tick {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--muted); padding-left: 2px;
+}
+
+.badge--idle    .badge__dot { background: var(--hair-strong); }
+.badge--running .badge__dot { background: var(--ok); }
+.badge--paused  .badge__dot { background: var(--warn); }
+.badge--error   .badge__dot { background: var(--err); }
+.badge--running { border-color: color-mix(in srgb, var(--ok) 40%, var(--hair)); }
+.badge--paused  { border-color: color-mix(in srgb, var(--warn) 40%, var(--hair)); }
+.badge--error   { border-color: color-mix(in srgb, var(--err) 45%, var(--hair)); }
+
+.badge--conn.is-open      .badge__dot { background: var(--ok); }
+.badge--conn.is-connecting .badge__dot,
+.badge--conn.is-retrying  .badge__dot { background: var(--warn); }
+.badge--conn.is-closed    .badge__dot { background: var(--err); }
+
+/* Indicateur d'hôte : vert = présent et confirmé par le contrat,
+   ambre = présent mais aucune liaison reconnue, rouge = absent (pas de run). */
+.badge--host .badge__text { font-family: var(--font-mono); }
+.badge--host.is-ok      .badge__dot { background: var(--ok); }
+.badge--host.is-unsure  .badge__dot { background: var(--warn); }
+.badge--host.is-missing .badge__dot { background: var(--err); }
+.badge--host.is-missing .badge__text { color: var(--err); }
+
+.dot--dirty { color: var(--warn); font-size: 10px; }
+
+/* --------------------------------------------------------------------------
+   5. Grille de travail
+   -------------------------------------------------------------------------- */
+.grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns:
+    minmax(160px, var(--w-editor))
+    var(--gutter)
+    minmax(220px, 1fr)
+    var(--gutter)
+    minmax(160px, var(--w-inspector));
+  grid-template-rows:
+    minmax(120px, 1fr)
+    var(--gutter)
+    minmax(80px, var(--h-timeline));
+  background: var(--paper);
+}
+
+.panel--editor    { grid-area: 1 / 1; }
+.panel--canvas    { grid-area: 1 / 3; }
+.panel--inspector { grid-area: 1 / 5; }
+.panel--timeline  { grid-area: 3 / 1 / 4 / 6; }
+
+#gutter-left   { grid-area: 1 / 2; }
+#gutter-right  { grid-area: 1 / 4; }
+#gutter-bottom { grid-area: 2 / 1 / 3 / 6; }
+
+/* État « panneau replié » (piloté par app.js).
+   `minmax(160px, …)` impose un plancher : replier suppose donc de réécrire la
+   colonne, pas seulement d'annuler sa largeur. Le canevas récupère la place. */
+.grid.is-editor-collapsed {
+  grid-template-columns:
+    0
+    28px
+    minmax(220px, 1fr)
+    var(--gutter)
+    minmax(160px, var(--w-inspector));
+}
+.grid.is-editor-collapsed .panel--editor { display: none; }
+.grid.is-editor-collapsed #gutter-left   { display: none; }
+
+/* Rail de réouverture, occupant la gouttière gauche une fois replié. */
+.rail {
+  grid-area: 1 / 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0;
+  border: 1px solid var(--hair);
+  border-left: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  font: 600 var(--fs-sm)/1 var(--font-ui);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  transition: color .14s ease, background .14s ease;
+}
+.rail:hover { color: var(--ink); background: var(--surface-3); }
+.rail__glyph { writing-mode: horizontal-tb; }
+
+.grid.is-editor-collapsed    { --w-editor: 0px; }
+.grid.is-inspector-collapsed { --w-inspector: 0px; }
+.grid.is-timeline-collapsed  { --h-timeline: 0px; }
+
+/* Panneaux */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  overflow: hidden;
+}
+.panel--editor    { border-left: 0; border-bottom: 0; }
+.panel--canvas    { border-bottom: 0; }
+.panel--inspector { border-right: 0; border-bottom: 0; }
+.panel--timeline  { border: 0; border-top: 1px solid var(--hair); }
+
+.panel__title {
+  flex: 0 0 auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--hair);
+}
+
+/* Action discrète dans l'entête d'un panneau (replier, etc.). */
+.panel__action {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+  font: inherit;
+  line-height: 1.6;
+  transition: color .14s ease, background .14s ease, border-color .14s ease;
+}
+.panel__action:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+  border-color: var(--hair);
+}
+
+.panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+}
+.panel__body--flush { padding: 0; overflow: hidden; }
+
+/* Message affiché tant qu'un module de panneau n'est pas encore livré. */
+.panel__body:empty::after,
+.panel__placeholder {
+  display: block;
+  padding: 14px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-style: italic;
+}
+.panel__body:empty::after { content: "module non chargé"; }
+
+/* Poignées de séparation */
+.gutter {
+  background: var(--paper);
+  position: relative;
+  transition: background var(--t);
+}
+.gutter--v { cursor: col-resize; }
+.gutter--h { cursor: row-resize; }
+.gutter::after {
+  content: "";
+  position: absolute; inset: 0;
+  margin: auto;
+  background: var(--hair-strong);
+  opacity: 0;
+  transition: opacity var(--t);
+}
+.gutter--v::after { width: 2px; height: 34px; border-radius: 2px; }
+.gutter--h::after { height: 2px; width: 34px; border-radius: 2px; }
+.gutter:hover::after, .gutter:focus-visible::after, .gutter.is-dragging::after { opacity: 1; }
+.gutter:hover, .gutter.is-dragging { background: var(--accent-soft); }
+
+/* Pendant un glissé : pas de sélection de texte parasite. */
+body.is-resizing, body.is-resizing * { user-select: none !important; }
+body.is-resizing.is-resizing-col { cursor: col-resize; }
+body.is-resizing.is-resizing-row { cursor: row-resize; }
+
+/* --------------------------------------------------------------------------
+   6. Classes utilitaires partagées (offertes à M4 / M5)
+   -------------------------------------------------------------------------- */
+
+/* Teintes de lane : utilisables comme couleur de texte, bordure ou fond doux. */
+.lane-observe    { --lane: var(--lane-observe); }
+.lane-hypothesis { --lane: var(--lane-hypothesis); }
+.lane-goal       { --lane: var(--lane-goal); }
+.lane-trigger,
+.lane-event,
+.lane-decide     { --lane: var(--lane-trigger); }
+.lane-plan       { --lane: var(--lane-plan); }
+.lane-tool       { --lane: var(--lane-tool); }
+.lane-policy     { --lane: var(--lane-policy); }
+.lane-memory     { --lane: var(--lane-goal); }
+.lane-message,
+.lane-society    { --lane: var(--lane-society); }
+
+.lane-ink    { color: var(--lane, var(--ink)); }
+.lane-edge   { border-color: var(--lane, var(--hair)); }
+.lane-wash   { background: color-mix(in srgb, var(--lane, var(--accent)) 12%, transparent); }
+
+/* Étiquettes compactes (kind de trace, sévérité de diagnostic…). */
+.tag {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 16px;
+  letter-spacing: .04em;
+  color: var(--lane, var(--muted));
+  background: color-mix(in srgb, var(--lane, var(--muted)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lane, var(--muted)) 32%, transparent);
+}
+.tag--ok   { --lane: var(--ok); }
+.tag--warn { --lane: var(--warn); }
+.tag--err  { --lane: var(--err); }
+.tag--info { --lane: var(--info); }
+
+/* Lignes de journal / listes denses. */
+.row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 2px 10px;
+  font-family: var(--font-mono); font-size: var(--fs-code);
+  border-left: 2px solid transparent;
+}
+.row:hover { background: var(--surface-3); }
+.row.is-active { background: var(--accent-soft); border-left-color: var(--accent); }
+.row__time { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Champ de filtre (chronologie). */
+.filter {
+  width: 100%;
+  font: var(--fs-code)/1.4 var(--font-mono);
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius);
+  padding: 3px 7px;
+}
+
+/* --------------------------------------------------------------------------
+   7. Messages transitoires
+   -------------------------------------------------------------------------- */
+.toasts {
+  position: fixed;
+  right: 12px; bottom: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  z-index: 50;
+  max-width: 380px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  padding: 7px 11px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--hair-strong);
+  border-left: 3px solid var(--info);
+  box-shadow: var(--shadow);
+  font-size: var(--fs-sm);
+  opacity: 1;
+  transition: opacity var(--t);
+}
+.toast.is-leaving { opacity: 0; }
+.toast--error { border-left-color: var(--err); }
+.toast--warn  { border-left-color: var(--warn); }
+.toast--ok    { border-left-color: var(--ok); }
+
+/* --------------------------------------------------------------------------
+   8. Adaptations
+   -------------------------------------------------------------------------- */
+
+/* Écrans étroits : l'inspecteur passe sous le canevas plutôt que de l'écraser. */
+@media (max-width: 1000px) {
+  .grid {
+    grid-template-columns: minmax(140px, var(--w-editor)) var(--gutter) 1fr 0 0;
+  }
+  .panel--inspector, #gutter-right { display: none; }
+  .topbar { overflow-x: auto; }
+}
+
+/* Respect strict de la préférence « moins d'animations ». */
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+}

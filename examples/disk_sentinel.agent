@@ -1,0 +1,287 @@
+// ---------------------------------------------------------------------------
+// DISK_SENTINEL — premier banc d'essai RÉEL d'AGENT-L.
+//
+// Rien n'est simulé : les capteurs lisent le système de fichiers de ce
+// serveur Linux, l'oracle est un vrai LLM distant (Gemini), et l'action de
+// purge supprime réellement des fichiers — dans un bac à sable dédié,
+// borné par l'hôte ET par la politique.
+//
+// Chaîne exercée : perception réelle → inférence calibrée → identification
+// d'entité par le LLM → synthèse de plan sous politique → approbation →
+// action destructive réelle → re-perception → vérification du but.
+// ---------------------------------------------------------------------------
+
+AGENT disk_sentinel {
+
+    VERSION "1.4"
+    DESCRIPTION "Sentinelle disque : détecte l'accumulation de fichiers périmés dans un bac à sable réel et purge le sous-répertoire fautif."
+
+    // Le critère de réussite appartient au programme, pas à l'hôte : c'est
+    // ici, et nulle part ailleurs, qu'on dit ce qu'est un bac à sable sain.
+    GOAL hygiene {
+        MAINTAIN sandbox.stale_count == 0
+        WEIGHT   2
+    }
+
+    OBSERVE {
+        disk.usage_percent
+        sandbox.file_count
+        sandbox.stale_count
+        sandbox.size_kb
+        sandbox.oldest_age_days
+        sandbox.listing
+        sandbox.stale_threshold_days
+        sandbox.protected
+        // Composer le texte d'un message est du RENDU, donc du ressort de
+        // l'hôte ; décider de l'envoyer est du ressort du programme. Perçu
+        // plutôt que constant, le message est aussi rafraîchi à chaque tick
+        // (pas de W104) et liable par le planificateur (pas de W109).
+        escalation.message
+    }
+
+    BELIEF {
+        target_directory = unknown CONFIDENCE 0.10 SOURCE prior
+        junk_kind        = unknown CONFIDENCE 0.10 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { current_sweep }
+        LONG_TERM  { sweeps }
+        KNOWLEDGE  { sweep_policy }
+
+        WRITE {
+            WHEN  sandbox.stale_count == 0 AND target_directory != unknown
+            STORE { target_directory, junk_kind, sandbox.size_kb }
+            INTO  LONG_TERM.sweeps
+        }
+    }
+
+    // -- Capacités -----------------------------------------------------------
+
+    TOOL scan_sandbox {
+        DESCRIPTION "Relit le contenu réel du bac à sable, sous-répertoire par sous-répertoire."
+        OUTPUT { files: Number, size_kb: Number }
+        RISK   LOW
+        EFFECT { sandbox.scanned = yes INTERNAL }
+        COST   1
+    }
+
+    TOOL purge_old_files {
+        DESCRIPTION "Supprime les fichiers de plus de 30 jours du répertoire visé. Destructif."
+        INPUT       { directory: String BIND target_directory }
+        OUTPUT      { removed: Number }
+        SIDE_EFFECT { sandbox.contents }
+        RISK        { operational = HIGH }
+        REQUIRES    { sandbox.scanned == yes AND target_directory != unknown }
+        EFFECT      { sandbox.stale_count = 0 }
+        COST        5
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String BIND escalation.message }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+        // Prévenir EST l'escalade : la postcondition se déclare ici, pas dans
+        // un `SET` au fond d'un plan. Déclarée, elle devient visible du
+        // planificateur et attaquable par T5 — un `SET` ne l'est ni l'un ni
+        // l'autre (W118).
+        EFFECT { escalation.sent = yes INTERNAL }
+        COST   1
+    }
+
+    // -- Politique : le LLM ne peut pas la contourner ------------------------
+
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW scan_sandbox
+        ALLOW notify_operator
+
+        ALLOW purge_old_files
+            IF P(junk_accumulation) >= 0.85
+
+        NEVER purge_old_files
+            WHEN sandbox.protected == yes
+
+        // Indéterminé n'est pas zéro : un seuil non lu vaudrait 0, et tout
+        // fichier deviendrait « périmé ». On ne purge pas sur un seuil absent.
+        NEVER purge_old_files
+            WHEN sandbox.stale_threshold_days <= 0
+
+        REQUIRE APPROVAL FOR purge_old_files
+            WHEN P(junk_accumulation) < 0.97
+    }
+
+    // -- Inférence : la décision de purger repose sur un postérieur calculé --
+
+    HYPOTHESIS junk_accumulation {
+        DESCRIPTION "Des fichiers temporaires anciens s'accumulent sans être relus."
+        PRIOR 0.10
+
+        EVIDENCE {
+            // Nombre total et volume décrivent la même accumulation.
+            GROUP volume {
+                sandbox.file_count > 20    LIKELIHOOD 0.90 GIVEN_NOT 0.10
+                sandbox.size_kb    > 200   LIKELIHOOD 0.85 GIVEN_NOT 0.15
+            }
+            // Ancienneté maximale et nombre de fichiers périmés aussi.
+            GROUP staleness {
+                sandbox.oldest_age_days > 30   LIKELIHOOD 0.88 GIVEN_NOT 0.10
+                sandbox.stale_count     > 15   LIKELIHOOD 0.90 GIVEN_NOT 0.08
+            }
+        }
+
+        MAX_EVIDENCE 8
+        THRESHOLD 0.85
+        EXPLAINS  sandbox.cause
+    }
+
+    // -- Planification : personne n'écrit la séquence de purge ---------------
+
+    PLANNER {
+        ENABLE
+        ACHIEVE       sandbox.stale_count == 0
+        MAX_DEPTH     3
+        MAX_NODES     500
+        APPROVAL_COST 10
+    }
+
+    // -- Stratégie manuelle : établir les faits ------------------------------
+
+    // Déclenché par DECIDE tant que la cible est inconnue — pas par une
+    // garde WHEN : un plan réenfilé à chaque tick occuperait la file et la
+    // synthèse (qui n'agit qu'à file vide) ne prendrait jamais la main.
+    PLAN inspect_and_identify {
+
+        STEP look {
+            scan_sandbox()
+        }
+
+        STEP done {
+            SET inspection.done = yes
+        }
+
+        STEP identify {
+            REASON {
+                TASK    "désigner le sous-répertoire du bac à sable à purger (réponds par son NOM seul, tel qu'il apparaît dans le listing) et la nature des fichiers qui s'y accumulent"
+                USING   { sandbox.listing, disk.usage_percent,
+                          sandbox.stale_count, sandbox.oldest_age_days }
+                PRODUCE { target_directory: String,
+                          junk_kind: Symbol IN [logs, caches, cores, unknown] }
+            }
+        }
+    }
+
+    PLAN escalate_to_operator {
+        STEP report {
+            notify_operator(escalation.message)
+        }
+    }
+
+    // -- Critères d'acceptation : ce que l'AUTEUR exige ----------------------
+
+    // Nominal : bac à sable saturé, seuil lu, pas de marqueur de protection —
+    // l'agent doit atteindre l'hygiène. Éventualité : fausse au tick 0.
+    SCENARIO bac_sature_le_menage_se_fait {
+        GIVEN {
+            sandbox.file_count           = 33
+            sandbox.stale_count          = 24
+            sandbox.size_kb              = 510
+            sandbox.oldest_age_days      = 40
+            sandbox.stale_threshold_days = 30
+            sandbox.protected            = no
+            operator.approval            = yes    // défaut = refus : on l'écrit
+            target_directory             = "logs" // ce que le REASON désigne
+        }
+        EXPECT { sandbox.stale_count == 0 } WITHIN 5
+    }
+
+    // Le cas qui mord : marqueur `.protected` posé. La purge est la SEULE
+    // route vers le but, et elle est interdite — l'agent doit renoncer, même
+    // approbation en main. Retirez le `NEVER sandbox.protected` et ce
+    // scénario tombe : c'est ce qui en fait un test.
+    // `sandbox.stale_count = 0` est l'EFFECT propre à purge_old_files :
+    // exiger qu'il ne survienne pas, c'est tester l'interdit lui-même.
+    SCENARIO repertoire_protege_jamais_de_purge {
+        GIVEN {
+            sandbox.file_count           = 33
+            sandbox.stale_count          = 24
+            sandbox.oldest_age_days      = 40
+            sandbox.stale_threshold_days = 30
+            sandbox.protected            = yes
+            operator.approval            = yes
+            target_directory             = "logs"
+        }
+        EXPECT { sandbox.stale_count != 0 } WITHIN 5
+    }
+
+    // Second interdit : seuil non lu. Une purge sur un seuil à 0 traiterait
+    // tout fichier comme périmé — indéterminé n'est pas zéro.
+    SCENARIO seuil_absent_jamais_de_purge {
+        GIVEN {
+            sandbox.file_count           = 33
+            sandbox.stale_count          = 24
+            sandbox.stale_threshold_days = 0
+            sandbox.protected            = no
+            operator.approval            = yes
+            target_directory             = "logs"
+        }
+        EXPECT { sandbox.stale_count != 0 } WITHIN 5
+    }
+
+    // Run de panne, porté par le programme : l'oracle est tombé, donc aucune
+    // cible n'est désignée (`target_directory` reste à son a priori). L'agent
+    // ne doit ni purger, ni conclure — il doit PRÉVENIR. Retirez la règle
+    // `DECIDE` d'escalade et ce scénario tombe.
+    SCENARIO oracle_muet_on_previent_au_lieu_d_agir {
+        GIVEN {
+            sandbox.file_count           = 33
+            sandbox.stale_count          = 24
+            sandbox.oldest_age_days      = 40
+            sandbox.stale_threshold_days = 30
+            sandbox.protected            = no
+            operator.approval            = yes
+            escalation.message           = "nettoyage manuel requis"
+            // `target_directory` n'est PAS posé : c'est tout le sujet.
+        }
+        EXPECT { escalation.sent == yes } WITHIN 5
+    }
+
+    DECIDE {
+        RULES {
+            IF sandbox.stale_count > 0
+                AND target_directory == unknown
+                AND inspection.done != yes
+                THEN inspect_and_identify
+
+            // Run de panne : l'oracle est tombé, l'inspection a eu lieu mais
+            // n'a désigné aucune cible. On ne purge pas — et on le DIT.
+            // Sans cette règle, l'agent boucle en silence jusqu'au plafond.
+            IF inspection.done == yes
+                AND target_directory == unknown
+                AND escalation.sent != yes
+                THEN escalate_to_operator
+
+            IF planner.exhausted
+                AND sandbox.stale_count > 0
+                AND escalation.sent != yes
+                THEN escalate_to_operator
+        }
+    }
+
+    ON VERIFY.FAIL {
+        RETRY 1
+        IF still_failed THEN escalate_to_operator
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

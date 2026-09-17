@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentl"
+version = "1.8.2"
+description = "AGENT-L — langage agentique déclaratif, vérifiable avant exécution"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "AGENT-L" }]
+keywords = ["agent", "dsl", "verification", "policy", "soc", "sre"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Interpreters",
+    "Topic :: Security",
+]
+# Le core n'a aucune dépendance : c'est une propriété du projet, pas un oubli.
+dependencies = []
+
+[project.optional-dependencies]
+studio = ["fastapi>=0.110", "uvicorn>=0.27", "websockets>=12"]
+anthropic = ["anthropic>=0.40"]
+# Signature asymétrique des journaux de rejeu. Sans cet extra, le chaînage et
+# la signature HMAC restent disponibles : seul Ed25519 exige `cryptography`.
+sign = ["cryptography>=42"]
+# Client MCP. Sans cet extra, l'import et la traduction restent utilisables
+# hors ligne sur un catalogue `tools/list` capturé en JSON : seul le dialogue
+# avec un serveur vivant exige le paquet.
+mcp = ["mcp>=1.2"]
+
+[project.urls]
+Documentation = "https://github.com/agentl/agentl/blob/main/docs/SPEC.md"
+
+[project.scripts]
+agentl = "agentl.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agentl*"]
+
+[tool.setuptools.package-data]
+"agentl.studio" = ["static/*", "static/**/*", "CONTRACT.md"]
+
+[tool.pytest.ini_options]
+# La commande sans argument valide le paquet publiable. Les laboratoires ont
+# leurs propres dépendances et restent exécutables explicitement, par exemple
+# avec `pytest AITESTPLATFORM/tests` dans le venv AutomationBench.
+testpaths = ["tests"]

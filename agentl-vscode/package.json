@@ -1,0 +1,68 @@
+{
+  "name": "agentl-vscode",
+  "displayName": "AGENT-L Language Support",
+  "description": "Coloration syntaxique, contrôle des majuscules réservées et vérification statique (check / verify / test) pour le langage agentique AGENT-L",
+  "version": "1.3.0",
+  "publisher": "agentl",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:agentl"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "agentl",
+        "aliases": [
+          "AGENT-L",
+          "agentl"
+        ],
+        "extensions": [
+          ".agent"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "agentl",
+        "scopeName": "source.agentl",
+        "path": "./syntaxes/agentl.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "AGENT-L Configuration",
+      "properties": {
+        "agentl.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Chemin vers l'exécutable Python disposant d'AGENT-L"
+        },
+        "agentl.enableVerify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Exécuter 'agentl verify' (démonstration des 5 théorèmes, T5 compris) à la sauvegarde"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "selftest": "npm run compile && node scripts/selftest.js",
+    "lint-repo": "npm run compile && node scripts/lint-repo.js ../examples/*.agent ../bench/tasks/*.agent"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}

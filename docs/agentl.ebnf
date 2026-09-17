@@ -1,0 +1,273 @@
+(* =========================================================================
+   AGENT-L v1.8 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+
+   Convention lexicale fondamentale :
+     les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une
+     minuscule appartient au vocabulaire métier et ne peut jamais entrer en
+     collision avec la syntaxe.
+
+   Les espaces, retours à la ligne et virgules sont insignifiants entre
+   éléments ; les commentaires sont `//`, `#` ou `/* ... */`.
+   ========================================================================= *)
+
+program          = { agent } ;
+
+agent            = "AGENT" , ident , "{" , { agent_member } , "}" ;
+
+agent_member     = version | description
+                 | goal   | belief_block | observe_block | memory_block
+                 | tool   | policy_block | plan | event | decide
+                 | hypothesis | planner | utility | loop_spec
+                 | scenario | fail_handler | message_handler ;
+
+version          = "VERSION" , [ ":" ] , ( string | number ) ;
+description      = "DESCRIPTION" , [ ":" ] , string ;
+
+(* ---------------------------------------------------------------- OBJECTIFS *)
+goal             = "GOAL" , [ ident ] , "{" , { goal_field } , "}" ;
+goal_field       = ( "MAINTAIN" | "ACHIEVE" ) , [ sep ] , expr
+                 | "TARGET" , [ sep ] , ( expr | "{" , { expr } , "}" )
+                 | "WEIGHT" , [ sep ] , number
+                 | expr ;                        (* condition nue *)
+
+(* ---------------------------------------------------------------- CROYANCES *)
+belief_block     = "BELIEF" , "{" , { belief } , "}" ;
+belief           = path , [ sep ] , expr , { belief_meta } ;
+belief_meta      = "CONFIDENCE" , [ sep ] , number
+                 | "SOURCE"     , [ sep ] , ident
+                 | "UPDATED"    , [ sep ] , ( datetime | string ) ;
+
+(* --------------------------------------------------------------- PERCEPTION *)
+observe_block    = "OBSERVE" , ( "{" , { observer } , "}" | observer ) ;
+(* `EVERY` retiré en v1.8 : il ne cadençait rien et son unité de temps était
+   comparée à un compteur de ticks sans durée. Le mot reste réservé pour que
+   les programmes antérieurs soient refusés plutôt que mal relus. *)
+observer         = path , { "WHEN"  , [ sep ] , expr
+                          | "ON" , [ sep ] , "UNKNOWN" , [ sep ] , on_unknown } ;
+on_unknown       = "ESCALATE" | "DEGRADE" , [ sep ] , expr ;
+
+(* ------------------------------------------------------------------ MÉMOIRE *)
+memory_block     = "MEMORY" , "{" , { memory_field } , "}" ;
+memory_field     = "SHORT_TERM" , name_list
+                 | "LONG_TERM"  , name_list
+                 | "KNOWLEDGE"  , name_list
+                 | "SHARED"     , name_list        (* v0.6, versionné *)
+                 | memory_write ;
+memory_write     = "WRITE" , "{" , { "WHEN"  , [ sep ] , expr
+                                   | "STORE" , [ sep ] , name_list
+                                   | "INTO"  , [ sep ] , bucket_path } , "}" ;
+
+(* `SHARED.blocked_hosts` — le premier segment est un mot réservé, et la clé
+   porte sa propre version (v1.2). *)
+bucket_path      = name , { "." , name } ;
+
+(* ------------------------------------------------------------------- OUTILS *)
+tool             = "TOOL" , ( tool_full | tool_short ) ;
+tool_short       = "{" , { ident , [ "(" , [ typed_params ] , ")" ] } , "}" ;
+tool_full        = ident , "{" , { tool_field } , "}" ;
+tool_field       = "DESCRIPTION" , [ sep ] , string
+                 | "INPUT"       , bound_fields
+                 | "OUTPUT"      , typed_fields
+                 | "SIDE_EFFECT" , name_list
+                 | "RISK"        , [ sep ] , ( ident | risk_block )
+                 (* --- v0.5 : l'outil devient un opérateur planifiable --- *)
+                 | "REQUIRES"    , [ sep ] , ( expr | "{" , expr , "}" )
+                 | "EFFECT"      , [ sep ] , effect_block
+                 | "COST"        , [ sep ] , number
+                 (* --- v1.6 : durée d'exécution. L'unité est obligatoire :
+                    un nombre nu serait indiscernable d'un coût. --- *)
+                 | "DURATION"    , [ sep ] , duration
+                 (* --- v0.7 : issue incertaine. EFFECT = OUTCOME … WITH 1 --- *)
+                 | outcome ;
+outcome          = "OUTCOME" , ident , [ "WITH" , [ sep ] , ( number | percent ) ]
+                 , effect_block ;
+risk_block       = "{" , { ident , [ sep ] , ident } , "}" ;
+(* v1.7 : `INTERNAL` marque une postcondition qui porte sur la comptabilité de
+   l'agent et non sur le monde. Aucun capteur ne peut la démentir, et T9 ne
+   réclame donc pas d'`OBSERVE` sur son chemin. *)
+effect_block     = "{" , { path , [ sep ] , expr , [ "INTERNAL" ] } , "}" ;
+
+(* v1.6 : une durée est un nombre suivi d'une unité — `45s`, `4min`, `2h`. *)
+duration         = number , ( "s" | "sec" | "min" | "m" | "h" ) ;
+
+(* `BIND` lie un paramètre à un chemin de l'état : c'est ce qui permet au
+   planificateur d'instancier l'opérateur sans l'aide du LLM.             *)
+bound_fields     = "{" , { ident , [ ":" , ident ] , [ "BIND" , path ]
+                         , [ "ATTESTS" , ident ] } , "}" ;
+
+(* --------------------------------------------------------------- POLITIQUES *)
+policy_block     = "POLICY" , "{" , { policy_rule } , "}" ;
+policy_rule      = "DEFAULT" , [ sep ] , ( "ALLOW" | "DENY" )
+                 | "NEVER" , "SEND" , [ sep ] , path , { "," , [ sep ] , path }
+                 | ( "NEVER" | "DENY" | "ALLOW" ) , target , [ guard ]
+                 | "REQUIRE" , [ "APPROVAL" ] , "FOR" , target , [ guard ] ;
+target           = "*" | path ;
+guard            = ( "IF" | "WHEN" ) , [ sep ] , expr ;
+
+(* -------------------------------------------------------------------- PLANS *)
+plan             = "PLAN" , ident , [ "WHEN" , [ sep ] , expr ]
+                 , "{" , ( { step } | stmt_list ) , "}" ;
+step             = "STEP" , ( ident | number ) , [ sep ]
+                 , ( "{" , stmt_list , "}" | stmt_list ) ;
+
+stmt_list        = { statement } ;
+
+(* v1.3 — la seule construction qui relie une collection perçue à un état
+   scalaire : chaque élément est projeté en locales `ident.champ`. *)
+foreach_stmt     = "FOREACH" , ident , "IN" , expression
+                 , [ "MAX" , number ] , "{" , stmt_list , "}" ;
+
+statement        = call_stmt | set_stmt | if_stmt | verify_stmt
+                 | reason_stmt | ask_stmt | delegate_stmt | message_stmt
+                 | loop_stmt | foreach_stmt | control_stmt | plan_ref ;
+
+call_stmt        = path , "(" , [ arguments ] , ")" ;
+set_stmt         = [ "SET" ] , path , "=" , expr ;
+if_stmt          = "IF" , expr , "THEN" , branch , [ "ELSE" , branch ] ;
+branch           = "{" , stmt_list , "}" | statement ;
+plan_ref         = ident ;                       (* déclenche un plan déclaré *)
+
+verify_stmt      = "VERIFY" , [ string ]
+                 , ( expr
+                   | "{" , [ "CONDITION" , [ sep ] ] , expr
+                         , [ "ON" , "FAIL" , [ sep ] , branch ] , "}" ) ;
+
+reason_stmt      = "REASON" , [ string ] , "{" , { reason_field } , "}" ;
+reason_field     = "TASK"    , [ sep ] , string
+                 | "USING"   , [ sep ] , name_list
+                 | "PRODUCE" , [ sep ] , domained_fields ;
+
+(* v1.1 — un type ne borne pas une valeur. `IN` clôt le domaine de sortie. *)
+domained_fields  = "{" , { ident , [ ":" , ident ]
+                         , [ "IN" , "[" , { literal | ident } , "]" ]
+                         , [ "DEFAULT" , ( literal | ident ) ] } , "}" ;
+
+ask_stmt         = "ASK" , ident , "{" , { ask_field } , "}" ;
+ask_field        = "QUESTION" , [ sep ] , string
+                 | "REASON"   , [ sep ] , ( string | ident )
+                 | "TIMEOUT"  , [ sep ] , duration
+                 | "DEFAULT"  , [ sep ] , expr ;
+
+delegate_stmt    = "DELEGATE" , ident , "{" , { delegate_field } , "}" ;
+delegate_field   = "TASK"   , [ sep ] , string
+                 | "INPUT"  , [ sep ] , name_list
+                 | "EXPECT" , [ sep ] , name_list ;
+
+loop_stmt        = "LOOP" , [ "UNTIL" , expr ] , [ "MAX" , number ]
+                 , "{" , stmt_list , "}" ;
+
+control_stmt     = "RETRY" , [ number ] | "ROLLBACK" | "ESCALATE" | phase ;
+phase            = "RECEIVE" | "OBSERVE" | "UPDATE_BELIEFS"
+                 | "UPDATE_HYPOTHESES" | "EVALUATE_GOALS" | "SELECT_PLAN"
+                 | "SYNTHESIZE" | "DECIDE" | "EXECUTE" | "ACT" | "VERIFY"
+                 | "UPDATE_MEMORY" ;
+
+(* -------------------------------------------------------- ÉVÉNEMENTS / DÉCISION *)
+event            = "EVENT" , path , "{" , { "WHEN" , [ sep ] , expr
+                                          | "THEN" , branch
+                                          | statement } , "}" ;
+
+decide           = "DECIDE" , "{" , { "RULES" , "{" , { if_stmt } , "}"
+                                    | reason_stmt
+                                    | if_stmt } , "}" ;
+
+(* ------------------------------------------- v0.4 : inférence bayésienne *)
+hypothesis       = "HYPOTHESIS" , ident , "{" , { hypothesis_field } , "}" ;
+hypothesis_field = "DESCRIPTION" , [ sep ] , string
+                 | "PRIOR"       , [ sep ] , number
+                 (* v1.2 : a priori empirique, lissé, tiré de la mémoire *)
+                 | "PRIOR" , "FROM" , bucket_path
+                            , [ "WHERE" , [ sep ] , expr ]
+                 | "MAX_EVIDENCE" , [ sep ] , number      (* v1.1, en bits *)
+                 | "CONFIDENCE"  , [ sep ] , number      (* alias de PRIOR *)
+                 | "THRESHOLD"   , [ sep ] , number
+                 | "PREDICT"     , [ sep ] , expr        (* évidence abrégée *)
+                 | "EVIDENCE"    , [ sep ] , evidence_block
+                 | "EXPLAINS"    , [ sep ] , path , [ sep , expr ] ;
+
+evidence_block   = "{" , { evidence_item | evidence_group } , "}" ;
+evidence_item    = expr , { "LIKELIHOOD" , [ sep ] , number    (* P(e | h)  *)
+                          | "GIVEN_NOT"  , [ sep ] , number } ;(* P(e | ¬h) *)
+
+(* v1.1 — corrélation déclarée : au sein d'un groupe, seule l'évidence la
+   plus informative contribue. Les autres sont absorbées, et la trace le dit. *)
+evidence_group   = "GROUP" , ident , evidence_block ;
+
+(* --------------------------------------------- v0.5 : planificateur ------ *)
+planner          = "PLANNER" , "{" , { planner_field } , "}" ;
+planner_field    = "ENABLE"
+                 | "ACHIEVE"       , [ sep ] , expr
+                 | "MAX_DEPTH"     , [ sep ] , number
+                 | "MAX_NODES"     , [ sep ] , number
+                 | "APPROVAL_COST" , [ sep ] , number
+                 | "TARGET_CONFIDENCE" , [ sep ] , number   (* v0.7 *)
+                 (* --- v1.6 : le temps entre dans la recherche --- *)
+                 | "DEADLINE"      , [ sep ] , duration
+                 | "TIME_WEIGHT"   , [ sep ] , number ;
+
+(* --------------------------------- v0.7 : fonction d'utilité additive --- *)
+utility          = "UTILITY" , "{" , { expr , "VALUE" , [ sep ]
+                                     , [ "-" ] , number } , "}" ;
+
+(* ------------------------------------- v0.6 : messagerie inter-agents --- *)
+message_stmt     = "MESSAGE" , ident , "{" , { message_field } , "}" ;
+message_field    = "TO"        , [ sep ] , ident
+                 | "BROADCAST"
+                 | "PAYLOAD"   , [ sep ] , "{" , { ident , [ sep ] , expr } , "}" ;
+
+message_handler  = "ON" , "MESSAGE" , ident
+                 , "{" , { "WHEN" , [ sep ] , expr
+                         | "THEN" , branch
+                         | statement } , "}" ;
+
+(* v1.4 : critères d'acceptation portés par le programme.
+   `GIVEN` a la forme d'un `EFFECT` — ce sont les mêmes affectations ground.
+   `WITHIN` suit le bloc EXPECT ou figure seul ; défaut : 1 tick.
+   Un SCENARIO sans EXPECT est refusé à la lecture. *)
+scenario         = "SCENARIO" , ident , "{"
+                 , { "GIVEN" , effect_block
+                   | "EXPECT" , "{" , { expr , [ "," ] } , "}"
+                               , [ "WITHIN" , [ sep ] , number ]
+                   | "WITHIN" , [ sep ] , number }
+                 , "}" ;
+
+loop_spec        = "LOOP" , [ "UNTIL" , expr ] , [ "MAX" , number ]
+                 , "{" , stmt_list , "}" ;
+
+fail_handler     = "ON" , "VERIFY" , "." , "FAIL" , "{" , stmt_list , "}" ;
+
+(* -------------------------------------------------------------- EXPRESSIONS *)
+expr             = or_expr ;
+or_expr          = and_expr , { "OR" , and_expr } ;
+and_expr         = not_expr , { "AND" , not_expr } ;
+not_expr         = [ "NOT" ] , comparison ;
+comparison       = additive , [ ( "==" | "!=" | ">" | ">=" | "<" | "<=" | "IN" )
+                              , additive ] ;
+additive         = multiplicative , { ( "+" | "-" ) , multiplicative } ;
+multiplicative   = unary , { ( "*" | "/" ) , unary } ;
+unary            = [ "-" ] , primary ;
+primary          = number | percent | duration | string | datetime
+                 | list | epistemic | call_stmt | path | "(" , expr , ")" ;
+
+(* Fonctions épistémiques : elles portent sur le *chemin*, pas sur sa valeur.
+   Utilisables partout, notamment dans les gardes de politique.            *)
+epistemic        = ( "CONFIDENCE" | "UNCERTAINTY" | "P" | "PROBABILITY"
+                   | "POSTERIOR" ) , "(" , path , ")" ;
+list             = "[" , { expr } , "]" ;
+
+arguments        = { ( ident , ( ":" | "=" ) , expr | expr ) } ;
+typed_fields     = "{" , { ident , [ ":" , ident ] } , "}" ;
+typed_params     = { ident , [ ":" , ident ] } ;
+name_list        = "{" , { path } , "}" | path ;
+path             = ident , { "." , name } ;
+name             = ident | keyword ;             (* un mot-clé après `.` est un champ *)
+sep              = ":" | "=" ;
+
+(* ------------------------------------------------------------------ LEXÈMES *)
+ident            = letter , { letter | digit | "_" } ;
+number           = digit , { digit } , [ "." , digit , { digit } ] ;
+percent          = number , "%" ;                (* valeur = number / 100      *)
+duration         = number , ( "ms" | "s" | "sec" | "min" | "m" | "h" | "d" ) ;
+datetime         = 4 * digit , "-" , 2 * digit , "-" , 2 * digit
+                 , [ "T" , 2 * digit , ":" , 2 * digit , [ ":" , 2 * digit ] ] ;
+string           = '"' , { character } , '"' ;

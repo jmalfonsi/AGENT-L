@@ -1,0 +1,149 @@
+AGENT LogAnalyzer {
+    VERSION "1.2"
+    DESCRIPTION "Analyse les journaux bruts avec un LLM et extrait les indicateurs"
+
+    GOAL log_analysis_goal { MAINTAIN logs.analyzed == yes }
+
+    OBSERVE {
+        sandbox.log_content
+    }
+
+    # Déclenchement direct : le contenu n'est pas vide ET pas encore analysé
+    PLAN analyze_raw_logs WHEN sandbox.log_content != "" AND NOT (logs.analyzed == yes) {
+        STEP parse_logs {
+            REASON {
+                TASK "Analyser les lignes de logs bruts pour identifier le type d'attaque web"
+                USING { sandbox.log_content }
+                PRODUCE {
+                    attack_type: Symbol IN [sqli, path_traversal, brute_force, unknown]
+                    target_resource: Symbol IN [admin_panel, db_config, user_login, unknown]
+                }
+            }
+        }
+        STEP dispatch {
+            IF attack_type != unknown THEN {
+                MESSAGE threat_report {
+                    TO SecurityInvestigator
+                    PAYLOAD { type = attack_type, resource = target_resource }
+                }
+            }
+            SET logs.analyzed = yes
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        RECEIVE OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY
+    }
+}
+
+AGENT SecurityInvestigator {
+    VERSION "1.2"
+    DESCRIPTION "Calcule l'impact via LLM et inférence bayésienne"
+
+    GOAL investigation_goal { MAINTAIN threat.assessed == yes }
+
+    OBSERVE {
+        sandbox.file_count
+    }
+
+    HYPOTHESIS intrusion_confidence {
+        PRIOR 0.10
+        EVIDENCE {
+            GROUP file_check {
+                sandbox.file_count > 0 LIKELIHOOD 0.85 GIVEN_NOT 0.05
+            }
+        }
+        THRESHOLD 0.60
+        EXPLAINS threat.proven
+    }
+
+    ON MESSAGE threat_report {
+        THEN evaluate_threat
+    }
+
+    PLAN evaluate_threat {
+        STEP assess_impact {
+            REASON {
+                TASK "Évaluer la sévérité globale et la recommandation d'action"
+                USING { type, resource }
+                PRODUCE {
+                    severity_level: Symbol IN [LOW, MEDIUM, HIGH, CRITICAL, unknown]
+                    action_plan: Symbol IN [quarantine_logs, block_ip, ignore, unknown]
+                }
+            }
+        }
+        STEP summarize_finding {
+            REASON {
+                TASK "Synthétiser un résumé de sécurité pour l'équipe de remédiation"
+                USING { type, severity_level }
+                PRODUCE {
+                    summary_code: Symbol IN [threat_confirmed, false_positive, unknown]
+                }
+            }
+        }
+        STEP dispatch_action {
+            IF severity_level == HIGH OR severity_level == CRITICAL THEN {
+                MESSAGE remediation_order {
+                    TO RemediationAgent
+                    PAYLOAD { target = resource, severity = severity_level }
+                }
+            }
+            SET threat.assessed = yes
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        RECEIVE OBSERVE UPDATE_BELIEFS UPDATE_HYPOTHESES EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY
+    }
+}
+
+AGENT RemediationAgent {
+    VERSION "1.2"
+    DESCRIPTION "Exécute la remédiation sous contrôle de politique"
+
+    GOAL cleanup_goal { MAINTAIN sandbox.quarantined == yes }
+
+    OBSERVE { sandbox.quarantined }
+
+    MEMORY {
+        SHARED { isolated_sources }
+        WRITE { WHEN sandbox.quarantined == yes STORE { isolated_sources } INTO SHARED.isolated_sources }
+    }
+
+    TOOL isolate_target {
+        DESCRIPTION "Déplace les fichiers incriminés vers le dossier de quarantaine"
+        INPUT { target: Symbol }
+        OUTPUT { status: Symbol }
+        SIDE_EFFECT { sandbox.quarantined }
+        RISK HIGH
+        REQUIRES { target != unknown }
+        EFFECT { sandbox.quarantined = yes }
+        COST 5.0
+    }
+
+    POLICY {
+        DEFAULT DENY
+        ALLOW isolate_target IF severity == HIGH OR severity == CRITICAL
+        REQUIRE APPROVAL FOR isolate_target
+    }
+
+    ON MESSAGE remediation_order {
+        THEN execute_remediation
+    }
+
+    PLAN execute_remediation {
+        STEP act {
+            SET isolated_sources = target
+            isolate_target(target = target)
+        }
+        STEP verify {
+            VERIFY "quarantaine confirmée" {
+                CONDITION sandbox.quarantined == yes
+            }
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        RECEIVE OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY
+    }
+}

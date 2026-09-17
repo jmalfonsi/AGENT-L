@@ -1,0 +1,13 @@
+{
+  "name": "agent-l-studio-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:ui": "npm --prefix frontend install",
+    "build": "npm --prefix frontend run build",
+    "dev": "python3 dev.py",
+    "start": "python3 -m backend.main",
+    "test": "python3 -m pytest -q tests"
+  }
+}
+

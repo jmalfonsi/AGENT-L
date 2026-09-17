@@ -1,0 +1,6 @@
+{
+  "name": "AITESTPLATFORM",
+  "description": "Comparaison instrumentée de runtimes agentiques sur les tâches publiques AutomationBench",
+  "execution_mode": "real",
+  "model": "gemini-3.1-flash-lite"
+}

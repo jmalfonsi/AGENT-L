@@ -1,0 +1,105 @@
+// ---------------------------------------------------------------------------
+// UNSAFE_DEMO — un programme **bien formé** mais **non sûr**.
+//
+// `agentl check` ne trouve presque rien : tous les outils sont déclarés, tous
+// les plans sont atteignables, tous les noms existent. C'est précisément la
+// limite de l'analyse de bonne formation.
+//
+// `agentl verify` réfute trois théorèmes sur quatre.
+// ---------------------------------------------------------------------------
+
+AGENT UNSAFE_DEMO {
+
+    VERSION "1.0"
+
+    GOAL containment {
+        MAINTAIN threat.status == contained
+    }
+
+    OBSERVE {
+        asset.criticality
+        threat.status
+        suspected_host
+    }
+
+    BELIEF {
+        threat.status = unknown CONFIDENCE 0.10 SOURCE prior
+    }
+
+    TOOL scan {
+        OUTPUT { found: Symbol }
+        RISK   LOW
+    }
+
+    TOOL isolate_endpoint {
+        INPUT  { host: String BIND suspected_host }
+        OUTPUT { isolated: Symbol }
+        RISK   { operational = HIGH }
+        EFFECT { threat.status = contained }
+        COST   5
+    }
+
+    // Déclaré, couvert par une politique… mais jamais autorisé.
+    TOOL wipe_disk {
+        INPUT       { host: String BIND suspected_host }
+        OUTPUT      { wiped: Symbol }
+        SIDE_EFFECT { filesystem }
+        RISK        CRITICAL
+    }
+
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW scan
+        ALLOW isolate_endpoint          // aucune garde d'état : le LLM y accède
+        DENY  wipe_disk
+
+        NEVER isolate_endpoint
+            WHEN asset.criticality == CRITICAL
+    }
+
+    PLAN respond WHEN threat.status != contained {
+
+        STEP triage {
+            scan()
+        }
+
+        STEP act {
+            // La branche THEN implique exactement la garde du NEVER :
+            // elle ne pourra jamais aboutir.
+            IF asset.criticality == CRITICAL
+                THEN isolate_endpoint(suspected_host)
+                ELSE isolate_endpoint(suspected_host)
+        }
+
+        STEP check {
+            VERIFY threat.status == contained
+        }
+    }
+
+    // Atteignable par sélection LLM, sans aucune condition d'état.
+    PLAN emergency {
+        STEP act {
+            isolate_endpoint(suspected_host)
+        }
+        STEP check {
+            VERIFY threat.status == contained
+        }
+    }
+
+    DECIDE {
+        REASON {
+            TASK    "choisir la réponse adaptée"
+            PRODUCE { rationale: String }
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 4 {
+        OBSERVE
+        UPDATE_BELIEFS
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+    }
+}

@@ -1,0 +1,50 @@
+// Programme volontairement fautif : sert de banc d'essai à l'analyseur
+// statique. `python -m agentl check examples/broken.agent` doit refuser
+// l'exécution.
+
+AGENT BROKEN_DEMO {
+
+    VERSION "0.3"
+
+    OBSERVE {
+        server.cpu
+        server.memory        // W103 : observée mais jamais utilisée
+    }
+
+    TOOL read_config {
+        OUTPUT { value: String }
+        RISK   LOW
+    }
+
+    TOOL wipe_disk {
+        SIDE_EFFECT { filesystem }
+        RISK        { operational = CRITICAL }   // W101 : aucune politique
+    }
+
+    TOOL wipe_disk {                             // E004 : doublon
+        RISK CRITICAL
+    }
+
+    POLICY {
+        NEVER format_partition                   // E003 : outil inconnu
+    }
+
+    PLAN cleanup {
+        STEP act {
+            wipe_disk()                          // W102 : effet sans VERIFY
+            purge_cache()                        // E001 : outil non déclaré
+        }
+    }
+
+    PLAN orphan {                                // W106 : inatteignable
+        STEP noop {
+            read_config()
+        }
+    }
+
+    DECIDE {
+        RULES {
+            IF server.cpu > 90 THEN recover      // E002 : plan inexistant
+        }
+    }
+}

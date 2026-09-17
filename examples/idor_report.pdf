@@ -1,0 +1,141 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1694 >>
+stream
+BT
+/F1 16 Tf
+1 0 0 1 56 780 Tm
+(Rapport de test IDOR - AGENT-L) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 752 Tm
+(Date            : 2026-07-26 19:42 UTC) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 737 Tm
+(Cible           : http://127.0.0.1:39203/api/user/{id} \(serveur local de démonstration\)) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 722 Tm
+(Autorisation    : CONFIRMEE) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 707 Tm
+(Ligne de base   : id=1042 -> ok \(70 octets\)) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 692 Tm
+() Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 677 Tm
+(Verdict         : IDOR CONFIRME) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 662 Tm
+(Severite        : high) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 647 Tm
+(References fuitees : 4 / 5) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 632 Tm
+(Accessibles sans controle : 4 / 5) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 617 Tm
+() Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 602 Tm
+(Preuves \(une ligne par reference sondee\) :) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 587 Tm
+(  - id=1041     http=200      74 octets   FUITE) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 572 Tm
+(  - id=1043     http=200      72 octets   FUITE) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 557 Tm
+(  - id=1        http=200      74 octets   FUITE) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 542 Tm
+(  - id=2        http=200      70 octets   FUITE) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 527 Tm
+(  - id=9999     http=404     330 octets   bloqué\(404\)) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 512 Tm
+() Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 497 Tm
+(Recommandation :) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 482 Tm
+(  Imposer un controle d'acces cote serveur : verifier que l'objet demande appartient a l'utilisateur authentif) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 467 Tm
+() Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 56 452 Tm
+(Genere par AGENT-L / IDOR_HUNTER. Test realise sous mandat.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2057
+%%EOF

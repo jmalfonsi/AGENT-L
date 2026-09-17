@@ -1,0 +1,154 @@
+// AutomationBench — sales.feedback_routing
+//
+// Deux difficultés réelles :
+//
+// 1. Le sentiment doit être lu, pas deviné par mots-clés. « Oh wonderful,
+//    another outage right in the middle of our live demo. Really love how
+//    reliable this platform is. » ne contient que des mots positifs et
+//    exprime une colère franche. La politique le dit explicitement : le
+//    sarcasme compte comme négatif.
+//
+// 2. Deux politiques coexistent dans la boîte : une note de janvier qui
+//    demande d'escalader TOUS les retours négatifs, et la politique en
+//    vigueur depuis le 18 février qui ne le fait qu'au-delà d'un seuil de
+//    montant. Ici le seuil n'est pas une consigne de prompt : c'est un
+//    interdit de POLICY, et un retour sous le seuil ne peut pas produire
+//    d'escalade même si le raisonnement le proposait.
+
+AGENT FEEDBACK_ROUTING {
+
+    VERSION "1.3"
+
+    GOAL routed { MAINTAIN routing.done == yes }
+
+    BELIEF {
+        routing.done   = no CONFIDENCE 1.00 SOURCE prior
+        policy.read    = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL list_feedback {
+        INPUT  { channel: String }
+        OUTPUT { feedback feedback_count }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL read_escalation_policy {
+        OUTPUT { policy_text policy_reference }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL find_opportunity {
+        INPUT  { company: String }
+        OUTPUT { opp_found opp_id opp_amount opp_stage opp_open }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL create_at_risk_task {
+        INPUT       { company: String, opportunity_id: String, amount: Number,
+                      priority: String, evidence: String }
+        OUTPUT      { task_created }
+        SIDE_EFFECT { salesforce.tasks }
+        RISK        { operational = HIGH }
+        COST        3
+    }
+
+    TOOL post_feedback_summary {
+        INPUT       { channel: String, total: Number, positive: Number,
+                      negative: Number, neutral: Number,
+                      policy_reference: String, threshold: Number }
+        OUTPUT      { summary_posted }
+        SIDE_EFFECT { slack.messages }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    // ---------------------------------------------------------- politique
+    POLICY {
+        DEFAULT ALLOW
+
+        // Le seuil de la politique en vigueur, rendu infranchissable.
+        NEVER create_at_risk_task WHEN opp_open == no
+        NEVER create_at_risk_task WHEN sentiment != negative
+        NEVER create_at_risk_task WHEN opp_amount < rule.threshold
+
+        // Le résumé ne part que dans le canal d'alertes commerciales.
+        NEVER post_feedback_summary WHEN channel != "sales-alerts"
+    }
+
+    PLAN learn_policy WHEN policy.read == no {
+        STEP read {
+            read_escalation_policy()
+            REASON {
+                TASK    "Lire cette politique d'escalade et donner le montant
+                         minimal d'opportunité ouverte à partir duquel un
+                         retour négatif justifie une tâche d'escalade
+                         individuelle."
+                USING   { policy_text }
+                PRODUCE { escalation_threshold: Number }
+            }
+            SET rule.threshold = escalation_threshold
+            SET policy.read = yes
+        }
+    }
+
+    PLAN route WHEN policy.read == yes AND routing.done == no {
+
+        STEP collect {
+            // Seul le canal des retours courants est traité ; l'archive ne
+            // l'est pas — ce sont des retours déjà clos.
+            list_feedback(channel = "customer-feedback")
+            SET counters.positive = 0
+            SET counters.negative = 0
+            SET counters.neutral  = 0
+        }
+
+        STEP triage {
+            FOREACH f IN feedback MAX 40 {
+
+                // Le LLM lit le ton réel, ironie comprise, et nomme le client.
+                // Il ne connaît ni le seuil, ni les montants : il ne peut pas
+                // décider d'une escalade.
+                REASON {
+                    TASK    "Déterminer le sentiment réel de ce retour client et
+                             le nom du client. Attention à l'ironie : un message
+                             fait de compliments qui décrit une panne ou un échec
+                             est NÉGATIF. positive = satisfaction sincère,
+                             negative = insatisfaction, plainte, menace de
+                             départ ou sarcasme, neutral = constat mesuré."
+                    USING   { f.text }
+                    PRODUCE { sentiment IN [ positive, negative, neutral ]
+                              customer_name: String }
+                }
+
+                IF sentiment == positive THEN { SET counters.positive = counters.positive + 1 }
+                IF sentiment == neutral  THEN { SET counters.neutral  = counters.neutral  + 1 }
+
+                IF sentiment == negative THEN {
+                    SET counters.negative = counters.negative + 1
+
+                    find_opportunity(company = customer_name)
+
+                    create_at_risk_task(company        = customer_name,
+                                        opportunity_id = opp_id,
+                                        amount         = opp_amount,
+                                        priority       = "High",
+                                        evidence       = f.text)
+                }
+            }
+        }
+
+        STEP report {
+            post_feedback_summary(channel          = "sales-alerts",
+                                  total            = feedback_count,
+                                  positive         = counters.positive,
+                                  negative         = counters.negative,
+                                  neutral          = counters.neutral,
+                                  policy_reference = policy_reference,
+                                  threshold        = rule.threshold)
+            SET routing.done = yes
+        }
+    }
+}

@@ -1,0 +1,7 @@
+# Cycle horaire de gmail_butler — à installer avec `crontab -e`.
+# Un cycle = une exécution ; toute la logique (et toutes les gardes) est dans
+# le .agent, cron ne fait que cadencer.
+#
+#   17 * * * * cd /home/ubuntu/AGENT-L && GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' /home/ubuntu/HAL/.env | cut -d= -f2-) /usr/bin/python3 -m agentl run examples/gmail_butler.agent >> /home/ubuntu/.config/gmail_butler.log 2>&1
+#
+# La minute 17 (plutôt que 0) évite la bousculade du haut de l'heure côté IMAP.

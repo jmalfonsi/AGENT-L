@@ -1,0 +1,377 @@
+// ---------------------------------------------------------------------------
+// VALMONT_PRODUCTION — sous-agent « optimisation de la production ».
+//
+// Spécialiste des utilités de l'usine Valmont simulée par ENTERPRISE-SIM :
+// air comprimé, vapeur, électricité, personnel. Il calcule si la cadence est
+// BRIDÉE PAR LES UTILITÉS plutôt que par la demande, qualifie le goulot avec
+// un oracle borné, et rend un CONSEIL. Il n'écrit jamais dans l'installation.
+//
+// Le point de conception : l'ordre de préférence entre conseils est porté par
+// les COÛTS, et l'interdiction de pousser la cadence est portée par la
+// POLITIQUE. Un optimiseur naïf pousserait toujours la cadence — c'est le
+// conseil le moins cher. Retirer un seul `NEVER` le prouve.
+// ---------------------------------------------------------------------------
+
+AGENT VALMONT_PRODUCTION {
+
+    VERSION "1.8"
+    DESCRIPTION "Sous-agent d'optimisation de la production Valmont : diagnostic du goulot d'utilites et conseil borne."
+
+    GOAL conseil_rendu {
+        MAINTAIN optim.status == rendu
+        WEIGHT   2
+    }
+
+    OBSERVE {
+        usine.read_ok            ON UNKNOWN ESCALATE
+        prod.cadence_pct         ON UNKNOWN ESCALATE
+        air.fuite_pct            ON UNKNOWN ESCALATE
+        air.marge_bar            ON UNKNOWN ESCALATE
+        prod.trs
+        prod.lignes_bridees
+        vapeur.pression_bar
+        elec.souscrit_pct
+        elec.delestage
+        energie.depassement_pct
+        usine.synthese
+        optim.status             // les EFFECT doivent rester réfutables (T9)
+        optim.conseil
+    }
+
+    BELIEF {
+        optim.status     = attente     CONFIDENCE 1.00 SOURCE prior
+        optim.conseil    = indetermine CONFIDENCE 1.00 SOURCE prior
+        optim.cause      = inconnue    CONFIDENCE 0.10 SOURCE prior
+        diagnostic.done  = no          CONFIDENCE 1.00 SOURCE prior
+        compte_rendu.envoye = no       CONFIDENCE 1.00 SOURCE prior
+        goulot           = indetermine CONFIDENCE 0.10 SOURCE prior
+        tendance         = indetermine CONFIDENCE 0.10 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { ronde_courante }
+        LONG_TERM  { conseils, effect_drift }
+
+        WRITE {
+            WHEN  optim.status == rendu
+            STORE { optim.conseil, goulot, tendance }
+            INTO  LONG_TERM.conseils
+        }
+    }
+
+    // -- Conseils --------------------------------------------------------
+    //
+    // Les COÛTS encodent l'ordre de préférence d'un optimiseur, et rien
+    // d'autre : pousser la cadence est le geste le moins cher, donc celui
+    // que le planificateur choisit spontanément. C'est voulu — c'est ce qui
+    // donne du mordant aux interdits ci-dessous.
+
+    TOOL conseiller_relance {
+        DESCRIPTION "Conseil : les utilites suivent, on peut remonter la cadence."
+        INPUT    { goulot: String BIND goulot, cadence: Number BIND prod.cadence_pct }
+        OUTPUT   { conseil: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostic.done == yes AND prod.cadence_pct < 100 }
+        EFFECT   { optim.status = rendu, optim.conseil = relancer }
+        COST     2
+    }
+
+    TOOL conseiller_bridage {
+        DESCRIPTION "Conseil : brider la cadence pour proteger les utilites."
+        INPUT    { goulot: String BIND goulot, trs: Number BIND prod.trs }
+        OUTPUT   { conseil: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostic.done == yes AND prod.cadence_pct > 0 }
+        EFFECT   { optim.status = rendu, optim.conseil = brider }
+        COST     3
+    }
+
+    TOOL conseiller_chasse_fuites {
+        DESCRIPTION "Conseil : traiter les fuites d'air avant toute autre action."
+        INPUT    { fuite: Number BIND air.fuite_pct }
+        OUTPUT   { conseil: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostic.done == yes AND air.fuite_pct > 20 }
+        EFFECT   { optim.status = rendu, optim.conseil = chasse_fuites }
+        COST     4
+    }
+
+    // Repli générique volontairement coûteux.
+    TOOL conseiller_statu_quo {
+        DESCRIPTION "Conseil : rien a changer, le point de fonctionnement est bon."
+        INPUT    { goulot: String BIND goulot }
+        OUTPUT   { conseil: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostic.done == yes }
+        EFFECT   { optim.status = rendu, optim.conseil = maintenir }
+        COST     6
+    }
+
+    // Chemin explicitement NON CONCLUANT.
+    TOOL signaler_perception_incomplete {
+        DESCRIPTION "Conseil : la perception ou l'oracle ont echoue, aucun conseil possible."
+        OUTPUT   { conseil: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostic.done != yes
+                   OR goulot == indetermine
+                   OR usine.read_ok != yes }
+        EFFECT   { optim.status = rendu, optim.conseil = indetermine }
+        COST     7   // dernier recours : cf. valmont_alarmes.agent
+    }
+
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW conseiller_relance
+        ALLOW conseiller_chasse_fuites
+        ALLOW conseiller_statu_quo
+        ALLOW signaler_perception_incomplete
+
+        // Brider la production est un conseil qui coûte du tonnage : il
+        // exige un postérieur calculé, pas une impression.
+        ALLOW conseiller_bridage IF P(bridage_utilites) >= 0.65
+
+        // Perception ratée : aucun conseil opérationnel.
+        NEVER conseiller_relance       WHEN usine.read_ok != yes
+        NEVER conseiller_bridage       WHEN usine.read_ok != yes
+        NEVER conseiller_chasse_fuites WHEN usine.read_ok != yes
+        NEVER conseiller_statu_quo     WHEN usine.read_ok != yes
+
+        // Oracle muet — même liaison que chez VALMONT_ALARMES : le repli
+        // `indetermine` du champ borné DÉCLENCHE l'interdit qu'il garde,
+        // donc toute panne de l'oracle mène au chemin non concluant.
+        NEVER conseiller_relance       WHEN goulot == indetermine
+        NEVER conseiller_bridage       WHEN goulot == indetermine
+        NEVER conseiller_chasse_fuites WHEN goulot == indetermine
+        NEVER conseiller_statu_quo     WHEN goulot == indetermine
+
+        // LE cœur de la politique : ne jamais pousser une usine que ses
+        // propres utilités brident déjà. Sans cette ligne, le planificateur
+        // choisit `conseiller_relance` — c'est le conseil le moins cher.
+        NEVER conseiller_relance WHEN P(bridage_utilites) >= 0.65
+
+        // Un quart de l'air comprimé qui part en fuite est un gisement, pas
+        // un fond de décor : on ne monte pas la cadence par-dessus.
+        NEVER conseiller_relance WHEN air.fuite_pct > 20
+
+        // Ni au-dessus d'une facture déjà en dépassement.
+        NEVER conseiller_relance WHEN P(derive_cout) >= 0.65
+
+        // Principe « indéterminé n'est pas zéro » : une lecture ratée rend 0,
+        // et un seuil à 0 laisse tout passer.
+        NEVER conseiller_relance       WHEN prod.cadence_pct >= 100
+        NEVER conseiller_chasse_fuites WHEN air.fuite_pct <= 0
+        NEVER conseiller_bridage       WHEN prod.cadence_pct <= 0
+    }
+
+    // -- Inférence -----------------------------------------------------------
+    HYPOTHESIS bridage_utilites {
+        DESCRIPTION "La cadence est limitee par les utilites du site, pas par la demande."
+
+        PRIOR 0.20
+        PRIOR FROM LONG_TERM.conseils WHERE optim.conseil == brider
+
+        EVIDENCE {
+            // Pression basse et fuites décrivent le même réseau d'air : deux
+            // symptômes d'une seule cause, pas deux témoins indépendants.
+            GROUP air {
+                air.marge_bar < 0.30    LIKELIHOOD 0.85 GIVEN_NOT 0.15
+                air.fuite_pct > 25      LIKELIHOOD 0.65 GIVEN_NOT 0.35
+            }
+
+            vapeur.pression_bar < 8     LIKELIHOOD 0.78 GIVEN_NOT 0.18
+            elec.delestage > 0          LIKELIHOOD 0.85 GIVEN_NOT 0.08
+            prod.lignes_bridees > 0     LIKELIHOOD 0.88 GIVEN_NOT 0.10
+        }
+
+        MAX_EVIDENCE 8
+
+        THRESHOLD 0.65
+        EXPLAINS  optim.cause
+    }
+
+    HYPOTHESIS derive_cout {
+        DESCRIPTION "La facture energetique derive au-dela du budget journalier."
+        PRIOR 0.25
+
+        EVIDENCE {
+            energie.depassement_pct > 5  LIKELIHOOD 0.85 GIVEN_NOT 0.15
+            elec.souscrit_pct > 90       LIKELIHOOD 0.70 GIVEN_NOT 0.30
+        }
+
+        THRESHOLD 0.65
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE       optim.status == rendu
+        MAX_DEPTH     2
+        MAX_NODES     300
+        APPROVAL_COST 10
+    }
+
+    // -- Diagnostic : l'oracle lit, le programme borne -----------------------
+    PLAN diagnostiquer
+        WHEN usine.read_ok == yes
+          AND diagnostic.done == no
+    {
+        STEP lire {
+            REASON {
+                TASK    "Identifier le goulot d'etranglement d'une usine de metallurgie, d'usinage et de traitement de surface a partir de la synthese des utilites, et dire si la situation se degrade."
+                USING   { usine.synthese }
+                PRODUCE { goulot:   Symbol IN [air_comprime, vapeur, electricite, personnel, aucun, indetermine] DEFAULT indetermine,
+                          tendance: Symbol IN [degradation, stable, amelioration, indetermine] DEFAULT indetermine }
+            }
+        }
+        STEP marquer {
+            SET diagnostic.done = yes
+        }
+    }
+
+    PLAN rendre_compte_impossible {
+        STEP marquer {
+            SET compte_rendu.envoye = yes
+        }
+        STEP signaler {
+            signaler_perception_incomplete()
+        }
+    }
+
+    DECIDE {
+        RULES {
+            IF planner.exhausted
+                AND optim.status != rendu
+                AND compte_rendu.envoye != yes
+                THEN rendre_compte_impossible
+        }
+    }
+
+    // -- Critères d'acceptation ---------------------------------------------
+
+    // Nominal : délestage actif, pression d'air à la limite, deux lignes
+    // bridées — le conseil doit être de brider, pas de pousser.
+    SCENARIO utilites_bridees_conseille_le_bridage {
+        GIVEN {
+            usine.read_ok           = yes
+            prod.cadence_pct        = 80
+            prod.trs                = 0.62
+            prod.lignes_bridees     = 2
+            air.marge_bar           = 0.10
+            air.fuite_pct           = 15
+            vapeur.pression_bar     = 7.5
+            elec.souscrit_pct       = 88
+            elec.delestage          = 2
+            energie.depassement_pct = 2
+            usine.synthese          = "Air 5.9 bar, delestage niveau 2, deux lignes bridees."
+            goulot                  = air_comprime
+            tendance                = degradation
+        }
+        EXPECT { optim.conseil == brider } WITHIN 5
+    }
+
+    // MUTATION : retirer `NEVER conseiller_relance WHEN
+    // P(bridage_utilites) >= 0.65` fait tomber ce scénario. Le monde est
+    // celui du nominal ; `conseiller_relance` y coûte 2 contre 3 pour le
+    // bridage, donc SEULE la politique empêche l'optimiseur de pousser une
+    // usine que ses utilités brident déjà. Invariant : jamais de relance.
+    SCENARIO usine_bridee_jamais_de_relance {
+        GIVEN {
+            usine.read_ok           = yes
+            prod.cadence_pct        = 80
+            prod.trs                = 0.62
+            prod.lignes_bridees     = 2
+            air.marge_bar           = 0.10
+            air.fuite_pct           = 15
+            vapeur.pression_bar     = 7.5
+            elec.souscrit_pct       = 88
+            elec.delestage          = 2
+            energie.depassement_pct = 2
+            usine.synthese          = "Air 5.9 bar, delestage niveau 2, deux lignes bridees."
+            goulot                  = air_comprime
+            tendance                = degradation
+        }
+        EXPECT { optim.conseil != relancer } WITHIN 5
+    }
+
+    // MUTATION : retirer `NEVER conseiller_relance WHEN air.fuite_pct > 20`
+    // fait tomber ce scénario. Les utilités suivent et la cadence a de la
+    // marge : le conseil le moins cher est de relancer. Un quart de l'air
+    // comprimé part pourtant en fuite — on traite le gisement d'abord.
+    SCENARIO fuite_d_air_avant_toute_relance {
+        GIVEN {
+            usine.read_ok           = yes
+            prod.cadence_pct        = 85
+            prod.trs                = 0.78
+            prod.lignes_bridees     = 0
+            air.marge_bar           = 0.90
+            air.fuite_pct           = 26
+            vapeur.pression_bar     = 9.2
+            elec.souscrit_pct       = 70
+            elec.delestage          = 0
+            energie.depassement_pct = 0
+            usine.synthese          = "Utilites nominales, fuite d'air 26 %."
+            goulot                  = air_comprime
+            tendance                = stable
+        }
+        EXPECT { optim.conseil == chasse_fuites } WITHIN 5
+    }
+
+    // Une API muette ne doit produire aucun conseil opérationnel — surtout
+    // pas « maintenir », qui se lirait « tout va bien ».
+    //
+    // HONNÊTETÉ SUR CE QUI PORTE CETTE PROPRIÉTÉ : comme chez
+    // VALMONT_ALARMES, c'est la garde du plan `diagnostiquer`
+    // (`WHEN usine.read_ok == yes`) et la chaîne de `REQUIRES` sur
+    // `diagnostic.done`. Retirer les quatre `NEVER ... WHEN usine.read_ok
+    // != yes` ne fait PAS tomber ce scénario — mesuré. Ils restent de la
+    // défense en profondeur pour le cas où l'usine s'éteint APRÈS le
+    // diagnostic, que `signaler_perception_incomplete` couvre par son
+    // troisième `REQUIRES`.
+    SCENARIO api_muette_conseil_non_concluant {
+        GIVEN {
+            usine.read_ok           = no
+            prod.cadence_pct        = 0
+            prod.trs                = 0
+            prod.lignes_bridees     = 0
+            air.marge_bar           = 0
+            air.fuite_pct           = 0
+            vapeur.pression_bar     = 0
+            elec.souscrit_pct       = 0
+            elec.delestage          = 0
+            energie.depassement_pct = 0
+            usine.synthese          = ""
+        }
+        EXPECT { optim.conseil == indetermine } WITHIN 4
+    }
+
+    // Usine saine à pleine cadence : on ne touche à rien.
+    SCENARIO usine_saine_a_pleine_cadence_ne_bouge_pas {
+        GIVEN {
+            usine.read_ok           = yes
+            prod.cadence_pct        = 100
+            prod.trs                = 0.86
+            prod.lignes_bridees     = 0
+            air.marge_bar           = 1.20
+            air.fuite_pct           = 6
+            vapeur.pression_bar     = 9.4
+            elec.souscrit_pct       = 62
+            elec.delestage          = 0
+            energie.depassement_pct = 0
+            usine.synthese          = "Toutes utilites nominales, aucune contrainte."
+            goulot                  = aucun
+            tendance                = stable
+        }
+        EXPECT { optim.conseil == maintenir } WITHIN 5
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

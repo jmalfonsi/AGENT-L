@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>AGENT-L Studio</title>
+<link rel="stylesheet" href="/static/css/studio.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
+</head>
+<body>
+
+<!-- ======================================================================
+     Barre supérieure : fichier, transport, budget de ticks, hôte, thème,
+     indicateurs de connexion et de run.  (Contrat §6)
+     ================================================================== -->
+<header class="topbar" role="banner">
+
+  <div class="topbar__group topbar__group--file">
+    <span class="brand" aria-hidden="true">◆</span>
+    <label class="sr-only" for="file-select">Fichier .agent</label>
+    <select id="file-select" class="control control--file" title="Fichier .agent à ouvrir">
+      <option value="">(aucun fichier)</option>
+    </select>
+    <span id="file-dirty" class="dot dot--dirty" hidden title="Modifications non enregistrées">●</span>
+  </div>
+
+  <div class="topbar__group topbar__group--transport" role="group" aria-label="Exécution">
+    <button id="btn-run"   class="btn btn--primary" type="button"
+            title="Lancer (Ctrl/⌘+Entrée)">Lancer</button>
+    <button id="btn-pause" class="btn" type="button" disabled
+            aria-pressed="false" title="Pause / reprise (Espace)">Pause</button>
+    <button id="btn-step"  class="btn" type="button"
+            title="Pas à pas (→)">Pas</button>
+    <button id="btn-stop"  class="btn btn--danger" type="button" disabled
+            title="Arrêter">Stop</button>
+  </div>
+
+  <div class="topbar__group">
+    <label class="field">
+      <span class="field__label">ticks</span>
+      <input id="ticks-input" class="control control--num" type="number"
+             min="1" max="9999" step="1" value="12" inputmode="numeric">
+    </label>
+
+    <!-- L'hôte n'est plus choisi : la norme de nommage le désigne
+         (X.agent → X.py). On montre lequel s'applique et s'il confirme le
+         contrat du programme. -->
+    <span id="host-indicator" class="badge badge--host" role="status"
+          title="Hôte imposé par la norme de nommage (X.agent → X.py)">
+      <span class="badge__dot" aria-hidden="true"></span>
+      <span class="field__label">hôte</span>
+      <span id="host-label" class="badge__text">—</span>
+    </span>
+
+    <label class="field">
+      <span class="field__label">allure</span>
+      <select id="pace-select" class="control control--pace"
+              title="Mode démonstration : ralentit le run pour suivre l'illumination des nœuds">
+        <option value="0">pleine vitesse</option>
+        <option value="0.12">démo · rapide</option>
+        <option value="0.35" selected>démo · lisible</option>
+        <option value="1.6">démo · lente</option>
+        <option value="3">démo · pédagogique</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="topbar__group topbar__group--end">
+    <span id="run-indicator" class="badge badge--idle" role="status" aria-live="polite">
+      <span class="badge__dot" aria-hidden="true"></span>
+      <span id="run-label" class="badge__text">au repos</span>
+      <span id="tick-label" class="badge__tick" hidden>t0</span>
+    </span>
+
+    <span id="conn-indicator" class="badge badge--conn" role="status" aria-live="polite"
+          title="État de la connexion temps réel">
+      <span class="badge__dot" aria-hidden="true"></span>
+      <span id="conn-label" class="badge__text">hors ligne</span>
+    </span>
+
+    <button id="btn-save"  class="btn" type="button" title="Enregistrer (Ctrl/⌘+S)">Enregistrer</button>
+    <button id="btn-theme" class="btn btn--icon" type="button"
+            title="Thème clair / sombre / auto" aria-label="Changer de thème">
+      <span id="theme-glyph" aria-hidden="true">◐</span>
+    </button>
+  </div>
+</header>
+
+<!-- ======================================================================
+     Grille principale : éditeur | canevas | inspecteur, puis chronologie.
+     Les poignées sont pilotées par app.js (tailles persistées).
+     ================================================================== -->
+<main class="grid" id="grid">
+
+  <section class="panel panel--editor" aria-label="Éditeur de code">
+    <h2 class="panel__title">
+      Programme
+      <button id="btn-editor-toggle" class="panel__action" type="button"
+              aria-expanded="true" aria-controls="editor"
+              title="Replier / déplier l'éditeur">◀</button>
+    </h2>
+    <div id="editor" class="panel__body"></div>
+  </section>
+
+  <!-- Rail visible quand l'éditeur est replié : le seul moyen de le rouvrir. -->
+  <button id="editor-rail" class="rail" type="button" hidden
+          aria-controls="editor" title="Ouvrir l'éditeur de programme">
+    <span class="rail__glyph" aria-hidden="true">▶</span>
+    <span class="rail__label">Programme</span>
+  </button>
+
+  <div class="gutter gutter--v" id="gutter-left" role="separator"
+       aria-orientation="vertical" aria-label="Redimensionner l'éditeur" tabindex="0"></div>
+
+  <section class="panel panel--canvas" aria-label="Canevas du graphe">
+    <h2 class="panel__title">Graphe</h2>
+    <div id="canvas" class="panel__body panel__body--flush"></div>
+  </section>
+
+  <div class="gutter gutter--v" id="gutter-right" role="separator"
+       aria-orientation="vertical" aria-label="Redimensionner l'inspecteur" tabindex="0"></div>
+
+  <section class="panel panel--inspector" aria-label="Inspecteur">
+    <h2 class="panel__title">Inspecteur</h2>
+    <div id="inspector" class="panel__body"></div>
+  </section>
+
+  <div class="gutter gutter--h" id="gutter-bottom" role="separator"
+       aria-orientation="horizontal" aria-label="Redimensionner la chronologie" tabindex="0"></div>
+
+  <section class="panel panel--timeline" aria-label="Chronologie et journal">
+    <h2 class="panel__title">Chronologie</h2>
+    <div id="timeline" class="panel__body panel__body--flush"></div>
+  </section>
+
+</main>
+
+<!-- Zone de messages transitoires (erreurs bus/serveur), non bloquante. -->
+<div id="toasts" class="toasts" role="log" aria-live="polite" aria-atomic="false"></div>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

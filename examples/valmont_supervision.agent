@@ -1,0 +1,1990 @@
+// ---------------------------------------------------------------------------
+// VALMONT_SUPERVISION — SUPERVISEUR d'une hiérarchie à deux étages sur l'usine
+// Valmont (métallurgie, usinage, traitement de surface), simulée par
+// ENTERPRISE-SIM sur le port 4500.
+//
+// À chaque ronde il DÉLÈGUE à deux sous-agents AGENT-L complets :
+//
+//   VALMONT_ALARMES     → verdict_alarme, classe_alarme, confiance_alarme
+//   VALMONT_PRODUCTION  → conseil_production, goulot_production, confiance_production
+//
+// Il n'en reçoit QUE ces champs (contrat EXPECT), jamais leur état interne.
+// Puis il décide des commandes SOUS SA PROPRE POLITIQUE, dialogue avec le
+// responsable de site (le chatbot d'ENTERPRISE-SIM, qui simule Marc Lefevre),
+// et clôt la ronde.
+//
+// ---------------------------------------------------------------------------
+// v1.9 — LE VOLET ALARMES EST REFAIT. Ce qui change, et pourquoi.
+//
+// Jusqu'ici l'agent traitait un COMPTEUR : `alarm.ack *` acquittait l'arriéré
+// en bloc, `maintenance.repair *` réparait « tout ce qui est ouvert », et une
+// route `classer_alarmes_sans_suite` fermait le volet sans rien faire. Trois
+// défauts, tous du même genre — le compteur ne dit pas QUELLE alarme :
+//
+//   · une alarme jamais inventoriée était acquittée quand même ;
+//   · rien ne garantissait qu'à la clôture il ne restait plus rien ;
+//   · une preuve globale (« il y a n alarmes ») autorisait un acte ciblé,
+//     ce que le contrôle statique W122 signale précisément.
+//
+// Désormais l'agent INVENTORIE les alarmes ouvertes, DEMANDE au responsable de
+// site comment les traiter, VÉRIFIE chaque consigne reçue, puis traite au cas
+// par cas tout ce que le responsable n'a pas couvert. Chaque alarme reçoit une
+// disposition nommée, et la ronde ne peut pas se clore tant qu'il en manque une.
+//
+// LA PROPRIÉTÉ N°1 A DONC CHANGÉ DE NATURE, et il faut le dire franchement :
+// le responsable de site avait un droit de VETO ; il gagne ici un droit de
+// PROPOSITION. Ses commandes n'arrivent plus comme du texte à interpréter mais
+// comme des objets `{command, args}` — le chatbot d'ENTERPRISE-SIM les émet
+// déjà, et le serveur tourne avec `chat.allowCommands = false`, donc il
+// n'exécute rien lui-même. Ce qui borne ce nouveau droit n'est plus le silence
+// de l'agent, ce sont QUATRE CONTRÔLES qu'il conduit lui-même, dans ce fichier :
+//
+//   1. COHÉRENCE   — la commande existe au catalogue publié, ses arguments
+//                    sont conformes au schéma du simulateur, et sa cible est
+//                    une entité que l'agent a LUI-MÊME observée ce tick. Une
+//                    cible non attestée n'a pas de jeton, donc pas d'effet.
+//   2. IMPLICATIONS— chaque commande porte une conséquence DÉCLARÉE ici. Une
+//                    commande dont l'implication n'est pas écrite garde
+//                    `inconnue`, et `inconnue` est un refus. C'est ce qui rend
+//                    le catalogue entier praticable sans être ouvert.
+//   3. ÉCHÉANCE    — un blocage transitoire n'est pas un refus : la consigne
+//                    est ARMÉE avec sa garde, survit à la ronde, et repart
+//                    quand le paramètre a évolué.
+//   4. OPPORTUNITÉ — l'agent conteste là où il a une route déclarée meilleure :
+//                    acquitter n'est pas réparer, une critique se remonte.
+//
+// Propriétés que ce fichier — et lui seul — garantit :
+//
+//   1. Le responsable de site PROPOSE, l'agent dispose : aucune consigne ne
+//      devient une commande sans avoir passé les quatre contrôles, et un
+//      refus est notifié avec son motif.
+//   2. Aucune alarme ouverte ne reste sans disposition à la clôture.
+//   3. Une intervention de maintenance sur alarme critique exige un humain.
+//   4. Un oracle mort, une API muette ou un verdict non concluant
+//      n'engendrent AUCUNE commande — et la ronde le dit.
+// ---------------------------------------------------------------------------
+
+AGENT VALMONT_SUPERVISION {
+
+    VERSION "1.12"
+    DESCRIPTION "Superviseur de l'usine Valmont : delegue le diagnostic, demande la conduite au responsable de site, verifie chaque consigne, et traite toutes les alarmes ouvertes une par une."
+
+    GOAL ronde_close {
+        MAINTAIN ronde.status == terminee
+        WEIGHT   2
+    }
+
+    // -- Perception propre au superviseur ------------------------------------
+    // Il re-perçoit le site lui-même : il ne prend pas les chiffres de ses
+    // sous-agents pour argent comptant, il ne reçoit d'eux qu'un JUGEMENT.
+    OBSERVE {
+        site.read_ok                 ON UNKNOWN ESCALATE
+        site.defauts_ouverts         ON UNKNOWN ESCALATE
+        site.alarmes_non_acquittees  ON UNKNOWN ESCALATE
+        site.alarmes_critiques       ON UNKNOWN ESCALATE
+        site.cadence_pct             ON UNKNOWN ESCALATE
+        // La cadence reelle ne prouve pas que la consigne manque : pendant
+        // DOWN, SETUP ou une rampe, elle reste sous la cible deja posee.
+        site.consigne_l1_pct         ON UNKNOWN ESCALATE
+        site.consigne_l2_pct         ON UNKNOWN ESCALATE
+        site.consigne_l3_pct         ON UNKNOWN ESCALATE
+        site.consigne_l4_pct         ON UNKNOWN ESCALATE
+        site.etat_l1
+        site.etat_l2
+        site.etat_l3
+        site.etat_l4
+
+        // Un refus humain est un FAIT du monde, pas un contretemps : l'hôte
+        // le consigne quand l'approbateur dit non, et l'agent le relit.
+        approbation.refusee          ON UNKNOWN ESCALATE
+        // (L'identité de la critique orpheline n'est plus perçue ici : elle
+        //  vient désormais de l'élément courant de l'inventaire, `a.id` et
+        //  `a.source`, ce qui la lie à l'alarme qu'on remonte réellement.)
+        // Conformité du rejet et charge de la ligne qui la pilote. Ce sont
+        // des FAITS du simulateur : la décision d'en tirer un bridage est
+        // prise ici, dans la POLICY, pas dans l'hôte ni par un modèle.
+        site.rejet_conforme          ON UNKNOWN ESCALATE
+        site.charge_traitement_pct   ON UNKNOWN ESCALATE
+        conformite.consultee
+        conformite.cible_demandee_pct ON UNKNOWN ESCALATE
+        site.commande_envoyee        // les EFFECT doivent rester réfutables (T9)
+        ronde.volet_alarmes
+        ronde.volet_cadence
+        ronde.status
+
+        // -- INVENTAIRE DES ALARMES ET CONSIGNES DU RESPONSABLE -------------
+        //
+        // Deux COLLECTIONS. `FOREACH` est la seule construction qui relie un
+        // monde en listes à un état scalaire, et elle le fait sans introduire
+        // de valeur composite : chaque élément est projeté en locales le temps
+        // d'une itération. Chaque élément porte SES faits et SON jeton.
+        //
+        // `alarmes.non_traitees` compte les alarmes ouvertes auxquelles la
+        // ronde n'a encore donné AUCUNE disposition. C'est le chemin qui garde
+        // la clôture : tant qu'il n'est pas à zéro, la ronde n'est pas finie.
+        alarmes_actives
+        alarmes.non_traitees         ON UNKNOWN ESCALATE
+        propositions
+        consignes.reprises           ON UNKNOWN ESCALATE
+        consigne.demandee            ON UNKNOWN ESCALATE
+        inventaire.fait
+
+        // Les six champs des contrats EXPECT sont OBSERVÉS, pas crus.
+        //
+        // Le runtime dépose le retour d'un sous-agent dans l'espace non
+        // fiable, que `State.get` consulte en DERNIER — précisément pour
+        // qu'un sous-agent ne puisse rien masquer. Les déclarer en `BELIEF`
+        // les masquerait donc pour toujours, et le superviseur n'agirait
+        // jamais sur le diagnostic qu'il a lui-même demandé. Les déclarer
+        // en `OBSERVE`, l'hôte consignant ce que chaque spécialiste a rendu,
+        // les remet dans le monde : relus à chaque tick, et réfutables.
+        // Tant qu'un spécialiste n'a pas parlé, ils valent `indetermine`.
+        verdict_alarme       ON UNKNOWN ESCALATE
+        conseil_production   ON UNKNOWN ESCALATE
+        classe_alarme
+        // `confiance_alarme` garde désormais un interdit
+        // (`NEVER differer_une_alarme`) : sa conduite doit être déclarée.
+        confiance_alarme     ON UNKNOWN ESCALATE
+        goulot_production
+        confiance_production
+    }
+
+    BELIEF {
+        ronde.status          = ouverte     CONFIDENCE 1.00 SOURCE prior
+        ronde.volet_alarmes   = attente     CONFIDENCE 1.00 SOURCE prior
+        ronde.volet_cadence   = attente     CONFIDENCE 1.00 SOURCE prior
+        site.commande_envoyee = no          CONFIDENCE 1.00 SOURCE prior
+
+        // Marqueurs d'avancement : ils gardent des REQUIRES et des règles
+        // DECIDE, ils doivent donc exister avant le premier tick.
+        diagnostics.done      = no          CONFIDENCE 1.00 SOURCE prior
+        consultation.done     = no          CONFIDENCE 1.00 SOURCE prior
+        escalade.envoyee      = no          CONFIDENCE 1.00 SOURCE prior
+        // Marqueurs posés par `SET`, donc croyances et non chemins observés :
+        // les deux ne se mélangent pas, une croyance masquerait son capteur.
+        consignes.examinees   = no          CONFIDENCE 1.00 SOURCE prior
+        traitement.fait       = no          CONFIDENCE 1.00 SOURCE prior
+        // La garde qui S'ÉTEINT du plan de solde. Sans elle, ce plan se
+        // réenfile à chaque tick tant qu'il reste une alarme sans
+        // disposition — et un plan explicite passe AVANT la synthèse :
+        // le planificateur n'est alors jamais consulté, `planner.exhausted`
+        // n'est jamais posé, et l'escalade déclarée ne part jamais. Mesuré
+        // par test de mutation, pas supposé.
+        solde.tente           = no          CONFIDENCE 1.00 SOURCE prior
+
+        // ATTENTION — les six champs rendus par les contrats EXPECT
+        // (`verdict_alarme`, `classe_alarme`, `confiance_alarme`,
+        // `conseil_production`, `goulot_production`, `confiance_production`)
+        // ne sont VOLONTAIREMENT pas déclarés ici.
+        //
+        // Le retour d'un sous-agent est de la donnée externe : le runtime le
+        // dépose dans l'espace non fiable, que `State.get` consulte en
+        // DERNIER, précisément pour qu'un sous-agent ne puisse rien masquer.
+        // Les déclarer en `BELIEF` les masquerait donc pour toujours — le
+        // superviseur lirait éternellement la valeur a priori et n'agirait
+        // jamais sur le diagnostic qu'il a demandé.
+        //
+        // Conséquence assumée : avant la délégation, ces chemins sont
+        // INDÉFINIS. C'est pourquoi les interdits ci-dessous sont écrits en
+        // `!=` sur la valeur attendue, et non en `==` sur `indetermine` :
+        // indéfini, indéterminé et valeur inattendue déclenchent alors le
+        // même interdit, ce qui est la seule forme qui échoue fermé.
+
+        // Avis du responsable de site. Le défaut est le REFUS, dès le
+        // premier tick : tant qu'il n'a pas dit oui, il a dit non.
+        avis_responsable      = refus       CONFIDENCE 1.00 SOURCE prior
+
+        // Consignes d'exploitation. Ce sont des valeurs de POLITIQUE, donc
+        // elles vivent dans le fichier auditable, pas dans l'hôte Python :
+        // changer la cadence dégradée du site est une décision d'exploitant,
+        // et elle doit se relire dans le programme.
+        // W104 assumé — ces deux croyances n'ont volontairement AUCUN
+        // capteur : un site qui pourrait redéfinir sa propre consigne
+        // dégradée depuis le monde perçu n'aurait plus de garde-fou.
+        consigne.cadence_bridee   = 70      CONFIDENCE 1.00 SOURCE prior
+        consigne.cadence_nominale = 100     CONFIDENCE 1.00 SOURCE prior
+        // Cadence de la ligne de traitement de surface au titre de la
+        // conformité du rejet. Plus basse que la cadence dégradée : il ne
+        // s'agit pas de soulager une utilité mais de tenir un arrêté
+        // préfectoral, et c'est une seule ligne qui est concernée.
+        consigne.cadence_conformite = 50    CONFIDENCE 1.00 SOURCE prior
+
+        // JUGEMENT PORTÉ SUR LA CONSIGNE EN COURS D'EXAMEN.
+        //
+        // Cinq croyances scalaires, réécrites à chaque tour du `FOREACH` sur
+        // les propositions. Elles sont scalaires à dessein : c'est ce qui rend
+        // les quatre contrôles lisibles par une garde de politique, donc
+        // exécutables dans un scénario, donc réellement testés.
+        //
+        // Leurs valeurs de départ sont les plus DÉFAVORABLES à l'action : une
+        // consigne dont l'examen n'a rien conclu est irrecevable, et son motif
+        // dit pourquoi. Un `FOREACH` qui n'itère pas ne peut donc pas laisser
+        // passer une commande.
+        proposition.recevable   = non       CONFIDENCE 1.00 SOURCE prior
+        proposition.implication = inconnue  CONFIDENCE 1.00 SOURCE prior
+        proposition.echeance    = maintenant CONFIDENCE 1.00 SOURCE prior
+        proposition.meilleure   = oui       CONFIDENCE 1.00 SOURCE prior
+        proposition.mieux       = aucune    CONFIDENCE 1.00 SOURCE prior
+        proposition.garde       = aucune    CONFIDENCE 1.00 SOURCE prior
+        proposition.motif       = implication_non_declaree CONFIDENCE 1.00 SOURCE prior
+
+        // Avis du responsable sur CE bridage-là. Belief distincte
+        // d'`avis_responsable` à dessein : le 2026-08-13 il a refusé une
+        // RELANCE en invoquant l'alarme environnementale — confondre les deux
+        // ferait lire ce refus comme un refus de brider, soit l'inverse de ce
+        // qu'il a dit. Défaut au refus, comme partout ailleurs.
+        avis_conformite       = refus       CONFIDENCE 1.00 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { ronde_courante }
+        LONG_TERM  { rondes, effect_drift }
+
+        WRITE {
+            WHEN  ronde.status == terminee
+            STORE { verdict_alarme, conseil_production, avis_responsable }
+            INTO  LONG_TERM.rondes
+        }
+    }
+
+    // -- Sous-agents : contrat explicite, donc risque déclaré ----------------
+
+    TOOL alarmiste {
+        DESCRIPTION "Sous-agent VALMONT_ALARMES : rend un verdict borne sur les alarmes."
+        INPUT  { }
+        OUTPUT { verdict_alarme: Symbol, classe_alarme: Symbol, confiance_alarme: Number }
+        RISK   { operational = LOW }
+    }
+
+    TOOL optimiseur {
+        DESCRIPTION "Sous-agent VALMONT_PRODUCTION : rend un conseil borne sur la cadence."
+        INPUT  { }
+        OUTPUT { conseil_production: Symbol, goulot_production: Symbol, confiance_production: Number }
+        RISK   { operational = LOW }
+    }
+
+    // -- Dialogue avec le responsable de site --------------------------------
+    //
+    // CHOIX EXPLICITE, ET SES LIMITES. Ces deux outils écrivent du texte
+    // libre vers un service externe — le seul canal qu'aucune POLICY ne
+    // borne (principe 9). Trois choses le rendent défendable ici :
+    //   · le destinataire est FIXE (le chatbot d'ENTERPRISE-SIM), il n'est
+    //     jamais choisi par le modèle ni lu dans une donnée ;
+    //   · la partie variable du message se réduit à des SYMBOLES BORNÉS
+    //     (`conseil_production`, `classe_alarme`), issus de domaines clos —
+    //     aucun texte lu dans le monde ne rejoint la sortie ;
+    //   · l'hôte compose un gabarit figé autour de ces symboles.
+    // Le chatbot connaît l'usine par lui-même : il n'a pas besoin qu'on lui
+    // recopie l'état du site, et c'est ce qui permet de s'en tenir là.
+
+    TOOL consulter_responsable {
+        DESCRIPTION "Demande son avis au responsable de site sur l'action de cadence envisagee."
+        INPUT       { conseil: String BIND conseil_production,
+                      motif:   String BIND classe_alarme }
+        OUTPUT      { reponse: String }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+    }
+
+    TOOL informer_responsable {
+        DESCRIPTION "Informe le responsable de site d'une situation que l'agent ne traite pas."
+        INPUT       { sujet: String }
+        OUTPUT      { transmis: Symbol }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+    }
+
+    // -- Commandes sur l'installation ----------------------------------------
+    //
+    // TOUTES CIBLENT UNE ENTITÉ NOMMÉE, plus jamais « tout ce qui est ouvert ».
+    //
+    // L'ancien volet commandait `alarm.ack *` et `maintenance.repair *`, et le
+    // COMPTEUR perçu autorisait l'appel. Un compteur ne dit pas quelle alarme :
+    // il autorisait donc un acte dont il ne connaissait pas la cible, ce que
+    // W122 signale comme une preuve globale pour une action ciblée.
+    //
+    // Désormais chaque alarme inventoriée porte SON jeton, émis par la
+    // perception pour le couple (genre, identifiant). L'hôte le consomme une
+    // seule fois et vérifie qu'il atteste bien CETTE entité : un jeton émis
+    // pour A-000065 ne peut pas servir à acquitter A-000101. Une cible que
+    // l'agent n'a pas observée n'a pas de jeton, donc pas d'effet possible.
+
+    TOOL reparer_le_defaut {
+        DESCRIPTION "Lance l'intervention sur le defaut equipement qui porte cette alarme (maintenance.repair)."
+        INPUT       { alarme: String, defaut: String, jeton: String ATTESTS alarme }
+        OUTPUT      { lancee: Symbol }
+        SIDE_EFFECT { enterprise_sim.maintenance }
+        RISK        { operational = HIGH }
+        REQUIRES    { diagnostics.done == yes }
+        EFFECT      { site.commande_envoyee = yes }
+        COST        3
+    }
+
+    TOOL acquitter_une_alarme {
+        DESCRIPTION "Acquitte UNE alarme nommee, apres controle de sa cause (alarm.ack)."
+        INPUT       { alarme: String, jeton: String ATTESTS alarme }
+        OUTPUT      { acquittee: Symbol }
+        SIDE_EFFECT { enterprise_sim.alarmes }
+        RISK        { operational = MEDIUM }
+        REQUIRES    { diagnostics.done == yes }
+        EFFECT      { site.commande_envoyee = yes }
+        COST        2
+    }
+
+    // ESCALADE NOMMÉE — une alarme que rien du catalogue ne répare.
+    //
+    // Le cas réel : rejet non conforme a l'arrete prefectoral (A-000065,
+    // STEP), critique, sans defaut equipement derriere lui. Aucune commande
+    // n'y remedie — l'agent n'a pas cette capacite, et c'est assume
+    // (principe 7 : refuser, c'est ne pas declarer l'outil). Il doit alors le
+    // dire NOMMEMENT, et c'est desormais fait alarme par alarme.
+    //
+    // ÉLARGIE LE 2026-08-14 au-delà des critiques. Le second cas réel — le
+    // carburant du groupe, A-000023, `major`, déjà acquittée, sans défaut
+    // derrière elle — tombait dans le report muet. Le `motif` est un symbole
+    // borné : c'est lui qui dit au responsable POURQUOI on le dérange, et il
+    // sert à ça uniquement — aucune garde ne le lit.
+    TOOL escalader_une_alarme {
+        DESCRIPTION "Remonte nommement au responsable de site une alarme qu'aucune commande de l'agent ne peut traiter."
+        INPUT       { alarme: String, equipement: String, motif: Symbol,
+                      jeton: String ATTESTS alarme }
+        OUTPUT      { escaladee: Symbol }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+        REQUIRES    { diagnostics.done == yes }
+        COST        2
+    }
+
+    // « JE N'AGIS PAS, ET VOICI POURQUOI » — une décision, pas un oubli.
+    //
+    // Sans cette route, une alarme qu'aucune commande ne concerne bloquerait
+    // la clôture pour toujours : `alarmes.non_traitees` ne retomberait jamais
+    // à zéro et le planificateur abandonnerait la ronde entière. Tout interdit
+    // qui ferme une route doit ouvrir une sortie.
+    //
+    // COÛT 4, donc plus cher qu'acquitter (2) ou réparer (3) : laisser en
+    // l'état ne doit jamais être préféré à l'acte quand l'acte est permis,
+    // sans quoi cette sortie masquerait les interdits au lieu d'en tirer les
+    // conséquences.
+    TOOL differer_une_alarme {
+        DESCRIPTION "Laisse une alarme en l'etat avec un motif nomme : aucune commande ne s'y applique."
+        INPUT       { alarme: String, motif: Symbol, jeton: String ATTESTS alarme }
+        OUTPUT      { differee: Symbol }
+        RISK        LOW
+        REQUIRES    { diagnostics.done == yes }
+        COST        4
+    }
+
+    // LA CLÔTURE DU VOLET, ET LA PROPRIÉTÉ N°2 DU FICHIER.
+    //
+    // `REQUIRES alarmes.non_traitees <= 0` est la seule chose qui garantisse
+    // que « toutes les alarmes actives sont traitées » veut dire toutes. Le
+    // compteur est perçu, donc réfutable : une alarme apparue pendant la ronde
+    // le fait remonter et rouvre le travail.
+    TOOL cloturer_l_inventaire {
+        DESCRIPTION "Clot le volet alarmes : chaque alarme ouverte a recu une disposition."
+        INPUT    { restantes: Number BIND alarmes.non_traitees }
+        OUTPUT   { close: Symbol }
+        RISK     LOW
+        REQUIRES { consignes.examinees == yes AND alarmes.non_traitees <= 0 }
+        EFFECT   { ronde.volet_alarmes = traite, inventaire.fait = yes }
+        COST     1
+    }
+
+    // -- Conduite demandée au responsable, puis vérifiée par l'agent ---------
+
+    TOOL reprendre_les_consignes_armees {
+        DESCRIPTION "Remet en examen les consignes qu'une ronde precedente a armees en attendant qu'un parametre evolue."
+        OUTPUT   { reprises: Number }
+        RISK     LOW
+        EFFECT   { consignes.reprises = yes }
+        COST     1
+    }
+
+    TOOL demander_conduite_alarmes {
+        DESCRIPTION "Demande au responsable de site comment traiter les alarmes ouvertes, et recoit ses commandes."
+        INPUT       { arriere: Number BIND site.alarmes_non_acquittees }
+        // `reponse` est du texte non fiable : il ne sert qu'à la trace et
+        // n'entre dans aucune garde. Ce qui décide, ce sont les propositions
+        // projetées en scalaires bornés.
+        OUTPUT      { reponse: String, consignes: Number }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+        REQUIRES    { diagnostics.done == yes AND consignes.reprises == yes }
+        EFFECT      { consigne.demandee = yes }
+        COST        2
+    }
+
+    // L'OUTIL LE PLUS DANGEREUX DU PROGRAMME, ET IL EST ÉCRIT POUR ÇA.
+    //
+    // Il passe une commande du catalogue COMPLET du simulateur sur la parole
+    // d'un modèle de langage. Ce qui le rend défendable n'est pas sa
+    // déclaration mais les quatre contrôles qui le gardent, tous en POLICY :
+    // hors catalogue, arguments non conformes, cible non observée, implication
+    // non déclarée, échéance non venue ou route meilleure connue — chacun est
+    // un `NEVER`, et le défaut de chaque jugement est le refus.
+    //
+    // `jeton ATTESTS cible` : la preuve est liée à l'élément courant du
+    // `FOREACH`, pas au compteur global. C'est ce qui satisfait W122.
+    TOOL executer_consigne {
+        DESCRIPTION "Passe une commande demandee par le responsable de site, apres les quatre controles de l'agent."
+        INPUT       { rang: Number, commande: Symbol, cible: String,
+                      jeton: String ATTESTS cible, implication: Symbol }
+        OUTPUT      { appliquee: Symbol }
+        SIDE_EFFECT { enterprise_sim.commandes }
+        RISK        { operational = HIGH }
+        REQUIRES    { consigne.demandee == yes }
+        EFFECT      { site.commande_envoyee = yes }
+        COST        3
+    }
+
+    // ARMER N'EST NI EXÉCUTER NI REFUSER.
+    //
+    // « Acquitte l'arriéré » pendant qu'une critique est au tableau n'est pas
+    // une mauvaise consigne : c'est une bonne consigne au mauvais moment. La
+    // refuser perdrait l'intention du responsable ; l'exécuter enfreindrait
+    // l'interdit. On l'écrit dans un registre avec sa GARDE, elle survit à la
+    // ronde, et chaque ronde suivante la repasse par les quatre contrôles.
+    TOOL programmer_consigne {
+        DESCRIPTION "Arme la consigne au lieu de l'envoyer : elle partira quand le parametre nomme aura evolue."
+        INPUT       { rang: Number, commande: Symbol, cible: String, garde: Symbol }
+        OUTPUT      { programmee: Symbol }
+        SIDE_EFFECT { agent.registre_arme }
+        RISK        LOW
+        REQUIRES    { consigne.demandee == yes }
+        COST        2
+    }
+
+    TOOL refuser_consigne {
+        DESCRIPTION "Refuse une consigne du responsable de site et lui en donne le motif."
+        INPUT       { rang: Number, commande: Symbol, motif: Symbol }
+        OUTPUT      { refusee: Symbol }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+        REQUIRES    { consigne.demandee == yes }
+        COST        2
+    }
+
+    TOOL brider_cadence {
+        DESCRIPTION "Bride la cadence de toutes les lignes a la consigne degradee (production.rate)."
+        INPUT       { cible:  Number BIND consigne.cadence_bridee,
+                      goulot: String BIND goulot_production }
+        OUTPUT      { appliquee: Symbol }
+        SIDE_EFFECT { enterprise_sim.production }
+        // MEDIUM et non HIGH : une consigne de cadence est intégralement
+        // réversible par la commande inverse, et l'hôte journalise la
+        // recette de retour arrière AVANT l'effet. Le garde-fou fort est
+        // ici le veto du responsable de site, pas une approbation de plus.
+        RISK        { operational = MEDIUM }
+        REQUIRES    { diagnostics.done == yes AND conseil_production == brider }
+        EFFECT      { ronde.volet_cadence = traite, site.commande_envoyee = yes }
+        COST        5
+    }
+
+    TOOL relancer_cadence {
+        DESCRIPTION "Remonte la cadence de toutes les lignes a la consigne nominale (production.rate)."
+        INPUT       { cible:  Number BIND consigne.cadence_nominale,
+                      goulot: String BIND goulot_production }
+        OUTPUT      { appliquee: Symbol }
+        SIDE_EFFECT { enterprise_sim.production }
+        RISK        { operational = MEDIUM }   // réversible, cf. brider_cadence
+        REQUIRES    { diagnostics.done == yes AND conseil_production == relancer }
+        EFFECT      { ronde.volet_cadence = traite, site.commande_envoyee = yes }
+        COST        5
+    }
+
+    TOOL constater_consigne_nominale {
+        DESCRIPTION "Clot sans commande : toutes les lignes portent deja la consigne nominale, meme si la cadence reelle suit encore."
+        INPUT       { cadence: Number BIND site.cadence_pct,
+                      etat_l1: String BIND site.etat_l1,
+                      etat_l2: String BIND site.etat_l2,
+                      etat_l3: String BIND site.etat_l3,
+                      etat_l4: String BIND site.etat_l4 }
+        OUTPUT      { deja_posee: Symbol }
+        RISK        LOW
+        REQUIRES    { diagnostics.done == yes
+                      AND conseil_production == relancer
+                      AND site.consigne_l1_pct >= consigne.cadence_nominale
+                      AND site.consigne_l2_pct >= consigne.cadence_nominale
+                      AND site.consigne_l3_pct >= consigne.cadence_nominale
+                      AND site.consigne_l4_pct >= consigne.cadence_nominale }
+        EFFECT      { ronde.volet_cadence = traite }
+        COST        1
+    }
+
+    // BRIDAGE POUR CONFORMITÉ DU REJET — le levier qui manquait.
+    //
+    // Le run du 2026-08-13 : rejet STEP hors limites, aucun défaut équipement,
+    // l'agent escalade et s'arrête là. C'était honnête (aucun outil ne s'y
+    // appliquait) mais incomplet — un levier EXISTE. La température de
+    // l'effluent suit la charge du traitement de surface, qui y déverse ses
+    // bains de rinçage ; brider cette ligne la fait redescendre.
+    //
+    // Le chatbot, lui, proposait de démarrer une tour aéroréfrigérante. C'est
+    // sans effet sur cet effluent : une explication plausible produite par un
+    // modèle, pas une causalité. Raison de plus pour que le lien retenu soit
+    // écrit ICI, en clair, et non déduit d'une réponse en langue naturelle.
+    //
+    // COÛT 4 — moins cher que `signaler_rejet_non_conforme` (7) et que
+    // `renoncer_a_la_cadence` (6), pour que le planificateur préfère AGIR
+    // quand c'est permis ; plus cher que `maintenir_cadence` (1), qui reste
+    // hors d'atteinte ici puisque le rejet est hors limites.
+    TOOL brider_pour_conformite {
+        DESCRIPTION "Bride la ligne de traitement de surface pour ramener le rejet de la STEP dans ses limites (production.rate)."
+        INPUT       { cible:  Number BIND consigne.cadence_conformite,
+                      charge: Number BIND site.charge_traitement_pct }
+        OUTPUT      { appliquee: Symbol }
+        SIDE_EFFECT { enterprise_sim.production }
+        RISK        { operational = MEDIUM }   // réversible, cf. brider_cadence
+        REQUIRES    { diagnostics.done == yes
+                      AND conformite.consultee == yes
+                      AND conformite.cible_demandee_pct == consigne.cadence_conformite
+                      AND site.rejet_conforme == no
+                      AND site.charge_traitement_pct > consigne.cadence_conformite }
+        EFFECT      { ronde.volet_cadence = traite, site.commande_envoyee = yes }
+        COST        4
+    }
+
+    // LA SORTIE DU BRIDAGE — « fermer une route, c'est ouvrir une sortie ».
+    //
+    // Accord refusé, ou ligne déjà sous la consigne de conformité : le volet
+    // cadence n'a plus aucune route, et le planificateur abandonnerait la
+    // ronde ENTIÈRE, volet alarmes compris. COÛT 7, le plus cher du volet :
+    // signaler ne doit jamais être préféré à brider quand brider est permis,
+    // sans quoi cette sortie masquerait l'interdit qu'elle accompagne.
+    TOOL signaler_rejet_non_conforme {
+        DESCRIPTION "Rejet hors limites que l'agent n'est pas autorise a traiter : le responsable de site en est informe nommement."
+        INPUT       { charge: Number BIND site.charge_traitement_pct }
+        OUTPUT      { signale: Symbol }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+        REQUIRES    { diagnostics.done == yes
+                      AND site.rejet_conforme == no }
+        EFFECT      { ronde.volet_cadence = traite }
+        COST        7
+    }
+
+    TOOL consulter_sur_conformite {
+        DESCRIPTION "Demande un accord sur la cible exacte de bridage du traitement de surface au titre de la conformite du rejet."
+        INPUT       { charge: Number BIND site.charge_traitement_pct,
+                      cible: Number BIND consigne.cadence_conformite }
+        OUTPUT      { reponse: String, cible_soumise: Number }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+    }
+
+    TOOL activer_chasse_fuites {
+        DESCRIPTION "Active la campagne de chasse aux fuites d'air comprime (ecm.enable ECM_AIR_LEAKS)."
+        INPUT       { goulot: String BIND goulot_production }
+        OUTPUT      { activee: Symbol }
+        SIDE_EFFECT { enterprise_sim.energie }
+        RISK        { operational = MEDIUM }
+        REQUIRES    { diagnostics.done == yes AND conseil_production == chasse_fuites }
+        EFFECT      { ronde.volet_cadence = traite, site.commande_envoyee = yes }
+        COST        3
+    }
+
+    TOOL maintenir_cadence {
+        DESCRIPTION "Clot le volet cadence sans agir : le point de fonctionnement est bon."
+        INPUT    { conseil: String BIND conseil_production }
+        OUTPUT   { maintenue: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostics.done == yes
+                   AND conseil_production != brider
+                   AND conseil_production != relancer
+                   AND conseil_production != chasse_fuites }
+        EFFECT   { ronde.volet_cadence = traite }
+        COST     1
+    }
+
+    // RENONCEMENT APRÈS VETO — la sortie qui manquait.
+    //
+    // Sans cet outil, un conseil soumis au veto (`brider`, `relancer`) que le
+    // responsable refuse laissait le volet cadence SANS AUCUNE route :
+    // `maintenir_cadence` exige que le conseil ne soit ni l'un ni l'autre.
+    // La clôture devenait inatteignable, et comme le planificateur abandonne
+    // un but inatteignable *en entier*, il laissait aussi tomber le volet
+    // alarmes — 88 alarmes non acquittées et un verdict `acquittement` sont
+    // restés sans suite sur un run réel. Un blocage sur une moitié de la
+    // ronde ne doit pas emporter l'autre.
+    //
+    // COÛT 6, donc PLUS CHER que `brider_cadence` et `relancer_cadence` (5) :
+    // renoncer ne doit jamais être préféré à l'action quand celle-ci est
+    // permise, sans quoi cet outil masquerait le veto au lieu d'en tirer les
+    // conséquences — et le test de mutation du veto cesserait de mordre.
+    TOOL renoncer_a_la_cadence {
+        DESCRIPTION "Le responsable de site n'a pas donne son accord : la cadence reste en l'etat."
+        INPUT    { conseil: String BIND conseil_production }
+        OUTPUT   { renonce: Symbol }
+        RISK     LOW
+        REQUIRES { diagnostics.done == yes
+                   AND consultation.done == yes
+                   AND avis_responsable != accord
+                   AND (conseil_production == brider
+                        OR conseil_production == relancer) }
+        EFFECT   { ronde.volet_cadence = traite }
+        COST     6
+    }
+
+    TOOL cloturer_ronde {
+        DESCRIPTION "Clot la ronde localement et tente d'adresser la synthese au responsable de site."
+        INPUT       { verdict: String BIND verdict_alarme,
+                      conseil: String BIND conseil_production }
+        // La notification est informative : `incertaine` signale un timeout
+        // sans transformer la réussite métier de la ronde en échec d'outil.
+        OUTPUT      { cloturee: Symbol, notification: Symbol }
+        SIDE_EFFECT { enterprise_sim.chat }
+        RISK        LOW
+        REQUIRES    { ronde.volet_alarmes == traite AND ronde.volet_cadence == traite }
+        EFFECT      { ronde.status = terminee }
+        COST        1
+    }
+
+    // -- Politique du superviseur -------------------------------------------
+    POLICY {
+        DEFAULT DENY
+
+        // Sans ces lignes, DEFAULT DENY bloque la délégation — et c'est bien
+        // ce qu'il doit faire.
+        ALLOW alarmiste
+        ALLOW optimiseur
+        ALLOW consulter_responsable
+        ALLOW informer_responsable
+        ALLOW maintenir_cadence
+        ALLOW constater_consigne_nominale
+        ALLOW cloturer_ronde
+        ALLOW activer_chasse_fuites
+        ALLOW renoncer_a_la_cadence
+        ALLOW consulter_sur_conformite
+        ALLOW signaler_rejet_non_conforme
+        ALLOW brider_pour_conformite
+
+        // Volet alarmes : inventaire, conduite demandée, traitement au cas
+        // par cas. `refuser_consigne` et `differer_une_alarme` sont permis
+        // sans condition — ce sont les SORTIES, et une sortie qu'un interdit
+        // peut fermer laisse le volet sans route.
+        ALLOW reprendre_les_consignes_armees
+        ALLOW demander_conduite_alarmes
+        ALLOW refuser_consigne
+        ALLOW programmer_consigne
+        ALLOW executer_consigne
+        ALLOW reparer_le_defaut
+        ALLOW acquitter_une_alarme
+        ALLOW escalader_une_alarme
+        ALLOW differer_une_alarme
+        ALLOW cloturer_l_inventaire
+
+        // Les actions qui coûtent du tonnage exigent la confiance CALCULÉE
+        // par le spécialiste, pas son avis.
+        ALLOW brider_cadence      IF confiance_production >= 0.65
+        ALLOW relancer_cadence    IF confiance_production >= 0.65
+
+        // Perception ratée du superviseur : aucune commande.
+        NEVER brider_cadence        WHEN site.read_ok != yes
+        NEVER relancer_cadence      WHEN site.read_ok != yes
+        NEVER activer_chasse_fuites WHEN site.read_ok != yes
+        NEVER renoncer_a_la_cadence WHEN site.read_ok != yes
+        NEVER brider_pour_conformite WHEN site.read_ok != yes
+        NEVER signaler_rejet_non_conforme WHEN site.read_ok != yes
+        NEVER reparer_le_defaut     WHEN site.read_ok != yes
+        NEVER acquitter_une_alarme  WHEN site.read_ok != yes
+        NEVER escalader_une_alarme  WHEN site.read_ok != yes
+        NEVER executer_consigne     WHEN site.read_ok != yes
+        NEVER cloturer_l_inventaire WHEN site.read_ok != yes
+
+        // Le superviseur n'agit QUE sur le verdict exact de son spécialiste.
+        // Écrits en `!=`, ces interdits couvrent d'un coup les trois façons
+        // dont un diagnostic peut manquer : sous-agent jamais appelé (chemin
+        // indéfini), sous-agent prudent (`indetermine` parce que sa
+        // perception ou son oracle a lâché), et valeur inattendue.
+        NEVER brider_cadence        WHEN conseil_production != brider
+        NEVER relancer_cadence      WHEN conseil_production != relancer
+        NEVER activer_chasse_fuites WHEN conseil_production != chasse_fuites
+
+        // LE VERDICT GLOBAL GARDE, IL NE CIBLE PAS.
+        //
+        // Distinction que le refonte du volet alarmes rend nécessaire, et que
+        // W122 énonce en général : un postérieur calculé sur l'état du SITE
+        // (« un incident majeur est-il en cours ? ») peut légitimement
+        // AUTORISER ou INTERDIRE une classe d'actes, mais il ne peut pas
+        // choisir sur QUELLE alarme agir. La cible vient des faits de
+        // l'élément (`a.defaut_actif`, `a.severite`) ; le verdict, lui, dit
+        // seulement si le diagnostic est exploitable.
+        NEVER reparer_le_defaut    WHEN verdict_alarme == indetermine
+
+        // Principe « indéterminé n'est pas zéro », en défense en profondeur :
+        // le fait de l'élément (`a.defaut_actif`) choisit la cible, le
+        // compteur global vérifie qu'il y a bien quelque chose à réparer.
+        // Une lecture ratée rend 0, et 0 ferme la route au lieu de l'ouvrir.
+        NEVER reparer_le_defaut    WHEN site.defauts_ouverts <= 0
+        NEVER acquitter_une_alarme WHEN verdict_alarme == indetermine
+        NEVER escalader_une_alarme WHEN verdict_alarme == indetermine
+
+        // ON NE LAISSE PAS UNE ALARME EN L'ÉTAT QUAND L'INCIDENT EST PROBABLE.
+        //
+        // L'usage le plus utile du postérieur, et il est INVERSÉ par rapport
+        // à l'ancien : il ne sert plus à autoriser une intervention (le fait
+        // « ce défaut est ouvert » suffit pour ça, et n'a pas besoin d'une
+        // probabilité), il sert à fermer la route du renoncement. Au-dessus
+        // du seuil du spécialiste, « je laisse en l'état » n'est plus une
+        // conduite acceptable.
+        NEVER differer_une_alarme WHEN confiance_alarme >= 0.70
+
+        // ------------------------------------------------------------------
+        // LES QUATRE CONTRÔLES SUR LES CONSIGNES DU RESPONSABLE DE SITE.
+        //
+        // Chacun est écrit en `!=` sur la valeur attendue, jamais en `==` sur
+        // une valeur d'échec : indéfini, indéterminé et valeur inattendue
+        // déclenchent alors le même interdit. C'est la seule forme qui échoue
+        // fermé, et elle vaut ici plus qu'ailleurs — ce que ces gardes
+        // arbitrent vient d'un modèle de langage.
+        // ------------------------------------------------------------------
+
+        // 1. COHÉRENCE — le jugement d'ensemble, calculé dans le FOREACH à
+        //    partir du catalogue publié, du schéma publié et de ce que l'agent
+        //    a lui-même observé.
+        NEVER executer_consigne   WHEN proposition.recevable != oui
+        NEVER programmer_consigne WHEN proposition.recevable != oui
+
+        // 2. IMPLICATIONS — une conséquence non déclarée est un refus. C'est
+        //    CE point, et lui seul, qui rend praticable le catalogue complet
+        //    du simulateur : une commande ajoutée demain n'est pas exécutable
+        //    tant que sa conséquence n'est pas écrite dans ce fichier.
+        NEVER executer_consigne WHEN proposition.implication == inconnue
+
+        //    Modifier le banc lui-même n'est pas une conduite d'exploitation.
+        //    Un agent qui accepte « injecte une panne » ou « change de
+        //    scénario » parce qu'une réponse de chat le lui dit n'a plus aucun
+        //    moyen de distinguer une consigne d'une injection.
+        NEVER executer_consigne WHEN proposition.implication == altere_la_simulation
+
+        //    L'interdit historique, conservé mot pour mot dans son intention :
+        //    acquitter marque « vue » une alarme que personne n'a vue, et
+        //    c'est précisément le signal sur lequel un exploitant compte.
+        NEVER executer_consigne WHEN proposition.implication == marque_vue_sans_regard
+                                 AND site.alarmes_critiques > 0
+
+        // 3. ÉCHÉANCE — ce qui doit attendre n'est pas envoyé, ce qui doit
+        //    partir n'est pas armé. Les deux sens comptent : sans le second,
+        //    « armer » deviendrait la sortie commode qui masque l'action.
+        NEVER executer_consigne   WHEN proposition.echeance != maintenant
+        NEVER programmer_consigne WHEN proposition.echeance != quand_le_parametre_evolue
+
+        // 4. OPPORTUNITÉ — l'agent a une route déclarée meilleure.
+        NEVER executer_consigne WHEN proposition.meilleure != oui
+
+        // LE FAIT NE NÉGOCIE PAS — ni avec un sous-agent, ni avec le
+        // responsable de site. Relancer la cadence pendant que la STEP dépasse
+        // ses seuils aggrave mécaniquement le dépassement. Le 2026-08-13, seul
+        // un veto humain a retenu l'agent ; un veto est du texte, et le texte
+        // peut dire oui.
+        NEVER relancer_cadence  WHEN site.rejet_conforme != yes
+        NEVER executer_consigne WHEN site.rejet_conforme != yes
+                                 AND proposition.implication == reglage_reversible
+
+        // Principe « indéterminé n'est pas zéro » : une lecture ratée rend 0,
+        // et un seuil à 0 laisserait tout passer.
+        NEVER relancer_cadence     WHEN site.cadence_pct >= consigne.cadence_nominale
+        // Une consigne acceptee n'est pas un effet instantane : ni SETUP ni
+        // la rampe de cadence ne justifient de renvoyer la meme commande.
+        NEVER relancer_cadence
+            WHEN site.consigne_l1_pct >= consigne.cadence_nominale
+             AND site.consigne_l2_pct >= consigne.cadence_nominale
+             AND site.consigne_l3_pct >= consigne.cadence_nominale
+             AND site.consigne_l4_pct >= consigne.cadence_nominale
+
+        NEVER cloturer_l_inventaire WHEN alarmes.non_traitees > 0
+
+        // DROIT DE VETO DU RESPONSABLE DE SITE SUR LA CADENCE — inchangé.
+        //
+        // Sur la cadence il n'a toujours qu'un droit de veto : sa réponse
+        // n'entre que par un `REASON` à domaine clos dont le repli est
+        // `refus`. Sur les alarmes il a désormais un droit de PROPOSITION,
+        // borné par les quatre contrôles ci-dessus. Les deux régimes
+        // coexistent parce que les deux questions sont différentes.
+        NEVER brider_cadence   WHEN avis_responsable != accord
+        NEVER relancer_cadence WHEN avis_responsable != accord
+        NEVER brider_pour_conformite WHEN avis_conformite != accord
+        NEVER brider_pour_conformite
+            WHEN conformite.cible_demandee_pct != consigne.cadence_conformite
+
+        // Et l'on ne bride pas une ligne déjà sous la consigne : la commande
+        // serait une remontée de cadence déguisée en mesure de conformité.
+        NEVER brider_pour_conformite
+            WHEN site.charge_traitement_pct <= consigne.cadence_conformite
+
+        // « Le point de fonctionnement est bon » ne se dit pas d'une usine
+        // qui déverse hors seuils. Sans cette ligne, `maintenir_cadence`
+        // (coût 1) fermait le volet cadence avant même que le bridage soit
+        // envisagé — mesuré : le scénario d'accord de conformité tombait,
+        // l'agent classait sans agir. Le repli, ici, coûte plus cher que
+        // l'action : c'est ce qui garde l'action atteignable.
+        NEVER maintenir_cadence WHEN site.rejet_conforme != yes
+
+        // On ne déclare pas une ronde faite quand on ne voit plus l'usine,
+        // ni quand une alarme ouverte n'a reçu aucune disposition. La seconde
+        // ligne est la PROPRIÉTÉ N°2 du fichier : « toutes les alarmes actives
+        // doivent être traitées » n'a de valeur que si la clôture le vérifie.
+        NEVER cloturer_ronde WHEN site.read_ok != yes
+        NEVER cloturer_ronde WHEN alarmes.non_traitees > 0
+
+        // Un jeton atteste une observation ; il n'a rien à faire chez un
+        // fournisseur de modèle. Ce sont désormais les COLLECTIONS qui les
+        // transportent — un jeton par alarme, un par consigne —, et c'est
+        // donc elles que `NEVER SEND` doit borner.
+        NEVER SEND alarmes_actives
+        NEVER SEND propositions
+
+        // APPROBATION HUMAINE — les trois classes d'implication qu'un modèle
+        // de langage ne décide pas seul.
+        //
+        // Le catalogue complet du simulateur est atteignable, mais couper une
+        // alimentation, arrêter un équipement ou engager des personnes sont
+        // des décisions d'exploitant. L'approbateur de l'hôte échoue fermé :
+        // sans `VALMONT_APPROVAL`, l'absence de réponse vaut refus.
+        REQUIRE APPROVAL FOR executer_consigne
+            WHEN proposition.implication == coupure_d_alimentation
+        REQUIRE APPROVAL FOR executer_consigne
+            WHEN proposition.implication == arret_equipement
+        REQUIRE APPROVAL FOR executer_consigne
+            WHEN proposition.implication == engage_des_personnes
+
+        // Une équipe de maintenance qu'on envoie pendant qu'une alarme
+        // critique est au tableau, c'est une décision d'exploitant.
+        REQUIRE APPROVAL FOR reparer_le_defaut
+            WHEN site.alarmes_critiques > 0
+
+        // Un refus humain ne se re-tente pas. Sans ces deux lignes, le
+        // planificateur re-propose la MÊME action à chaque tick : l'humain
+        // est re-sollicité indéfiniment et chaque plan synthétisé échoue à
+        // sa vérification. C'est `agentl autoloop` qui l'a vu — les
+        // scénarios restaient verts, puisqu'ils ne jugent que l'attente,
+        // pas la façon d'y arriver.
+        DENY reparer_le_defaut IF approbation.refusee == yes
+        DENY executer_consigne IF approbation.refusee == yes
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE       ronde.status == terminee
+        // Relevés pour la v1.9 : la ronde compte trois étapes de plus
+        // (reprise des consignes armées, demande de conduite, examen), et le
+        // planificateur doit pouvoir enchaîner jusqu'à la clôture sans
+        // renoncer à mi-chemin.
+        MAX_DEPTH     6
+        MAX_NODES     1200
+        APPROVAL_COST 10
+    }
+
+    // -- Étape 1 : déléguer le diagnostic aux deux spécialistes --------------
+    PLAN ronde_diagnostic
+        WHEN site.read_ok == yes
+          AND diagnostics.done == no
+    {
+        STEP alarmes {
+            DELEGATE alarmiste {
+                TASK   "surveiller les alarmes et defauts du site et rendre un verdict borne"
+                INPUT  { site.alarmes_critiques }
+                EXPECT { verdict_alarme, classe_alarme, confiance_alarme }
+            }
+        }
+        STEP production {
+            DELEGATE optimiseur {
+                TASK   "diagnostiquer le goulot d'utilites et conseiller sur la cadence"
+                INPUT  { site.cadence_pct }
+                EXPECT { conseil_production, goulot_production, confiance_production }
+            }
+        }
+        STEP marquer {
+            SET diagnostics.done = yes
+        }
+    }
+
+    // -- Étape 2 : reprendre les consignes armées par une ronde précédente ----
+    //
+    // AVANT de redemander quoi que ce soit. Une consigne armée hier porte
+    // l'intention du responsable ; la redemander reviendrait à la lui faire
+    // répéter, et à la perdre s'il ne la répète pas.
+    PLAN reprendre_les_consignes
+        WHEN diagnostics.done == yes
+          AND consignes.reprises == no
+    {
+        STEP reprendre {
+            reprendre_les_consignes_armees()
+        }
+        STEP confirmer {
+            VERIFY { consignes.reprises == yes }
+        }
+    }
+
+    // -- Étape 3 : demander au responsable de site COMMENT traiter ------------
+    //
+    // Ce qui part : des identifiants produits par le simulateur et des
+    // compteurs. Ce qui revient : un texte (qui ne sert qu'à la trace) et des
+    // objets `{command, args}` que l'hôte projette en scalaires bornés. Le
+    // texte libre n'entre dans AUCUNE garde de ce fichier.
+    PLAN demander_la_conduite
+        WHEN site.read_ok == yes
+          AND consignes.reprises == yes
+          AND consigne.demandee == no
+    {
+        STEP demander {
+            demander_conduite_alarmes(arriere = site.alarmes_non_acquittees)
+        }
+        STEP confirmer {
+            VERIFY { consigne.demandee == yes }
+        }
+    }
+
+    // -- Étape 4 : LES QUATRE CONTRÔLES, consigne par consigne ----------------
+    //
+    // Le cœur de la refonte. Chaque proposition est jugée sur des FAITS
+    // scalaires — catalogue publié, schéma publié, entités observées — puis
+    // sur des règles écrites ici, et nulle part ailleurs. Trois issues, une
+    // seule par consigne : exécuter, armer, refuser.
+    //
+    // Les jugements sont posés dans des croyances SCALAIRES plutôt que dans
+    // des locales du `FOREACH`, et c'est délibéré : c'est ce qui permet à une
+    // garde de politique de les lire, donc à un scénario de les poser, donc
+    // aux quatre contrôles d'être réellement testés et non seulement écrits.
+    PLAN examiner_les_consignes
+        WHEN consigne.demandee == yes
+          AND consignes.examinees == no
+    {
+        STEP examiner {
+            FOREACH p IN propositions MAX 8 {
+
+                // Chaque tour repart des valeurs les plus DÉFAVORABLES à
+                // l'action : une consigne ne peut pas hériter du jugement
+                // porté sur la précédente.
+                SET proposition.implication = inconnue
+                SET proposition.echeance    = maintenant
+                SET proposition.meilleure   = oui
+                SET proposition.mieux       = aucune
+                SET proposition.garde       = aucune
+                SET proposition.motif       = implication_non_declaree
+                SET proposition.recevable   = oui
+
+                // ---- CONTRÔLE 2 : LES IMPLICATIONS ------------------------
+                //
+                // Le tableau des conséquences. Il est ICI et nulle part
+                // ailleurs — c'est de la connaissance d'exploitation, elle
+                // doit se relire dans le fichier audité. Une commande absente
+                // de ce tableau garde `inconnue`, et `inconnue` est un refus :
+                // le catalogue complet du simulateur est donc atteignable sans
+                // être ouvert, et l'ouvrir davantage demande d'écrire une
+                // ligne ici, sous les yeux de quelqu'un.
+                IF p.commande == alarm_ack OR p.commande == alarm_purge THEN {
+                    SET proposition.implication = marque_vue_sans_regard
+                }
+                IF p.commande == maintenance_repair
+                    OR p.commande == ro_clean OR p.commande == wwtp_sludge THEN {
+                    SET proposition.implication = mobilise_une_equipe
+                }
+                // RECONSTITUER UN CONSOMMABLE — classe à part, et pour une
+                // raison qui se vérifie : ces gestes n'AJOUTENT que. Ils ne
+                // coupent rien, n'arrêtent rien, ne changent aucun réglage et
+                // ne marquent rien comme vu. Les ranger sous `reglage_reversible`
+                // aurait été faux — un plein de gazole ne se défait pas — et
+                // sous `mobilise_une_equipe` aurait été trompeur : la garde de
+                // conformité du rejet n'a rien à voir avec un appoint de sel.
+                IF p.commande == genset_refuel OR p.commande == softener_refill THEN {
+                    SET proposition.implication = reappro_consommable
+                }
+                IF p.commande == setpoint_set OR p.commande == production_rate
+                    OR p.commande == bess_mode OR p.commande == capacitor_mode
+                    OR p.commande == ecm_enable OR p.commande == ecm_disable
+                    OR p.commande == genset_test THEN {
+                    SET proposition.implication = reglage_reversible
+                }
+                IF p.commande == asset_start OR p.commande == asset_reset
+                    OR p.commande == breaker_close THEN {
+                    SET proposition.implication = demarrage_equipement
+                }
+                IF p.commande == asset_stop THEN {
+                    SET proposition.implication = arret_equipement
+                }
+                IF p.commande == breaker_open OR p.commande == loadshed_set THEN {
+                    SET proposition.implication = coupure_d_alimentation
+                }
+                IF p.commande == personnel_recruit OR p.commande == personnel_dismiss
+                    OR p.commande == personnel_recruit_cancel
+                    OR p.commande == personnel_dismiss_cancel
+                    OR p.commande == personnel_absence OR p.commande == personnel_return
+                    OR p.commande == personnel_strike OR p.commande == personnel_negotiate THEN {
+                    SET proposition.implication = engage_des_personnes
+                }
+                IF p.commande == sim_speed OR p.commande == sim_pause
+                    OR p.commande == sim_resume OR p.commande == sim_faults
+                    OR p.commande == sim_injectFault OR p.commande == sim_scenario THEN {
+                    SET proposition.implication = altere_la_simulation
+                }
+                IF p.commande == setpoint_list OR p.commande == maintenance_list
+                    OR p.commande == sim_catalog THEN {
+                    SET proposition.implication = lecture_seule
+                }
+
+                // ---- CONTRÔLE 1 : LA COHÉRENCE ----------------------------
+                //
+                // L'ordre compte : le motif retenu est celui de la DERNIÈRE
+                // règle qui mord, et elles vont du plus formel au plus grave.
+                IF p.commande == hors_catalogue THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = commande_hors_catalogue
+                }
+                IF p.args_valides != yes THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = arguments_non_conformes_au_schema
+                }
+                // « L'acte n'a plus d'objet » se juge sur une cible CONNUE :
+                // acquitter une alarme déjà acquittée. Ce test passe donc en
+                // premier, pour que le suivant — plus grave — puisse l'écraser.
+                IF p.sans_objet == yes THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = sans_objet_c_est_deja_fait
+                }
+                // Une cible que l'agent n'a pas observée n'a pas de jeton :
+                // même permise, la commande n'aurait aucun effet possible.
+                // C'est aussi ce qui écarte `alarm.ack *` — « acquitte tout »
+                // ne nomme aucune entité, et le traitement alarme par alarme
+                // le remplace.
+                //
+                // ORDRE CORRIGÉ LE 2026-08-14. Il était inverse, et le motif
+                // rendu au responsable mentait sur la ronde du carburant :
+                // « c'est déjà fait » là où la vérité était « je ne reconnais
+                // pas cette cible ». Un refus dont le motif est faux est pire
+                // qu'un refus, parce qu'il envoie le responsable vérifier une
+                // chose qui n'est pas le problème.
+                IF p.cible_attestee != yes THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = cible_que_je_n_ai_pas_observee
+                }
+                IF proposition.implication == inconnue THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = implication_non_declaree
+                }
+                IF proposition.implication == altere_la_simulation THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = ce_n_est_pas_une_conduite_d_exploitation
+                }
+                IF p.perimee == yes THEN {
+                    SET proposition.recevable = non
+                    SET proposition.motif = consigne_armee_perimee
+                }
+
+                // ---- CONTRÔLE 3 : L'ÉCHÉANCE ------------------------------
+                //
+                // Un blocage TRANSITOIRE n'est pas un refus, c'est un
+                // rendez-vous. Deux paramètres seulement peuvent l'être ici,
+                // et ils sont nommés : la présence d'une alarme critique au
+                // tableau, et la conformité du rejet. Tout le reste est
+                // définitif au moment où on le juge.
+                IF proposition.implication == marque_vue_sans_regard
+                    AND site.alarmes_critiques > 0 THEN {
+                    SET proposition.echeance = quand_le_parametre_evolue
+                    SET proposition.garde    = plus_aucune_alarme_critique
+                }
+                IF p.hausse_de_cadence == yes AND site.rejet_conforme != yes THEN {
+                    SET proposition.echeance = quand_le_parametre_evolue
+                    SET proposition.garde    = rejet_revenu_dans_les_limites
+                }
+
+                // ---- CONTRÔLE 4 : EST-CE LA MEILLEURE SOLUTION ? ----------
+                //
+                // L'agent ne conteste QUE là où il a une route déclarée
+                // meilleure. Ailleurs il exécute : contester sans savoir quoi
+                // proposer serait de l'obstruction, pas du jugement.
+                IF p.commande == alarm_ack AND p.cible_defaut_actif == yes THEN {
+                    SET proposition.meilleure = non
+                    SET proposition.mieux     = reparer_le_defaut
+                    SET proposition.motif     = acquitter_n_est_pas_reparer
+                }
+                IF p.commande == alarm_ack AND p.cible_severite == critical THEN {
+                    SET proposition.meilleure = non
+                    SET proposition.mieux     = escalader_l_alarme
+                    SET proposition.motif     = une_critique_se_remonte_elle_ne_s_acquitte_pas
+                }
+
+                // ---- TROIS ISSUES, UNE SEULE PAR CONSIGNE -----------------
+                //
+                // Le refus passe en premier : ce qui est irrecevable ou moins
+                // bon ne s'arme pas non plus, sinon « armer » deviendrait la
+                // façon polie de ne jamais trancher.
+                IF proposition.recevable == non OR proposition.meilleure == non THEN {
+                    refuser_consigne(rang     = p.index,
+                                     commande = p.commande,
+                                     motif    = proposition.motif)
+                } ELSE {
+                    IF proposition.echeance == quand_le_parametre_evolue THEN {
+                        programmer_consigne(rang     = p.index,
+                                            commande = p.commande,
+                                            cible    = p.cible,
+                                            garde    = proposition.garde)
+                    } ELSE {
+                        executer_consigne(rang        = p.index,
+                                          commande    = p.commande,
+                                          cible       = p.cible,
+                                          jeton       = p.jeton,
+                                          implication = proposition.implication)
+                    }
+                }
+            }
+        }
+        STEP marquer {
+            SET consignes.examinees = yes
+        }
+        STEP confirmer {
+            VERIFY { consignes.examinees == yes }
+        }
+    }
+
+    // -- Étape 5 : traiter ce que le responsable n'a pas couvert --------------
+    //
+    // « Toutes les alarmes actives doivent être traitées » veut dire toutes,
+    // pas seulement celles dont on a parlé. La route de chaque alarme est
+    // décidée sur SES faits — jamais sur un compteur global :
+    //
+    //   un défaut équipement est en attente derrière elle  → on le répare
+    //   critique sans défaut, rien ne la répare            → on la remonte
+    //   pas encore acquittée, cause comprise               → on l'acquitte
+    //   déjà acquittée et toujours là                      → on la remonte
+    //
+    // LA DERNIÈRE LIGNE A CHANGÉ LE 2026-08-14, et c'est le vrai défaut que la
+    // ronde du carburant a mis au jour. Elle disait « on la laisse, en le
+    // disant » — sauf que `differer_une_alarme` n'écrit à personne : le motif
+    // partait dans la trace locale et le responsable n'en savait rien. Une
+    // alarme déjà acquittée, encore là, sans défaut derrière elle, est
+    // exactement la définition de « rien dans mon catalogue n'y remédie » :
+    // c'est le cas d'escalade, pas le cas de silence. La sévérité ne change
+    // rien à ça — elle décide seulement si on tente l'acquittement d'abord.
+    //
+    // CE QUE ÇA COÛTE, et il faut le dire : une alarme durablement non
+    // traitable est désormais remontée à CHAQUE ronde. C'est le prix assumé
+    // pour qu'aucune ne s'éteigne en silence ; l'inverse — la taire au bout de
+    // la première fois — supposerait de savoir que quelqu'un l'a lue, ce que
+    // l'agent ne sait pas.
+    //
+    // `differer_une_alarme` ne disparaît pas : elle reste la disposition de
+    // DERNIER RECOURS, dans le solde, quand même l'escalade est fermée.
+    PLAN traiter_les_alarmes
+        WHEN consignes.examinees == yes
+          AND alarmes.non_traitees > 0
+          AND (traitement.fait == no
+               OR verdict_alarme != indetermine)
+    {
+        STEP traiter {
+            FOREACH a IN alarmes_actives MAX 40 {
+                IF a.traitee == no THEN {
+                    // Une alarme revenue à la normale n'est plus une
+                    // critique active : l'acquitter ferme son occurrence sans
+                    // masquer une cause qui persiste.
+                    IF a.etat == CLEARED_UNACK THEN {
+                        acquitter_une_alarme(alarme = a.id,
+                                             jeton  = a.jeton)
+                    } ELSE {
+                        IF a.defaut_actif == yes THEN {
+                            reparer_le_defaut(alarme = a.id,
+                                              defaut = a.defaut,
+                                              jeton  = a.jeton)
+                        } ELSE {
+                            IF a.severite == critical THEN {
+                                escalader_une_alarme(alarme     = a.id,
+                                                     equipement = a.source,
+                                                     motif      = critique_sans_defaut_equipement,
+                                                     jeton      = a.jeton)
+                            } ELSE {
+                                IF a.acquittee == no THEN {
+                                    acquitter_une_alarme(alarme = a.id,
+                                                         jeton  = a.jeton)
+                                } ELSE {
+                                    escalader_une_alarme(alarme     = a.id,
+                                                         equipement = a.source,
+                                                         motif      = deja_acquittee_toujours_presente,
+                                                         jeton      = a.jeton)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        STEP marquer {
+            SET traitement.fait = yes
+        }
+        STEP confirmer {
+            VERIFY { traitement.fait == yes }
+        }
+    }
+
+    // -- Étape 6 : solder ce qu'aucune route n'a pu traiter -------------------
+    //
+    // Le `FOREACH` travaille sur l'instantané observé au début du tick.
+    // Acquitter la représentante la plus récente d'une condition répétée peut
+    // donc révéler une occurrence plus ancienne au tick suivant. Tant que le
+    // verdict est opérationnel, cette occurrence repasse par le plan normal :
+    // elle ne tombe jamais directement dans le solde.
+    //
+    // Le solde est réservé au seul verdict `indetermine` : aucune commande
+    // opérationnelle n'est alors autorisée. Une panne d'outil sous un verdict
+    // exploitable ne doit pas être maquillée en renoncement ; la ronde reste
+    // ouverte et retente jusqu'à sa limite. Si même `differer_une_alarme` est
+    // fermé par la confiance, la ronde reste également ouverte.
+    PLAN solder_l_inventaire
+        WHEN traitement.fait == yes
+          AND verdict_alarme == indetermine
+          AND inventaire.fait == no
+          AND solde.tente == no
+          AND alarmes.non_traitees > 0
+    {
+        STEP marquer {
+            SET solde.tente = yes
+        }
+        STEP solder {
+            FOREACH a IN alarmes_actives MAX 40 {
+                IF a.traitee == no THEN {
+                    differer_une_alarme(alarme = a.id,
+                                        jeton  = a.jeton,
+                                        motif  = aucune_route_permise)
+                }
+            }
+        }
+    }
+
+    // -- Sortie : la relance demandee est deja engagee ----------------------
+    // La cadence moyenne reste une mesure physique ; elle peut suivre la
+    // consigne avec plusieurs minutes de retard sans autoriser un second ordre.
+    PLAN reconnaitre_consigne_nominale_deja_posee
+        WHEN diagnostics.done == yes
+          AND ronde.volet_cadence != traite
+          AND conseil_production == relancer
+          AND site.consigne_l1_pct >= consigne.cadence_nominale
+          AND site.consigne_l2_pct >= consigne.cadence_nominale
+          AND site.consigne_l3_pct >= consigne.cadence_nominale
+          AND site.consigne_l4_pct >= consigne.cadence_nominale
+    {
+        STEP constater {
+            constater_consigne_nominale(
+                cadence = site.cadence_pct,
+                etat_l1 = site.etat_l1,
+                etat_l2 = site.etat_l2,
+                etat_l3 = site.etat_l3,
+                etat_l4 = site.etat_l4)
+        }
+        STEP confirmer {
+            VERIFY { ronde.volet_cadence == traite }
+        }
+    }
+
+
+    // -- Étape 2 : consulter le responsable de site --------------------------
+    PLAN consulter_le_responsable
+        WHEN diagnostics.done == yes
+          AND consultation.done == no
+          AND ronde.volet_cadence != traite
+    {
+        STEP demander {
+            consulter_responsable(conseil = conseil_production,
+                                  motif   = classe_alarme)
+        }
+        STEP classer {
+            REASON {
+                TASK    "Determiner si le responsable de site donne un accord EXPLICITE a l'action proposee. Toute reponse evasive, conditionnelle, hors sujet ou silencieuse vaut refus."
+                USING   { reponse }
+                // Domaine clos de deux valeurs, repli en dernière position :
+                // une sortie hors format est écrêtée sur `refus`.
+                PRODUCE { avis_responsable: Symbol IN [accord, refus] DEFAULT refus }
+            }
+        }
+        STEP marquer {
+            SET consultation.done = yes
+        }
+        STEP confirmer {
+            VERIFY { consultation.done == yes }
+        }
+    }
+
+    // -- Étape 2 bis : consulter sur le bridage de conformité ----------------
+    //
+    // Une consultation SÉPARÉE, avec sa propre question et sa propre croyance.
+    // La consultation générale porte sur le conseil du sous-agent production
+    // (« faut-il relancer ? ») ; celle-ci porte sur le bridage du traitement
+    // de surface. Les confondre inverserait le sens d'un refus, cf. le run du
+    // 2026-08-13 où le responsable a refusé une relance PARCE QUE le rejet
+    // était hors limites.
+    //
+    // La garde s'éteint par l'hôte (`conformite.consultee`), posé au moment
+    // où la question part : ce que l'on ne redemande pas, c'est ce qui a déjà
+    // été demandé, même si la réponse n'est pas exploitable.
+    PLAN consulter_sur_le_bridage
+        WHEN diagnostics.done == yes
+          AND site.rejet_conforme == no
+          AND conformite.consultee == no
+    {
+        STEP demander {
+            consulter_sur_conformite(
+                charge = site.charge_traitement_pct,
+                cible  = consigne.cadence_conformite)
+        }
+        STEP classer {
+            REASON {
+                TASK    "Determiner si le responsable de site donne un accord EXPLICITE pour brider la ligne de traitement de surface exactement a cible_soumise. Une reponse qui nomme une autre cible, meme accompagnee de oui, vaut refus. Toute reponse evasive, conditionnelle, hors sujet ou silencieuse vaut refus."
+                USING   { reponse, cible_soumise }
+                PRODUCE { avis_conformite: Symbol IN [accord, refus] DEFAULT refus }
+            }
+        }
+        STEP confirmer {
+            VERIFY { conformite.consultee == yes }
+        }
+    }
+
+    // -- Sortie explicite quand la ronde ne peut pas aboutir -----------------
+    //
+    // DÉCLENCHÉE PAR UNE GARDE `WHEN`, ET NON PAR UNE RÈGLE `DECIDE` — et
+    // c'est un point de fond, mesuré sur ce programme :
+    //
+    // Un plan synthétisé dont une étape échoue laisse `verify_failure` armé
+    // jusqu'au plan suivant. Or `exec_stmts` rend la main dès que ce drapeau
+    // est posé, et c'est `exec_stmts` qui exécute le `THEN` d'une règle
+    // `DECIDE`. Conséquence : après un plan en échec, aucune règle `DECIDE`
+    // ne peut plus rien déclencher — exactement la situation pour laquelle
+    // une escalade existe. Les gardes de plan, elles, passent par
+    // `_enqueue` et ne sont pas concernées.
+    //
+    // La garde s'éteint par `SET escalade.envoyee = yes` : sans cela elle se
+    // réenfilerait à chaque tick et la synthèse ne se produirait jamais.
+    PLAN escalader
+        WHEN escalade.envoyee != yes
+          AND ronde.status != terminee
+          AND (site.read_ok != yes OR approbation.refusee == yes)
+    {
+        STEP notifier {
+            SET escalade.envoyee = yes
+            informer_responsable(sujet = "ronde_de_supervision_incomplete")
+        }
+        STEP confirmer {
+            VERIFY { escalade.envoyee == yes }
+        }
+    }
+
+    // L'escalade déclarée que T2 exige : sans elle, chaque interdit qui
+    // rend la clôture inatteignable est une ERREUR V105 (« plus aucune
+    // route permise »), et non l'information V112 (« conduite attendue »).
+    //
+    // Elle DOUBLE la garde ci-dessus, et les deux sont nécessaires : celle-ci
+    // porte la preuve, celle-là porte l'exécution. Leurs conditions sont
+    // disjointes en pratique — `planner.exhausted` n'est posé qu'après la
+    // synthèse, donc les deux ne peuvent pas enfiler le plan au même tick.
+    DECIDE {
+        RULES {
+            IF planner.exhausted
+                AND ronde.status != terminee
+                AND escalade.envoyee != yes
+                THEN escalader
+        }
+    }
+
+
+    // -- Critères d'acceptation ---------------------------------------------
+    //
+    // Ils portent sur la FRONTIÈRE : les verdicts des sous-agents se POSENT
+    // dans le `GIVEN` (c'est tout ce que le superviseur en voit, cf. EXPECT),
+    // et l'on vérifie que la politique DU SUPERVISEUR en tire la bonne
+    // conduite. Chaque spécialiste porte ses propres scénarios.
+    //
+    // CE QUE CES SCÉNARIOS NE COUVRENT PAS, ET OÙ LA PREUVE VIT.
+    //
+    // `GIVEN` pose des scalaires : la grammaire n'a pas de littéral
+    // d'enregistrement, on ne peut donc pas y poser une liste d'alarmes ou de
+    // consignes avec leurs champs. Le corps des `FOREACH` — le choix de route
+    // alarme par alarme, la corrélation jeton/cible — n'est pas atteignable
+    // ici. C'est la même limite que `linux_defender.agent`, qui teste lui
+    // aussi ses invariants scalaires et pas son itération.
+    //
+    // Ce qui la compense, et il faut le lire ensemble :
+    //   · les jugements des quatre contrôles sont des croyances SCALAIRES,
+    //     donc lisibles par une garde, donc testables — c'est pour cela
+    //     qu'ils ne vivent pas dans les locales du `FOREACH` ;
+    //   · `agentl verify` démontre T1 (aucun appel interdit n'aboutit) et T2
+    //     (sous chaque interdit, une route ou une escalade) sur les chemins
+    //     de l'élément courant, ce qu'aucun scénario ne saurait énumérer ;
+    //   · une ronde réelle en dry-run sur ENTERPRISE-SIM exerce l'itération
+    //     complète avec de vraies alarmes et de vraies consignes.
+
+    // PROPRIÉTÉ N°2 DU FICHIER — « toutes les alarmes actives doivent être
+    // traitées » n'a de valeur que si la clôture le vérifie.
+    //
+    // Tout est bon par ailleurs : perception saine, verdicts nets, cadence
+    // correcte, responsable d'accord. SEULES trois alarmes sans disposition
+    // retiennent la ronde.
+    //
+    // MUTATION, ET CE QUI A ÉTÉ MESURÉ PLUTÔT QUE SUPPOSÉ : aucun retrait
+    // isolé ne fait tomber ce scénario. Trois verrous portent la propriété,
+    // et chacun suffit seul —
+    //   `NEVER cloturer_l_inventaire WHEN alarmes.non_traitees > 0`,
+    //   le `REQUIRES ... AND alarmes.non_traitees <= 0` du même outil,
+    //   `NEVER cloturer_ronde WHEN alarmes.non_traitees > 0`.
+    // Il faut retirer LES TROIS pour que la ronde se clôture sur un
+    // inventaire incomplet ; le scénario rompt alors au tick 3.
+    SCENARIO aucune_cloture_tant_qu_une_alarme_reste_sans_disposition {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 3
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 92
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            alarmes.non_traitees        = 3
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = no
+            verdict_alarme              = acquittement
+            classe_alarme               = information
+            confiance_alarme            = 0.20
+            conseil_production          = maintenir
+            goulot_production           = aucun
+            confiance_production        = 0.30
+            avis_responsable            = accord
+        }
+        EXPECT { ronde.status != terminee } WITHIN 12
+    }
+
+    // LE CONTRE-FACTUEL DU PRÉCÉDENT, et il est indispensable : sans lui,
+    // le scénario ci-dessus passerait aussi si la ronde ne pouvait JAMAIS se
+    // clore. Même monde, à ceci près que l'inventaire est soldé.
+    SCENARIO inventaire_solde_la_ronde_se_clot {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 92
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = no
+            verdict_alarme              = acquittement
+            classe_alarme               = information
+            confiance_alarme            = 0.20
+            conseil_production          = maintenir
+            goulot_production           = aucun
+            confiance_production        = 0.30
+            avis_responsable            = accord
+        }
+        EXPECT {
+            ronde.volet_alarmes == traite
+            ronde.status        == terminee
+        } WITHIN 12
+    }
+
+    // CONTRÔLE 2 — LE DÉFAUT FERMÉ DE L'EXAMEN DES CONSIGNES.
+    //
+    // Le scénario le plus important du nouveau volet. Une consigne est bien
+    // présente dans `propositions`, l'agent l'examine, et il n'en tire AUCUNE
+    // commande : ses champs ne renseignent aucune ligne du tableau des
+    // implications, `proposition.implication` reste donc `inconnue`, ce qui
+    // rend la consigne irrecevable et la route vers `refuser_consigne`.
+    //
+    // C'est exactement le comportement attendu d'une commande que le
+    // responsable inventerait, ou d'un catalogue qui aurait changé sous
+    // l'agent.
+    //
+    // CE QUE CE SCÉNARIO DÉMONTRE, EXACTEMENT. Aucun retrait — isolé ou
+    // combiné — ne le fait tomber, et c'est le résultat qui compte : la
+    // consigne est arrêtée cinq fois plutôt qu'une. Trois contrôles de
+    // recevabilité la routent vers le refus (`args_valides`,
+    // `cible_attestee`, implication `inconnue`) ; quatre `NEVER` la
+    // bloqueraient encore ; et le dernier rempart n'est même pas la politique
+    // mais le CONTRAT D'ENTRÉE — `cible` est indéfini, `executer_consigne`
+    // l'exige `String`, et le runtime refuse l'appel. La propriété démontrée
+    // est donc : une consigne dont les champs manquent ne produit AUCUNE
+    // commande, quel que soit le maillon qu'on retire.
+    //
+    // Ce qu'il ne démontre PAS : le tri entre implications déclarées, qui
+    // demanderait de poser une consigne complète — impossible sans littéral
+    // d'enregistrement dans `GIVEN`. Cette part-là est portée par T1 dans
+    // `agentl verify` et par la ronde réelle en dry-run.
+    //
+    // La seconde attente compte autant que la première : un refus doit être
+    // une ROUTE, pas un cul-de-sac. La ronde se clôt quand même.
+    SCENARIO consigne_d_implication_non_declaree_est_refusee {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 92
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            propositions                = [ consigne_que_je_ne_connais_pas ]
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            traitement.fait             = yes
+            inventaire.fait             = no
+            verdict_alarme              = acquittement
+            classe_alarme               = information
+            confiance_alarme            = 0.20
+            conseil_production          = maintenir
+            goulot_production           = aucun
+            confiance_production        = 0.30
+            avis_responsable            = accord
+        }
+        EXPECT {
+            site.commande_envoyee != yes
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // MUTATION : retirer `NEVER brider_cadence WHEN avis_responsable != accord`
+    // fait tomber ce scénario. Le spécialiste conseille de brider, sa
+    // confiance est suffisante, la perception est bonne — SEUL le silence du
+    // responsable de site retient l'agent. Le défaut du `GIVEN` est le refus,
+    // exactement comme dans le runtime. Invariant : aucune commande.
+    SCENARIO responsable_muet_la_cadence_ne_bouge_pas {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 85
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            // Volet alarmes déjà soldé : ce scénario porte sur la cadence.
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = surveillance
+            classe_alarme               = information
+            confiance_alarme            = 0.20
+            conseil_production          = brider
+            goulot_production           = air_comprime
+            confiance_production        = 0.88
+            avis_responsable            = refus
+        }
+        EXPECT { site.commande_envoyee != yes } WITHIN 12
+    }
+
+    // Les deux spécialistes ont rendu un verdict non concluant — API muette
+    // de leur côté, oracle mort, ou réponse hors format. Le superviseur doit
+    // clore la ronde SANS toucher à l'usine.
+    //
+    // HONNÊTETÉ SUR CE QUI PORTE CETTE PROPRIÉTÉ : ce scénario est
+    // SUR-DÉTERMINÉ, et c'est mesuré. Aucune mutation essayée ne le fait
+    // tomber — ni les trois `NEVER ... WHEN verdict_alarme == indetermine`,
+    // ni les trois `NEVER ... WHEN conseil_production != <valeur>`, ni les
+    // `REQUIRES` correspondants. Chacun suffit seul. Il vaut donc comme
+    // NON-RÉGRESSION, pas comme test discriminant d'un interdit précis, et
+    // les interdits restent de la défense en profondeur.
+    SCENARIO verdicts_non_concluants_aucune_commande {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 3
+            site.alarmes_non_acquittees = 40
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 60
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = indetermine
+            classe_alarme               = indetermine
+            confiance_alarme            = 0.99
+            conseil_production          = indetermine
+            goulot_production           = indetermine
+            confiance_production        = 0.99
+            avis_responsable            = accord
+        }
+        EXPECT { site.commande_envoyee != yes } WITHIN 12
+    }
+
+    // On ne déclare pas une ronde faite quand on ne voit plus l'usine — et
+    // l'escalade déclarée fait que l'agent ne cale pas en silence pour autant.
+    //
+    // HONNÊTETÉ, LÀ AUSSI : retirer `NEVER cloturer_ronde WHEN site.read_ok
+    // != yes` ne fait PAS tomber ce scénario, seul ou combiné à d'autres
+    // retraits — mesuré. Ce qui le porte d'abord, c'est la garde de plan
+    // `WHEN site.read_ok == yes` de `ronde_diagnostic` : le diagnostic n'a
+    // pas lieu, `diagnostics.done` reste `no`, et la chaîne de `REQUIRES`
+    // ferme tout le reste. L'interdit est de la défense en profondeur, et il
+    // porte réellement dans le cas voisin — l'usine qui s'éteint APRÈS le
+    // diagnostic, que ce scénario-ci n'atteint pas.
+    SCENARIO usine_injoignable_la_ronde_ne_se_clot_pas {
+        GIVEN {
+            site.read_ok                = no
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 0
+            approbation.refusee         = no
+            site.rejet_conforme         = inconnu
+            site.charge_traitement_pct  = 0
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = indetermine
+            classe_alarme               = indetermine
+            confiance_alarme            = 0.0
+            conseil_production          = indetermine
+            goulot_production           = indetermine
+            confiance_production        = 0.0
+            avis_responsable            = accord
+        }
+        EXPECT {
+            site.commande_envoyee != yes
+            ronde.status          != terminee
+        } WITHIN 12
+    }
+
+    // NON-RÉGRESSION — reproduit le run réel du 2026-08-13 16:09
+    // (`valmont.json`) : verdict `acquittement` avec 88 alarmes en attente,
+    // conseil `relancer`, et un responsable de site qui refuse.
+    //
+    // L'agent avait alors laissé la ronde ouverte : le volet cadence n'avait
+    // aucune route, et le planificateur abandonne un but inatteignable EN
+    // ENTIER, emportant le volet alarmes avec lui. Un blocage sur une moitié
+    // de la ronde ne doit pas emporter l'autre. MUTATION : retirer
+    // `ALLOW renoncer_a_la_cadence` fait retomber ce scénario.
+    SCENARIO veto_sur_la_cadence_n_empeche_pas_de_clore_le_volet_alarmes {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 88
+            site.alarmes_critiques      = 1
+            site.cadence_pct            = 66.4
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = no
+            verdict_alarme              = acquittement
+            classe_alarme               = utilite_indisponible
+            confiance_alarme            = 0.346
+            conseil_production          = relancer
+            goulot_production           = aucun
+            confiance_production        = 0.001
+            avis_responsable            = refus
+        }
+        EXPECT {
+            ronde.volet_alarmes == traite
+            ronde.status        == terminee
+        } WITHIN 12
+    }
+
+    // Le veto accordé : même monde que `responsable_muet`, mais le
+    // responsable dit oui. La commande part. C'est le contre-factuel qui
+    // prouve que ce scénario-là teste bien le veto, et non une impossibilité
+    // de fond.
+    SCENARIO responsable_d_accord_la_cadence_est_bridee {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 85
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = surveillance
+            classe_alarme               = information
+            confiance_alarme            = 0.20
+            conseil_production          = brider
+            goulot_production           = air_comprime
+            confiance_production        = 0.88
+            avis_responsable            = accord
+        }
+        EXPECT {
+            site.commande_envoyee == yes
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // Contre-factuel positif de la relance : le postérieur de bridage vaut
+    // 0,001, donc la confiance dans son complément (`relancer`) vaut 0,999.
+    SCENARIO responsable_d_accord_la_cadence_est_relancee {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 60
+            site.consigne_l1_pct         = 60
+            site.consigne_l2_pct         = 60
+            site.consigne_l3_pct         = 60
+            site.consigne_l4_pct         = 60
+            approbation.refusee         = no
+            site.rejet_conforme         = yes
+            site.charge_traitement_pct  = 78
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = surveillance
+            classe_alarme               = information
+            confiance_alarme            = 0.003
+            conseil_production          = relancer
+            goulot_production           = aucun
+            confiance_production        = 0.999
+            avis_responsable            = accord
+        }
+        EXPECT {
+            site.commande_envoyee == yes
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // La consigne nominale est deja posee, mais une ligne termine encore son
+    // redemarrage : la cadence REELLE moyenne reste donc a 75 %. Une nouvelle
+    // commande ALL=100 ne peut ni accelerer le SETUP ni lancer la ligne ; elle
+    // ne ferait que produire un second recu identique.
+    SCENARIO relance_deja_commandee_n_est_pas_repetee {
+        GIVEN {
+            site.read_ok                         = yes
+            site.defauts_ouverts                 = 0
+            site.alarmes_non_acquittees          = 0
+            site.alarmes_critiques               = 0
+            site.cadence_pct                     = 75
+            site.consigne_l1_pct                 = 100
+            site.consigne_l2_pct                 = 100
+            site.consigne_l3_pct                 = 100
+            site.consigne_l4_pct                 = 100
+            site.etat_l1                         = RUN
+            site.etat_l2                         = SETUP
+            site.etat_l3                         = RUN
+            site.etat_l4                         = RUN
+            approbation.refusee                  = no
+            site.rejet_conforme                  = yes
+            site.charge_traitement_pct           = 100
+            alarmes.non_traitees                 = 0
+            consignes.reprises                   = yes
+            consigne.demandee                    = yes
+            consignes.examinees                  = yes
+            traitement.fait                      = yes
+            inventaire.fait                      = yes
+            ronde.volet_alarmes                  = traite
+            verdict_alarme                       = surveillance
+            classe_alarme                        = information
+            confiance_alarme                     = 0.003
+            conseil_production                   = relancer
+            goulot_production                    = aucun
+            confiance_production                 = 0.999
+            avis_responsable                     = accord
+        }
+        EXPECT {
+            site.commande_envoyee == no
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // LE FAIT PRIME SUR L'ACCORD — le scénario le plus important du lot.
+    //
+    // Tout pousse ici à relancer : le spécialiste production le conseille
+    // avec une confiance de 0,88, le responsable de site donne son accord
+    // explicite, la cadence est basse, aucune alarme critique n'est au
+    // tableau. SEUL le rejet hors limites retient l'agent.
+    //
+    // MUTATION : retirer `NEVER relancer_cadence WHEN site.rejet_conforme
+    // != yes` fait tomber ce scénario. C'est la seule garde de ce programme
+    // qu'aucun modèle ne peut lever — ni un sous-agent, ni le chatbot, ni
+    // désormais une consigne du responsable de site, qui tombe sous le même
+    // interdit par `NEVER executer_consigne WHEN site.rejet_conforme != yes`.
+    SCENARIO rejet_hors_limites_aucune_relance {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 60
+            approbation.refusee         = no
+            site.rejet_conforme         = no
+            site.charge_traitement_pct  = 82
+            conformite.consultee        = yes
+            conformite.cible_demandee_pct = 50
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = surveillance
+            classe_alarme               = securite_environnement
+            confiance_alarme            = 0.20
+            conseil_production          = relancer
+            goulot_production           = aucun
+            confiance_production        = 0.88
+            avis_responsable            = accord
+            avis_conformite             = refus
+        }
+        EXPECT {
+            site.commande_envoyee == no
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // Le pendant positif : accord donné SUR LE BRIDAGE, la ligne descend.
+    //
+    // MUTATION : retirer `ALLOW brider_pour_conformite` fait tomber ce
+    // scénario — le volet cadence n'aurait plus que la sortie à 7, qui ne
+    // passe aucune commande, et `site.commande_envoyee` resterait `no`.
+    SCENARIO accord_de_conformite_la_ligne_est_bridee {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 90
+            approbation.refusee         = no
+            site.rejet_conforme         = no
+            site.charge_traitement_pct  = 82
+            conformite.consultee        = yes
+            conformite.cible_demandee_pct = 50
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = surveillance
+            classe_alarme               = securite_environnement
+            confiance_alarme            = 0.20
+            conseil_production          = maintenir
+            goulot_production           = aucun
+            confiance_production        = 0.30
+            avis_responsable            = refus
+            avis_conformite             = accord
+        }
+        EXPECT {
+            site.commande_envoyee == yes
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // Un « oui » qui nomme 70 % ne porte pas approbation de la cible 50 %.
+    // Même si le classificateur rendait `accord`, la liaison déterministe à la
+    // cible soumise ferme l'action et force la sortie sans commande.
+    SCENARIO accord_sur_une_autre_cible_ne_permet_pas_le_bridage {
+        GIVEN {
+            site.read_ok                   = yes
+            site.defauts_ouverts            = 0
+            site.alarmes_non_acquittees     = 0
+            site.alarmes_critiques          = 0
+            site.cadence_pct                = 90
+            approbation.refusee             = no
+            site.rejet_conforme             = no
+            site.charge_traitement_pct      = 82
+            conformite.consultee            = yes
+            conformite.cible_demandee_pct   = 70
+            alarmes.non_traitees            = 0
+            consignes.reprises              = yes
+            consigne.demandee               = yes
+            consignes.examinees             = yes
+            traitement.fait                 = yes
+            inventaire.fait                 = yes
+            ronde.volet_alarmes             = traite
+            verdict_alarme                  = surveillance
+            classe_alarme                   = securite_environnement
+            confiance_alarme                = 0.20
+            conseil_production              = maintenir
+            goulot_production               = aucun
+            confiance_production            = 0.30
+            avis_responsable                = refus
+            avis_conformite                 = accord
+        }
+        EXPECT {
+            site.commande_envoyee == no
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // Refus du bridage : aucune commande, mais la ronde se clôt quand même.
+    // C'est la sortie `signaler_rejet_non_conforme` qui la porte — sans elle
+    // le volet cadence n'aurait plus de route et le planificateur
+    // abandonnerait AUSSI le volet alarmes.
+    SCENARIO refus_du_bridage_la_ronde_se_clot_quand_meme {
+        GIVEN {
+            site.read_ok                = yes
+            site.defauts_ouverts        = 0
+            site.alarmes_non_acquittees = 0
+            site.alarmes_critiques      = 0
+            site.cadence_pct            = 90
+            approbation.refusee         = no
+            site.rejet_conforme         = no
+            site.charge_traitement_pct  = 82
+            conformite.consultee        = yes
+            conformite.cible_demandee_pct = 50
+            alarmes.non_traitees        = 0
+            consignes.reprises          = yes
+            consigne.demandee           = yes
+            consignes.examinees         = yes
+            traitement.fait             = yes
+            inventaire.fait             = yes
+            ronde.volet_alarmes         = traite
+            verdict_alarme              = surveillance
+            classe_alarme               = securite_environnement
+            confiance_alarme            = 0.20
+            conseil_production          = maintenir
+            goulot_production           = aucun
+            confiance_production        = 0.30
+            avis_responsable            = refus
+            avis_conformite             = refus
+        }
+        EXPECT {
+            site.commande_envoyee == no
+            ronde.status          == terminee
+        } WITHIN 12
+    }
+
+    // MAX 20 : après chaque acquittement, une occurrence plus ancienne de la
+    // même condition peut devenir la représentante de l'inventaire. Chaque
+    // couche demande un nouveau tick ; vingt couvre l'arriéré maximal observé
+    // (quatorze répétitions) et les six étapes fixes de la ronde.
+    LOOP UNTIL goal.satisfied MAX 20 {
+        OBSERVE
+        UPDATE_BELIEFS
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

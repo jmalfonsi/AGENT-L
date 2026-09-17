@@ -1,0 +1,272 @@
+// ---------------------------------------------------------------------------
+// SERVICE_MEDIC — second banc d'essai RÉEL d'AGENT-L.
+//
+// Le patient est un vrai processus Linux (examples/live_service.py) qui a
+// réellement crashé : son journal contient un vrai traceback. L'agent est
+// réveillé par un EVENT, délègue une sonde HTTP réelle à un sous-agent,
+// fait diagnostiquer la cause racine par un vrai LLM (Gemini) à partir du
+// journal, puis redémarre réellement le processus — synthèse du
+// planificateur, sans approbation cette fois : le postérieur dépasse le
+// seuil d'autonomie. Contre-factuel : en fenêtre de maintenance, NEVER
+// interdit le redémarrage et l'agent ouvre un vrai ticket d'incident.
+//
+// Par rapport à disk_sentinel : EVENT, DELEGATE, autonomie sans approbation.
+// ---------------------------------------------------------------------------
+
+AGENT SERVICE_MEDIC {
+
+    VERSION "1.4"
+    DESCRIPTION "Médecin de service : diagnostique un vrai processus HTTP mort et le redémarre sous contrainte de politique."
+
+    // Ce qu'est un service « sain » est une règle : elle s'écrit ICI. L'hôte
+    // rend le code HTTP brut, il ne dit pas si l'objectif est atteint.
+    GOAL heal {
+        MAINTAIN service.http_status == 200
+        WEIGHT   2
+    }
+
+    OBSERVE {
+        service.http_status
+        service.latency_ms
+        process.alive
+        service.error_count
+        service.log_tail
+        system.load1
+        maintenance.window
+    }
+
+    BELIEF {
+        // Marqueur d'avancement : il garde le REQUIRES du redémarrage, il doit
+        // donc exister avant le premier tick (W117).
+        diagnosis.done = no      CONFIDENCE 0.10 SOURCE prior
+        service_name   = unknown CONFIDENCE 0.10 SOURCE prior
+        root_cause     = unknown CONFIDENCE 0.10 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { current_outage }
+        LONG_TERM  { outages }
+
+        WRITE {
+            WHEN  service.http_status == 200 AND root_cause != unknown
+            STORE { service_name, root_cause, service.latency_ms }
+            INTO  LONG_TERM.outages
+        }
+    }
+
+    // -- Capacités -----------------------------------------------------------
+
+    TOOL read_logs {
+        DESCRIPTION "Lit la fin du journal réel du service."
+        OUTPUT { error_count: Number, tail: String }
+        RISK   LOW
+        EFFECT { logs.read = yes INTERNAL }
+        COST   1
+    }
+
+    TOOL restart_service {
+        DESCRIPTION "Tue et relance réellement le processus, puis attend que /health réponde."
+        INPUT       { service: String BIND service_name }
+        // Le code brut, pas un jugement : c'est le `.agent` qui décide
+        // ce que « 200 » veut dire.
+        OUTPUT      { http_status: Number }
+        SIDE_EFFECT { process.table }
+        RISK        { operational = HIGH }
+        REQUIRES    { diagnosis.done == yes AND service_name != unknown }
+        EFFECT      { service.http_status = 200 }
+        COST        5
+    }
+
+    TOOL file_incident {
+        DESCRIPTION "Écrit un vrai fichier d'incident sur le disque."
+        INPUT  { summary: String }
+        OUTPUT { incident_id: String }
+        RISK   LOW
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+    }
+
+    // -- Politique -----------------------------------------------------------
+
+    // Sous-agent délégué : contrat explicite (v1.6 — `DELEGATE` passe par
+    // le moteur de politiques, comme tout appel).
+    TOOL prober {
+        INPUT  { }
+        OUTPUT { reachable: Symbol }
+        RISK   { operational = LOW }
+    }
+
+    POLICY {
+        DEFAULT DENY
+
+        // Sans cette ligne, DEFAULT DENY bloque la délégation —
+        // et c'est bien ce qu'il doit faire.
+        ALLOW prober
+
+        ALLOW read_logs
+        ALLOW file_incident
+        ALLOW notify_operator
+
+        ALLOW restart_service
+            IF P(service_crash) >= 0.90
+
+        // Rétabli : l'hôte pose bien le marqueur `.maintenance` sous
+        // AGENTL_MAINTENANCE. Commenté, ce contre-factuel ne testait RIEN —
+        // et `maintenance.window` était un capteur que personne ne lisait
+        // (W103). Un interdit décoratif est pire qu'aucun interdit.
+        NEVER restart_service
+            WHEN maintenance.window == open
+
+        // Sous 0.95 il faudrait un humain — mais le modèle calibré atteint
+        // 0.967 quand tout concorde : l'agent gagne son autonomie.
+        REQUIRE APPROVAL FOR restart_service
+            WHEN P(service_crash) < 0.95
+    }
+
+    // -- Inférence -----------------------------------------------------------
+
+    HYPOTHESIS service_crash {
+        DESCRIPTION "Le processus est mort — ni le port ni le process ne répondent."
+        PRIOR 0.15
+
+        EVIDENCE {
+            // Un processus mort ET un port muet sont le même fait vu deux fois.
+            GROUP outage {
+                process.alive == no          LIKELIHOOD 0.97 GIVEN_NOT 0.05
+                service.http_status < 200    LIKELIHOOD 0.95 GIVEN_NOT 0.05
+            }
+            service.error_count > 0          LIKELIHOOD 0.85 GIVEN_NOT 0.10
+        }
+
+        MAX_EVIDENCE 8
+        THRESHOLD 0.90
+        EXPLAINS  outage.kind
+    }
+
+    // -- Planification -------------------------------------------------------
+
+    PLANNER {
+        ENABLE
+        ACHIEVE       service.http_status == 200
+        MAX_DEPTH     3
+        MAX_NODES     500
+        APPROVAL_COST 10
+    }
+
+    // -- Diagnostic : déclenché par l'EVENT, une seule fois ------------------
+
+    PLAN diagnose_service {
+
+        STEP triage {
+            read_logs()
+            DELEGATE prober {
+                TASK   "sonder l'endpoint de santé du service"
+                INPUT  { service.http_status }
+                // La sonde rend le code observé, pas un verdict.
+                EXPECT { probe_code, probe_evidence }
+            }
+        }
+
+        STEP identify {
+            REASON {
+                TASK    "identifier la cause racine du crash à partir du journal, et donner le nom exact du service tel qu'il y apparaît"
+                USING   { service.log_tail, service.error_count, probe_evidence,
+                          system.load1, service.latency_ms }
+                PRODUCE { root_cause:   Symbol IN [oom, port_conflict,
+                                                   crash_loop, unknown],
+                          service_name: String }
+            }
+        }
+
+        STEP mark {
+            SET diagnosis.done = yes
+        }
+    }
+
+    PLAN escalate_to_operator {
+        STEP report {
+            SET escalation.sent = yes
+            file_incident("Redémarrage automatique interdit — intervention manuelle requise")
+            notify_operator("svc-demo est mort et la politique interdit d'agir : incident ouvert")
+        }
+    }
+
+    // -- Critères d'acceptation ----------------------------------------------
+
+    // Nominal : le service est mort, hors fenêtre de maintenance — l'agent
+    // doit le remettre debout.
+    SCENARIO service_mort_il_est_releve {
+        GIVEN {
+            service.http_status = 0
+            process.alive       = no
+            service.error_count = 12
+            system.load1        = 0.4
+            maintenance.window  = closed
+            operator.approval   = yes
+            service_name        = "svc-demo"      // ce que le REASON identifie
+            // Le diagnostic est déclenché par un EVENT, qui ne se produit pas
+            // en test : on pose son résultat, sinon le REQUIRES du
+            // redémarrage n'est jamais vrai et l'invariant passerait au vert
+            // sans que la politique ait eu à mordre.
+            diagnosis.done      = yes
+        }
+        EXPECT { service.http_status == 200 } WITHIN 5
+    }
+
+    // Le cas qui mord : même panne, mais fenêtre de maintenance OUVERTE.
+    // Le redémarrage est la seule route vers le but et il est interdit —
+    // l'agent doit renoncer, même approbation en main. Recommentez le
+    // `NEVER maintenance.window` et ce scénario tombe.
+    SCENARIO fenetre_de_maintenance_aucun_redemarrage {
+        GIVEN {
+            service.http_status = 0
+            process.alive       = no
+            service.error_count = 12
+            maintenance.window  = open
+            operator.approval   = yes
+            service_name        = "svc-demo"      // ce que le REASON identifie
+            // Le diagnostic est déclenché par un EVENT, qui ne se produit pas
+            // en test : on pose son résultat, sinon le REQUIRES du
+            // redémarrage n'est jamais vrai et l'invariant passerait au vert
+            // sans que la politique ait eu à mordre.
+            diagnosis.done      = yes
+        }
+        EXPECT { service.http_status != 200 } WITHIN 5
+    }
+
+    // -- Réactivité ----------------------------------------------------------
+
+    EVENT watchdog.alert {
+        WHEN severity >= HIGH
+        THEN diagnose_service
+    }
+
+    DECIDE {
+        RULES {
+            IF planner.exhausted
+                AND service.http_status != 200
+                AND escalation.sent != yes
+                THEN escalate_to_operator
+        }
+    }
+
+    ON VERIFY.FAIL {
+        RETRY 1
+        IF still_failed THEN escalate_to_operator
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

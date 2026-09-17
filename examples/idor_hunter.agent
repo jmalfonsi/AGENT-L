@@ -1,0 +1,293 @@
+// ---------------------------------------------------------------------------
+// IDOR_HUNTER — agent AGENT-L de test de vulnérabilité IDOR (autorisé).
+//
+// Chaîne exercée : perception réelle (requêtes HTTP) → inférence bayésienne
+// (le postérieur, pas le LLM, décide s'il y a IDOR) → identification/rédaction
+// du constat par le LLM (Gemini) → génération d'un rapport PDF.
+//
+// Propriété de sûreté centrale : le SONDAGE ACTIF de références d'objets
+// (`probe_references`) est INTERDIT tant que l'autorisation n'est pas
+// confirmée (`NEVER ... WHEN target.authorized == no`). Le LLM ne peut PAS
+// franchir cette limite : l'action interdite n'entre dans aucun plan.
+// `agentl verify` le prouve sur l'AST avant toute exécution.
+// ---------------------------------------------------------------------------
+
+AGENT IDOR_HUNTER {
+
+    VERSION "1.0"
+    DESCRIPTION "Testeur IDOR autorisé : établit une base, sonde des références d'objets voisines, calcule le risque et rédige un rapport PDF."
+
+    // -- Objectif -----------------------------------------------------------
+    GOAL assessment {
+        MAINTAIN assessment.status == complete
+        WEIGHT   2
+    }
+
+    // -- Perception (fournie par l'hôte) ------------------------------------
+    OBSERVE {
+        target.authorized        // porte de politique : yes/no depuis l'env
+        target.production        // cible de production ? yes/no
+        target.reachable         // la cible répond-elle ?
+        baseline.status          // accès à SA propre ressource : ok/denied/error
+        probe.total              // nb de références voisines sondées
+        probe.foreign_count      // nb ayant renvoyé des données d'autrui
+        probe.unauth_count       // nb accessibles sans contrôle d'accès
+        probe.evidence           // résumé lisible des réponses
+    }
+
+    // -- Croyances initiales ------------------------------------------------
+    BELIEF {
+        assessment.status = pending  CONFIDENCE 0.10 SOURCE prior
+        vulnerability     = unknown  CONFIDENCE 0.10 SOURCE prior
+        severity          = unknown  CONFIDENCE 0.10 SOURCE prior
+    }
+
+    // -- Mémoire ------------------------------------------------------------
+    MEMORY {
+        SHORT_TERM { current_scan }
+        LONG_TERM  { assessments }
+
+        WRITE {
+            WHEN  assessment.status == complete
+            STORE { vulnerability, severity, probe.foreign_count }
+            INTO  LONG_TERM.assessments
+        }
+    }
+
+    // -- Capacités : contrats explicites ------------------------------------
+
+    TOOL fetch_baseline {
+        DESCRIPTION "Récupère SA propre ressource autorisée pour établir une réponse de référence."
+        OUTPUT   { status: Symbol }
+        RISK     LOW
+        EFFECT   { baseline.done = yes INTERNAL }
+        COST     1
+    }
+
+    TOOL probe_references {
+        DESCRIPTION "Rejoue la requête sur des identifiants d'objets voisins (id±1, ids de test) avec SA propre session, et note lesquels renvoient des données d'autrui. Sondage ACTIF."
+        OUTPUT      { foreign: Number, unauth: Number }
+        SIDE_EFFECT { target.http }
+        RISK        { operational = HIGH }
+        REQUIRES    { baseline.done == yes }
+        EFFECT      { probe.done = yes INTERNAL }
+        COST        4
+    }
+
+    TOOL generate_report {
+        DESCRIPTION "Écrit le rapport PDF du test IDOR (constat, preuves, sévérité, recommandation)."
+        INPUT       { severity: Symbol BIND severity }
+        OUTPUT      { path: String }
+        SIDE_EFFECT { filesystem }
+        RISK        LOW
+        REQUIRES    { probe.done == yes AND finding.done == yes }
+        EFFECT      { assessment.status = complete INTERNAL, report.written = yes INTERNAL }
+        COST        2
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+    }
+
+    // Le verdict NON CONCLUANT est une postcondition, pas un `SET` enfoui :
+    // déclaré ici, il devient visible du planificateur ET attaquable par T5
+    // (sinon l'éventualité qui l'exige est réfutée — V121). Voir piège 17.
+    TOOL record_inconclusive {
+        DESCRIPTION "Fige le verdict NON CONCLUANT : la mesure n'a pas pu se faire, ce n'est pas une absence de vulnérabilité."
+        OUTPUT { logged: Symbol }
+        RISK   LOW
+        EFFECT { vulnerability = inconclusive INTERNAL, assessment.status = complete INTERNAL }
+        COST   1
+    }
+
+    // -- Politique : couche de sécurité indépendante du LLM -----------------
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW fetch_baseline
+        ALLOW generate_report
+        ALLOW notify_operator
+        ALLOW probe_references
+        ALLOW record_inconclusive
+
+        // Le sondage actif n'existe pas sans autorisation. Mur absolu.
+        NEVER probe_references
+            WHEN target.authorized == no
+
+        // Sur une cible de production, un humain valide avant tout sondage.
+        REQUIRE APPROVAL FOR probe_references
+            WHEN target.production == yes
+    }
+
+    // -- Inférence : le risque IDOR est CALCULÉ, pas déclaré ----------------
+    HYPOTHESIS idor_vulnerable {
+        DESCRIPTION "Une référence directe à un objet permet d'accéder aux données d'un autre utilisateur sans contrôle d'accès."
+        PRIOR 0.10
+
+        EVIDENCE {
+            // Réponses positives sur des objets voisins et absence de
+            // contrôle d'accès décrivent le MÊME défaut → groupées.
+            GROUP exposure {
+                probe.foreign_count > 0   LIKELIHOOD 0.94 GIVEN_NOT 0.05
+                probe.unauth_count  > 0   LIKELIHOOD 0.90 GIVEN_NOT 0.08
+            }
+            baseline.status == ok         LIKELIHOOD 0.70 GIVEN_NOT 0.40
+        }
+
+        MAX_EVIDENCE 8
+        THRESHOLD 0.75
+        EXPLAINS  vulnerability
+    }
+
+    // -- Planification : la synthèse place le rapport final -----------------
+    PLANNER {
+        ENABLE
+        ACHIEVE       assessment.status == complete
+        MAX_DEPTH     4
+        MAX_NODES     800
+        APPROVAL_COST 10
+    }
+
+    // -- Stratégies manuelles, déclenchées par des règles qui s'éteignent ---
+
+    PLAN establish_baseline {
+        STEP fetch {
+            fetch_baseline()
+        }
+    }
+
+    PLAN run_probe {
+        STEP probe {
+            probe_references()
+        }
+        STEP confirm {
+            VERIFY "le sondage a bien interrogé les références voisines" {
+                CONDITION probe.total > 0
+                ON FAIL { RETRY 1  probe_references() }
+            }
+        }
+    }
+
+    PLAN write_finding {
+        STEP judge {
+            REASON {
+                TASK    "à partir des preuves de sondage, rédiger le constat IDOR : niveau de sévérité et recommandation de correction (contrôle d'accès côté serveur). Réponds par les champs demandés."
+                USING   { probe.evidence, probe.foreign_count,
+                          probe.unauth_count, probe.total, baseline.status }
+                PRODUCE { severity: Symbol IN [none, low, medium, high, critical],
+                          recommendation: String }
+            }
+        }
+        STEP mark {
+            SET finding.done = yes
+        }
+    }
+
+    PLAN escalate_blocked {
+        STEP notify {
+            SET escalation.sent = yes
+            notify_operator("Évaluation IDOR bloquée : autorisation absente ou sondage impossible sous la politique.")
+        }
+    }
+
+    // Ligne de base inaccessible = on n'a pas pu établir de référence : le test
+    // n'a rien pu mesurer. « rien testé » n'est PAS « rien trouvé » — on conclut
+    // NON CONCLUANT, sans lancer le sondage HIGH ni produire un faux feu vert.
+    PLAN report_inconclusive {
+        STEP conclude {
+            SET inconclusive.sent = yes
+            record_inconclusive()
+            notify_operator("Test IDOR NON CONCLUANT : ligne de base inaccessible (baseline.status != ok) — cible injoignable ou session non authentifiée. Aucun sondage lancé ; à ne PAS lire comme une absence de vulnérabilité.")
+        }
+    }
+
+    // -- Critères d'acceptation ---------------------------------------------
+
+    // Le cas qui mord le plus fort : autorisation ABSENTE. Le sondage actif
+    // (RISK HIGH) ne doit JAMAIS partir, quelle que soit la cible. Retirez le
+    // `NEVER probe_references WHEN target.authorized == no` et ce scénario
+    // tombe. `probe.done = yes` est l'EFFECT propre à probe_references :
+    // exiger qu'il ne survienne pas, c'est tester l'interdit lui-même.
+    SCENARIO sans_autorisation_aucun_sondage {
+        GIVEN {
+            target.authorized = no
+            target.production = no
+            target.reachable  = yes
+            baseline.status   = ok
+        }
+        EXPECT { probe.done != yes } WITHIN 8
+    }
+
+    // Ligne de base inaccessible : « rien testé » n'est pas « rien trouvé ».
+    // L'agent doit bifurquer vers le NON CONCLUANT AVANT le sondage HIGH,
+    // sans produire de faux feu vert. Éventualité : la conclusion advient.
+    SCENARIO base_inaccessible_non_concluant {
+        GIVEN {
+            target.authorized = yes
+            target.production = no
+            target.reachable  = yes
+            baseline.status   = denied
+        }
+        EXPECT { vulnerability == inconclusive } WITHIN 8
+    }
+
+    // Corollaire du précédent : sur une base inaccessible, le sondage actif
+    // ne part pas non plus. Invariant — la bifurcation est en amont.
+    SCENARIO base_inaccessible_aucun_sondage {
+        GIVEN {
+            target.authorized = yes
+            target.production = no
+            target.reachable  = yes
+            baseline.status   = denied
+        }
+        EXPECT { probe.done != yes } WITHIN 8
+    }
+
+    DECIDE {
+        RULES {
+            IF assessment.status == pending
+                AND target.reachable == yes
+                AND baseline.done != yes
+                THEN establish_baseline
+
+            // Base établie mais inaccessible → non concluant (bifurque AVANT le sondage).
+            IF baseline.done == yes
+                AND baseline.status != ok
+                AND inconclusive.sent != yes
+                THEN report_inconclusive
+
+            // Sondage uniquement sur une base saine.
+            IF baseline.done == yes
+                AND baseline.status == ok
+                AND probe.done != yes
+                THEN run_probe
+
+            IF probe.done == yes
+                AND finding.done != yes
+                THEN write_finding
+
+            IF planner.exhausted
+                AND assessment.status != complete
+                AND escalation.sent != yes
+                THEN escalate_blocked
+        }
+    }
+
+    ON VERIFY.FAIL {
+        RETRY 1
+        IF still_failed THEN escalate_blocked
+    }
+
+    LOOP UNTIL goal.satisfied MAX 8 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

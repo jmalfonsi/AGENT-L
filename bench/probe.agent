@@ -1,0 +1,43 @@
+// Sonde de plomberie — v1.3 : la collection perçue devient itérable.
+// Elle ne cherche pas à résoudre la tâche 1401, seulement à prouver que
+// FOREACH voit les tickets, que la projection scalaire fonctionne, et
+// qu'une politique s'évalue bien élément par élément.
+
+AGENT PROBE {
+    VERSION "1.3"
+
+    GOAL commented { MAINTAIN probe.done == yes }
+
+    BELIEF { probe.done = no CONFIDENCE 1.00 SOURCE prior }
+
+    TOOL zendesk_get_tickets {
+        OUTPUT { tickets }
+        COST 1
+    }
+
+    TOOL zendesk_add_comment_to_ticket {
+        INPUT       { ticket_id: String, comment: String }
+        SIDE_EFFECT { zendesk.tickets }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    POLICY {
+        DEFAULT ALLOW
+        // Élément par élément : un ticket déjà résolu ne se commente pas.
+        NEVER zendesk_add_comment_to_ticket WHEN t.status == solved
+    }
+
+    PLAN sweep WHEN probe.done == no {
+        STEP fetch { zendesk_get_tickets() }
+        STEP comment {
+            FOREACH t IN tickets MAX 50 {
+                IF t.status == new THEN {
+                    zendesk_add_comment_to_ticket(ticket_id = t.id,
+                                                  comment = "Sonde AGENT-L")
+                }
+            }
+            SET probe.done = yes
+        }
+    }
+}

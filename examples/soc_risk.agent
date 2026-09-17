@@ -1,0 +1,109 @@
+// ---------------------------------------------------------------------------
+// SOC_RISK — AGENT-L v0.7
+//
+// Les postconditions sûres de la v0.5 sont un mensonge commode : confiner un
+// compte ne garantit pas de contenir un attaquant qui en possède d'autres.
+// Ici chaque action déclare une distribution d'issues, et le planificateur
+// maximise l'utilité espérée au lieu de minimiser un coût.
+//
+// Le résultat intéressant : personne n'a écrit d'escalade, et le
+// planificateur en découvre une. Il tente d'abord l'action douce ; l'action
+// brutale ne se déclenche que dans les mondes où la première a échoué, et ne
+// coûte donc que 30 % de son prix en espérance.
+// ---------------------------------------------------------------------------
+
+AGENT SOC_RISK {
+
+    VERSION "0.7"
+    DESCRIPTION "Confinement sous incertitude : arbitrage risque / continuité."
+
+    GOAL containment {
+        MAINTAIN threat.status == contained
+    }
+
+    OBSERVE {
+        threat.status
+        asset.criticality
+        suspected_host
+        suspected_account
+        account.suspended       // ce que les OUTCOME prédisent : réfutable (T9)
+        endpoint.connectivity
+    }
+
+    BELIEF {
+        threat.status         = unknown CONFIDENCE 0.10 SOURCE prior
+        account.suspended     = no      CONFIDENCE 0.90 SOURCE baseline
+        endpoint.connectivity = up      CONFIDENCE 0.90 SOURCE baseline
+        alarm.raised          = no      CONFIDENCE 0.90 SOURCE baseline
+    }
+
+    // Ce que l'agent cherche à maximiser, et pas seulement à atteindre.
+    // Contenir vaut 100 ; couper le réseau d'un poste en coûte 30 ;
+    // se faire repérer par l'attaquant, 10.
+    UTILITY {
+        threat.status == contained          VALUE 100
+        endpoint.connectivity == cut        VALUE -30
+        alarm.raised == yes                 VALUE -10
+    }
+
+    // Action douce : peu invasive, mais l'attaquant peut avoir d'autres accès.
+    TOOL quarantine_account {
+        DESCRIPTION "Suspend le compte compromis."
+        INPUT       { account: String BIND suspected_account }
+        OUTPUT      { suspended: Symbol }
+        RISK        MEDIUM
+        REQUIRES    { threat.status != contained AND account.suspended != yes }
+        OUTCOME contenu   WITH 0.70 { threat.status = contained,
+                                      account.suspended = yes }
+        OUTCOME contourne WITH 0.30 { account.suspended = yes,
+                                      alarm.raised = yes INTERNAL }
+        COST        4
+    }
+
+    // Action brutale : quasi certaine, mais elle coupe le poste du réseau.
+    TOOL isolate_endpoint {
+        DESCRIPTION "Coupe l'hôte du réseau."
+        INPUT       { host: String BIND suspected_host }
+        OUTPUT      { isolated: Symbol }
+        SIDE_EFFECT { network.acl }
+        RISK        { operational = HIGH }
+        REQUIRES    { threat.status != contained }
+        OUTCOME contenu   WITH 0.97 { threat.status = contained,
+                                      endpoint.connectivity = cut }
+        OUTCOME persiste  WITH 0.03 { endpoint.connectivity = cut,
+                                      alarm.raised = yes INTERNAL }
+        COST        8
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+    }
+
+    POLICY {
+        DEFAULT DENY
+        ALLOW notify_operator
+        ALLOW quarantine_account
+        ALLOW isolate_endpoint
+        NEVER isolate_endpoint WHEN asset.criticality == CRITICAL
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE           threat.status == contained
+        TARGET_CONFIDENCE 0.95
+        MAX_DEPTH         3
+        APPROVAL_COST     10
+    }
+
+    LOOP UNTIL goal.satisfied MAX 4 {
+        OBSERVE
+        UPDATE_BELIEFS
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

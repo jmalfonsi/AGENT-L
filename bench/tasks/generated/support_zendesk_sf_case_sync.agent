@@ -1,0 +1,111 @@
+AGENT zendesk_salesforce_sync {
+    VERSION "1.3"
+
+    GOAL sync_tickets_goal {
+        MAINTAIN sync.done == yes
+    }
+
+    BELIEF {
+        sync.done = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL load_sync_config {
+        INPUT       {}
+        OUTPUT      { batch_reference, blocklist, sla_tiers, config }
+        SIDE_EFFECT { sheets.read }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL zendesk_get_tickets {
+        INPUT       {}
+        OUTPUT      { tickets, count }
+        SIDE_EFFECT { zendesk.read }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL resolve_requester {
+        INPUT       { ticket_id: String }
+        OUTPUT      { requester_email, requester_name, org_id, org_name, is_blocked }
+        SIDE_EFFECT { zendesk.read }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL salesforce_find_records {
+        INPUT       { object: String, searchField: String, searchValue: String }
+        OUTPUT      { records, Id, AccountId }
+        SIDE_EFFECT { salesforce.read }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL create_case {
+        INPUT       { subject: String, description: String, priority: String, account_id: String, contact_id: String }
+        OUTPUT      { case_id }
+        SIDE_EFFECT { salesforce.write }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL comment_case_synced {
+        INPUT       { ticket_id: String, account_name: String }
+        OUTPUT      { comment_id }
+        SIDE_EFFECT { zendesk.write }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL record_synced_case {
+        INPUT       { account_name: String, priority: String }
+        OUTPUT      { record_id }
+        SIDE_EFFECT { system.write }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL post_sync_summary {
+        INPUT       { batch_reference: String, synced: String, skipped: String }
+        OUTPUT      { summary_id }
+        SIDE_EFFECT { slack.write }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL slack_send_channel_message {
+        INPUT       { channel: String, text: String }
+        OUTPUT      { ts }
+        SIDE_EFFECT { slack.write }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    POLICY {
+        DEFAULT ALLOW
+        NEVER create_case WHEN is_blocked == yes
+    }
+
+    PLAN execute_sync WHEN sync.done == no {
+        STEP load_configurations {
+            load_sync_config()
+            zendesk_get_tickets()
+        }
+        STEP process_tickets {
+            FOREACH t IN tickets {
+                resolve_requester(ticket_id = t.id)
+                IF is_blocked == no THEN {
+                    salesforce_find_records(object = "Contact", searchField = "Email", searchValue = requester_email)
+                    create_case(subject = t.subject, description = t.description, priority = t.priority, account_id = AccountId, contact_id = Id)
+                    comment_case_synced(ticket_id = t.id, account_name = org_name)
+                    record_synced_case(account_name = org_name, priority = t.priority)
+                }
+            }
+        }
+        STEP summarize_and_notify {
+            post_sync_summary(batch_reference = batch_reference, synced = "processed", skipped = "blocked")
+            slack_send_channel_message(channel = "#support-sync", text = batch_reference)
+            SET sync.done = yes
+        }
+    }
+}

@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAINTENANCE_AGENT · AGENT-L</title>
+<style>
+  :root{
+    --bg:#0d1016; --panel:#161b22; --line:#39414d; --ink:#e6edf3; --muted:#8b949e;
+    --observe:#3fb950; --hypothesis:#a371f7; --goal:#e3b341;
+    --trigger:#58a6ff; --plan:#f0883e; --tool:#ec6a5e; --policy:#db61a2; --society:#2dd4bf;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    overflow:hidden;user-select:none}
+  #top{position:fixed;top:0;left:0;right:0;height:52px;z-index:20;
+    display:flex;align-items:center;gap:16px;padding:0 18px;
+    background:linear-gradient(180deg,#161b22,#0d1016);border-bottom:1px solid var(--line)}
+  #top h1{font-size:15px;margin:0;font-weight:600}
+  #top .ver{color:var(--muted);font-weight:400;font-size:12px}
+  #top .desc{color:var(--muted);font-size:12px;flex:1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #legend{display:flex;gap:11px;flex-wrap:wrap}
+  #legend span{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+  #legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  #stage{position:absolute;inset:52px 0 0 0;overflow:hidden;cursor:grab}
+  #stage.pan{cursor:grabbing}
+  #world{position:absolute;top:0;left:0;transform-origin:0 0}
+  svg{position:absolute;top:0;left:0;overflow:visible;pointer-events:none;z-index:2}
+  .lane-col{position:absolute;top:0;border-right:1px solid #1c2430;z-index:0;pointer-events:none}
+  .lane-col.first{border-left:1px solid #1c2430}
+  .lane-hd{position:absolute;top:0;height:34px;display:flex;align-items:center;
+    padding:0 12px;font-size:10.5px;font-weight:700;letter-spacing:.09em;
+    text-transform:uppercase;z-index:3;pointer-events:none;
+    border-bottom:1px solid rgba(255,255,255,.06)}
+  .band{position:absolute;left:0;z-index:1;pointer-events:none;
+    border-top:1px dashed #263041}
+  .band .bl{position:absolute;left:10px;top:8px;font-size:12px;font-weight:700;
+    letter-spacing:.04em;color:#cfd8e3;background:rgba(13,16,22,.8);
+    padding:3px 10px;border:1px solid var(--line);border-radius:20px}
+  .node{position:absolute;background:var(--panel);
+    border:1px solid var(--line);border-left-width:4px;border-radius:9px;
+    box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:grab;overflow:hidden;z-index:4}
+  .node:hover{border-color:#6b7686;box-shadow:0 8px 26px rgba(0,0,0,.6)}
+  .node .hd{padding:8px 10px;font-weight:600;font-size:12px;
+    display:flex;align-items:center;gap:7px}
+  .node .kind{font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);margin-left:auto}
+  .node .bd{padding:0 10px 9px;font-size:11px;color:var(--muted)}
+  .node .bd .row{margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .node code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:#c9d3df}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .n-observe{border-left-color:var(--observe)} .n-observe .dot{background:var(--observe)}
+  .n-hypothesis{border-left-color:var(--hypothesis)} .n-hypothesis .dot{background:var(--hypothesis)}
+  .n-goal{border-left-color:var(--goal)} .n-goal .dot{background:var(--goal)}
+  .n-decide,.n-event,.n-inbox{border-left-color:var(--trigger)}
+  .n-decide .dot,.n-event .dot,.n-inbox .dot{background:var(--trigger)}
+  .n-plan{border-left-color:var(--plan)} .n-plan .dot{background:var(--plan)}
+  .n-tool{border-left-color:var(--tool)} .n-tool .dot{background:var(--tool)}
+  .n-policy{border-left-color:var(--policy)} .n-policy .dot{background:var(--policy)}
+  .n-message{border-left-color:var(--society)} .n-message .dot{background:var(--society)}
+  .edge{fill:none;stroke:var(--line);stroke-width:1.7}
+  .edge.evidence{stroke:var(--hypothesis)} .edge.gates,.edge.supports{stroke:var(--policy)}
+  .edge.select,.edge.invoke{stroke:var(--plan)} .edge.achieves{stroke:var(--observe)}
+  .edge.requires{stroke:#6e7681;stroke-dasharray:5 4}
+  .edge.allow{stroke:var(--observe)} .edge.never,.edge.deny{stroke:var(--tool)}
+  .edge.require_approval{stroke:var(--goal)}
+  .edge.send,.edge.deliver{stroke:var(--society)}
+  .edge.deliver{stroke-dasharray:2 5;stroke-width:2.2}
+  .edge.hot{stroke-width:2.8;opacity:1}
+  .edge.dim{opacity:.10}
+  .elabel{fill:var(--muted);font-size:9px}
+  #panel{position:fixed;top:62px;right:0;width:352px;max-height:calc(100% - 74px);
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    margin:0 10px;padding:14px 16px;overflow:auto;z-index:30;display:none;
+    box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  #panel h2{margin:0 0 2px;font-size:15px}
+  #panel .tag{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  #panel .sec{margin-top:12px}
+  #panel .sec b{display:block;font-size:10px;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
+  #panel code{display:block;background:#0d1117;border:1px solid var(--line);
+    border-radius:5px;padding:5px 7px;margin:3px 0;font-family:ui-monospace,monospace;
+    font-size:11px;color:#c9d3df;white-space:pre-wrap;word-break:break-word}
+  #panel .x{position:absolute;top:10px;right:12px;cursor:pointer;color:var(--muted);
+    font-size:18px;line-height:1}
+  #hint{position:fixed;bottom:10px;left:14px;color:#4d5666;font-size:11px;z-index:10}
+  #zoom{position:fixed;bottom:10px;right:14px;z-index:10;display:flex;gap:6px}
+  #zoom button{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    width:30px;height:30px;border-radius:7px;cursor:pointer;font-size:15px}
+</style>
+</head>
+<body>
+<div id="top"><h1></h1><div class="desc"></div><div id="legend"></div></div>
+<div id="stage"><div id="world"><svg id="wires"></svg></div></div>
+<div id="panel"><span class="x" onclick="closePanel()">×</span><div id="pbody"></div></div>
+<div id="hint">Glissez un nœud (vertical, dans sa lane) · molette = zoom · fond = déplacer · clic = détail</div>
+<div id="zoom"><button onclick="zoomBy(1.15)">+</button><button onclick="zoomBy(.87)">−</button><button onclick="fit()">⤢</button></div>
+<script>
+const G = {"name": "MAINTENANCE_AGENT", "version": "1.1", "description": "", "multi": false, "lanes": [{"key": "observe", "label": "PERCEPTION · OBSERVE", "x": 0, "w": 320}, {"key": "goal", "label": "OBJECTIFS · GOAL", "x": 320, "w": 320}, {"key": "plan", "label": "STRATÉGIE · PLAN", "x": 640, "w": 320}, {"key": "tool", "label": "ACTION · TOOL", "x": 960, "w": 320}, {"key": "policy", "label": "GARDE-FOUS · POLICY", "x": 1280, "w": 320}, {"key": "society", "label": "SOCIÉTÉ · MESSAGE / DELEGATE", "x": 1600, "w": 320}], "bands": [{"name": "MAINTENANCE_AGENT", "version": "1.1", "top": 0, "height": 1000}], "width": 1920, "height": 1000, "row_h": 158, "node_w": 232, "nodes": [{"id": "observe:service.status", "kind": "observe", "label": "service.status", "lane": "observe", "agent": "MAINTENANCE_AGENT", "detail": {"lines": [], "root": "service"}, "x": 44.0, "y": 12}, {"id": "observe:service.availability", "kind": "observe", "label": "service.availability", "lane": "observe", "agent": "MAINTENANCE_AGENT", "detail": {"lines": [], "root": "service"}, "x": 44.0, "y": 170}, {"id": "observe:service.latency", "kind": "observe", "label": "service.latency", "lane": "observe", "agent": "MAINTENANCE_AGENT", "detail": {"lines": [], "root": "service"}, "x": 44.0, "y": 328}, {"id": "observe:service.environment", "kind": "observe", "label": "service.environment", "lane": "observe", "agent": "MAINTENANCE_AGENT", "detail": {"lines": [], "root": "service"}, "x": 44.0, "y": 486}, {"id": "observe:server.cpu", "kind": "observe", "label": "server.cpu", "lane": "observe", "agent": "MAINTENANCE_AGENT", "detail": {"lines": [], "root": "server"}, "x": 44.0, "y": 644}, {"id": "observe:incident.severity", "kind": "observe", "label": "incident.severity", "lane": "observe", "agent": "MAINTENANCE_AGENT", "detail": {"lines": [], "root": "incident"}, "x": 44.0, "y": 802}, {"id": "goal:availability", "kind": "goal", "label": "availability", "lane": "goal", "agent": "MAINTENANCE_AGENT", "detail": {"mode": "MAINTAIN", "condition": "service.availability > 0.9990000000000001", "weight": 3.0, "targets": []}, "x": 364.0, "y": 12}, {"id": "goal:latency", "kind": "goal", "label": "latency", "lane": "goal", "agent": "MAINTENANCE_AGENT", "detail": {"mode": "MAINTAIN", "condition": "service.latency < 250", "weight": 1.0, "targets": []}, "x": 364.0, "y": 170}, {"id": "tool:inspect_logs", "kind": "tool", "label": "inspect_logs", "lane": "tool", "agent": "MAINTENANCE_AGENT", "detail": {"description": "", "risk": "LOW", "cost": null, "inputs": [], "requires": "", "effects": [], "side_effects": []}, "x": 1004.0, "y": 12}, {"id": "tool:query_metrics", "kind": "tool", "label": "query_metrics", "lane": "tool", "agent": "MAINTENANCE_AGENT", "detail": {"description": "", "risk": "LOW", "cost": null, "inputs": ["service: String"], "requires": "", "effects": [], "side_effects": []}, "x": 1004.0, "y": 170}, {"id": "tool:restart_service", "kind": "tool", "label": "restart_service", "lane": "tool", "agent": "MAINTENANCE_AGENT", "detail": {"description": "Redémarre un service. Coupure brève garantie.", "risk": "HIGH", "cost": null, "inputs": ["service: String"], "requires": "", "effects": [], "side_effects": ["service.state"]}, "x": 1004.0, "y": 328}, {"id": "tool:create_ticket", "kind": "tool", "label": "create_ticket", "lane": "tool", "agent": "MAINTENANCE_AGENT", "detail": {"description": "", "risk": "LOW", "cost": null, "inputs": ["title: String", "description: String"], "requires": "", "effects": [], "side_effects": []}, "x": 1004.0, "y": 486}, {"id": "plan:diagnose_incident", "kind": "plan", "label": "diagnose_incident", "lane": "plan", "agent": "MAINTENANCE_AGENT", "detail": {"when": "service.status != healthy", "steps": [{"name": "inspect", "acts": ["↳ inspect_logs()", "↳ query_metrics()"]}, {"name": "diagnose", "acts": ["🧠 REASON → root_cause, confidence"]}, {"name": "consult_db", "acts": ["⇒ DELEGATE → db_agent"]}, {"name": "repair", "acts": ["IfStmt"]}, {"name": "verify", "acts": ["VerifyStmt"]}]}, "x": 684.0, "y": 12}, {"id": "society:msg0", "kind": "message", "label": "⇒ vérifier la santé de la base et les verrous longs", "lane": "society", "agent": "MAINTENANCE_AGENT", "detail": {"delegate": "vérifier la santé de la base et les verrous longs", "to": "db_agent", "from": "MAINTENANCE_AGENT"}, "x": 1644.0, "y": 12}, {"id": "policy:pol0", "kind": "policy", "label": "ALLOW inspect_logs", "lane": "policy", "agent": "MAINTENANCE_AGENT", "detail": {"effect": "ALLOW", "target": "inspect_logs", "guard": ""}, "x": 1324.0, "y": 12}, {"id": "policy:pol1", "kind": "policy", "label": "ALLOW query_metrics", "lane": "policy", "agent": "MAINTENANCE_AGENT", "detail": {"effect": "ALLOW", "target": "query_metrics", "guard": ""}, "x": 1324.0, "y": 170}, {"id": "policy:pol2", "kind": "policy", "label": "ALLOW create_ticket", "lane": "policy", "agent": "MAINTENANCE_AGENT", "detail": {"effect": "ALLOW", "target": "create_ticket", "guard": ""}, "x": 1324.0, "y": 328}, {"id": "policy:pol3", "kind": "policy", "label": "ALLOW restart_service", "lane": "policy", "agent": "MAINTENANCE_AGENT", "detail": {"effect": "ALLOW", "target": "restart_service", "guard": "service.environment == staging"}, "x": 1324.0, "y": 486}, {"id": "policy:pol4", "kind": "policy", "label": "ALLOW restart_service", "lane": "policy", "agent": "MAINTENANCE_AGENT", "detail": {"effect": "ALLOW", "target": "restart_service", "guard": "service.environment == production AND incident.severity >= HIGH"}, "x": 1324.0, "y": 644}, {"id": "policy:pol5", "kind": "policy", "label": "REQUIRE_APPROVAL restart_service", "lane": "policy", "agent": "MAINTENANCE_AGENT", "detail": {"effect": "REQUIRE_APPROVAL", "target": "restart_service", "guard": "service.environment == production"}, "x": 1324.0, "y": 802}], "edges": [{"from": "observe:service.status", "to": "goal:availability", "kind": "state", "label": ""}, {"from": "observe:service.availability", "to": "goal:availability", "kind": "state", "label": ""}, {"from": "observe:service.latency", "to": "goal:availability", "kind": "state", "label": ""}, {"from": "observe:service.environment", "to": "goal:availability", "kind": "state", "label": ""}, {"from": "observe:service.status", "to": "goal:latency", "kind": "state", "label": ""}, {"from": "observe:service.availability", "to": "goal:latency", "kind": "state", "label": ""}, {"from": "observe:service.latency", "to": "goal:latency", "kind": "state", "label": ""}, {"from": "observe:service.environment", "to": "goal:latency", "kind": "state", "label": ""}, {"from": "plan:diagnose_incident", "to": "tool:inspect_logs", "kind": "invoke", "label": ""}, {"from": "plan:diagnose_incident", "to": "tool:query_metrics", "kind": "invoke", "label": ""}, {"from": "plan:diagnose_incident", "to": "society:msg0", "kind": "send", "label": ""}, {"from": "policy:pol0", "to": "tool:inspect_logs", "kind": "allow", "label": ""}, {"from": "policy:pol1", "to": "tool:query_metrics", "kind": "allow", "label": ""}, {"from": "policy:pol2", "to": "tool:create_ticket", "kind": "allow", "label": ""}, {"from": "policy:pol3", "to": "tool:restart_service", "kind": "allow", "label": ""}, {"from": "policy:pol4", "to": "tool:restart_service", "kind": "allow", "label": ""}, {"from": "policy:pol5", "to": "tool:restart_service", "kind": "require_approval", "label": ""}]};
+const RGB={observe:'63,185,80',hypothesis:'163,113,247',goal:'227,179,65',
+  trigger:'88,166,255',plan:'240,136,62',tool:'236,106,94',policy:'219,97,162',society:'45,212,191'};
+const LANE_COLOR={observe:'observe',hypothesis:'hypothesis',goal:'goal',
+  trigger:'trigger',plan:'plan',tool:'tool',policy:'policy',society:'society'};
+const NODE_W=G.node_w||232;
+const world=document.getElementById('world'),svg=document.getElementById('wires');
+const N={}; G.nodes.forEach(n=>N[n.id]=n);
+document.querySelector('#top h1').innerHTML=G.name+' <span class="ver">v'+(G.version||'?')+'</span>';
+document.querySelector('#top .desc').textContent=G.description||'';
+[['observe','Observe'],['hypothesis','Hypothesis'],['goal','Goal'],
+ ['trigger','Decide/Event/Inbox'],['plan','Plan'],['tool','Tool'],
+ ['policy','Policy'],['society','Message/Delegate']]
+ .forEach(([k,l])=>document.getElementById('legend').insertAdjacentHTML('beforeend',
+   '<span><i style="background:var(--'+k+')"></i>'+l+'</span>'));
+
+function esc(s){return (s==null?'':''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+// ---- colonnes de lanes (fond teinté + en-tête) ----
+G.lanes.forEach((L,i)=>{
+  const rgb=RGB[LANE_COLOR[L.key]]||'120,130,140';
+  const col=document.createElement('div');
+  col.className='lane-col'+(i===0?' first':'');
+  col.style.left=L.x+'px'; col.style.width=L.w+'px'; col.style.height=G.height+'px';
+  col.style.background='linear-gradient(180deg,rgba('+rgb+',.09),rgba('+rgb+',.02))';
+  world.appendChild(col);
+  const hd=document.createElement('div');
+  hd.className='lane-hd'; hd.textContent=L.label;
+  hd.style.left=L.x+'px'; hd.style.width=L.w+'px';
+  hd.style.color='rgb('+rgb+')'; hd.style.background='rgba('+rgb+',.14)';
+  world.appendChild(hd);
+});
+// ---- bandes d'agents (multi) ----
+if(G.multi){G.bands.forEach(b=>{
+  const el=document.createElement('div'); el.className='band';
+  el.style.top=b.top+'px'; el.style.height=b.height+'px'; el.style.width=G.width+'px';
+  el.innerHTML='<span class="bl">🤖 '+esc(b.name)+' <span style="color:#7d8590">v'+esc(b.version||'')+'</span></span>';
+  world.appendChild(el);
+});}
+
+// ---- nœuds ----
+G.nodes.forEach(n=>{
+  const el=document.createElement('div');
+  el.className='node n-'+n.kind; el.style.width=NODE_W+'px';
+  el.style.left=n.x+'px'; el.style.top=n.y+'px';
+  el.innerHTML='<div class="hd"><span class="dot"></span><span>'+esc(n.label)+
+    '</span><span class="kind">'+n.kind+'</span></div><div class="bd">'+summary(n)+'</div>';
+  el.addEventListener('mousedown',e=>startDrag(e,n,el));
+  el.addEventListener('click',()=>{if(!moved)openPanel(n);});
+  world.appendChild(el); n.el=el;
+});
+function summary(n){
+  const d=n.detail||{},r=[];
+  if(n.kind==='hypothesis'){r.push('prior '+d.prior+' · seuil '+d.threshold);r.push((d.evidence||[]).length+' témoin(s)');}
+  else if(n.kind==='goal')r.push('<code>'+esc(d.condition)+'</code>');
+  else if(n.kind==='tool'){r.push('risque '+esc(d.risk||'—')+(d.cost!=null?' · coût '+d.cost:''));
+    if(d.effects&&d.effects.length)r.push('<code>'+esc(d.effects[0])+'</code>');}
+  else if(n.kind==='plan')r.push((d.steps||[]).length+' étape(s)');
+  else if(n.kind==='decide')r.push('<code>'+esc((d.condition||'').slice(0,60))+'</code>');
+  else if(n.kind==='event')r.push(esc(d.when||'')||'déclencheur');
+  else if(n.kind==='inbox')r.push('reçoit <code>'+esc(d.message)+'</code>');
+  else if(n.kind==='message')r.push('vers <b>'+esc(d.to||'?')+'</b>');
+  else if(n.kind==='policy')r.push('<code>'+esc(d.guard||'(inconditionnel)')+'</code>');
+  else if(n.kind==='observe')r.push(esc((d.lines||[]).join(' · '))||'capteur');
+  return r.map(x=>'<div class="row">'+x+'</div>').join('');
+}
+
+// ---- liens béziers ----
+function aOut(n){return {x:n.x+NODE_W,y:n.y+28};}
+function aIn(n){return {x:n.x,y:n.y+28};}
+function drawEdges(){
+  svg.innerHTML='';
+  G.edges.forEach(e=>{
+    const a=N[e.from],b=N[e.to]; if(!a||!b)return;
+    let p1=aOut(a),p2=aIn(b);
+    if(b.x<a.x){p1=aIn(a);p2=aOut(b);}
+    const dx=Math.max(46,Math.abs(p2.x-p1.x)*0.5);
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',`M${p1.x},${p1.y} C${p1.x+dx},${p1.y} ${p2.x-dx},${p2.y} ${p2.x},${p2.y}`);
+    path.setAttribute('class','edge '+(e.kind||''));
+    path.dataset.from=e.from; path.dataset.to=e.to; svg.appendChild(path);
+    if(e.label){const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x',(p1.x+p2.x)/2);t.setAttribute('y',(p1.y+p2.y)/2-4);
+      t.setAttribute('text-anchor','middle');t.setAttribute('class','elabel');
+      t.textContent=e.label;svg.appendChild(t);}
+  });
+}
+drawEdges();
+
+// ---- drag ----
+let moved=false,drag=null;
+function startDrag(e,n,el){e.stopPropagation();moved=false;
+  const sy=e.clientY,oy=n.y;   // x figé : le nœud reste dans sa lane
+  drag=mv=>{const dy=(mv.clientY-sy)/scale;
+    if(Math.abs(dy)>3)moved=true;
+    n.y=oy+dy;el.style.top=n.y+'px';drawEdges();};
+  document.addEventListener('mousemove',drag);
+  document.addEventListener('mouseup',()=>{document.removeEventListener('mousemove',drag);drag=null;},{once:true});}
+
+// ---- surbrillance des voisins ----
+world.addEventListener('mouseover',e=>{const nd=e.target.closest('.node');if(!nd)return;
+  const id=G.nodes.find(n=>n.el===nd)?.id;if(!id)return;
+  svg.querySelectorAll('path').forEach(p=>{const on=p.dataset.from===id||p.dataset.to===id;
+    p.classList.toggle('hot',on);p.classList.toggle('dim',!on);});});
+world.addEventListener('mouseout',e=>{if(e.target.closest('.node'))
+  svg.querySelectorAll('path').forEach(p=>p.classList.remove('hot','dim'));});
+
+// ---- panneau détail ----
+function openPanel(n){
+  const d=n.detail||{},B=document.getElementById('pbody'),s=[];
+  s.push('<div class="tag">'+n.kind+(G.multi&&n.agent?' · '+esc(n.agent):'')+'</div><h2>'+esc(n.label)+'</h2>');
+  const sec=(t,body)=>{if(body)s.push('<div class="sec"><b>'+t+'</b>'+body+'</div>');};
+  const code=x=>'<code>'+esc(x)+'</code>';
+  if(d.description)sec('Description',esc(d.description));
+  if(n.kind==='hypothesis'){sec('A priori / seuil','prior = '+d.prior+' · seuil = '+d.threshold+(d.explains?' · explique '+esc(d.explains):''));
+    sec('Évidences',(d.evidence||[]).map(code).join(''));}
+  else if(n.kind==='goal'){sec('Mode',esc(d.mode)+' · poids '+d.weight);sec('Condition',code(d.condition));
+    if(d.targets&&d.targets.length)sec('Cibles',d.targets.map(code).join(''));}
+  else if(n.kind==='tool'){sec('Risque / coût',esc(d.risk||'—')+(d.cost!=null?' · coût '+d.cost:''));
+    if(d.inputs&&d.inputs.length)sec('Entrées',d.inputs.map(code).join(''));
+    if(d.requires)sec('Requiert',code(d.requires));
+    if(d.effects&&d.effects.length)sec('Effets',d.effects.map(code).join(''));
+    if(d.side_effects&&d.side_effects.length)sec('Effets de bord',d.side_effects.map(esc).join(', '));}
+  else if(n.kind==='plan'){sec('Déclenchement',d.when?code(d.when):'via DECIDE / EVENT / INBOX');
+    (d.steps||[]).forEach(st=>sec('STEP '+esc(st.name),(st.acts||[]).map(code).join('')));}
+  else if(n.kind==='decide'){sec('Condition',code(d.condition));sec('Alors',esc(d.then||''));}
+  else if(n.kind==='event'){sec('Quand',code(d.when||'—'));sec('Alors',esc(d.then||''));}
+  else if(n.kind==='inbox'){sec('Message reçu',code(d.message));if(d.when)sec('Garde',code(d.when));
+    if(d.then)sec('Déclenche le plan',esc(d.then));if(d.sets&&d.sets.length)sec('Écrit',d.sets.map(code).join(''));}
+  else if(n.kind==='message'){sec('Type',d.delegate?'DELEGATE':'MESSAGE');
+    sec(d.delegate?'Tâche':'Message',code(d.delegate||d.message));
+    sec('Destinataire',esc(d.to||'?'));sec('Émetteur',esc(d.from||''));}
+  else if(n.kind==='policy'){sec('Effet',esc(d.effect)+' → '+esc(d.target||''));sec('Garde',code(d.guard||'(inconditionnel)'));}
+  else if(n.kind==='observe')sec('Cadence / condition',(d.lines||[]).map(esc).join('<br>')||'chaque tick');
+  B.innerHTML=s.join('');document.getElementById('panel').style.display='block';
+}
+function closePanel(){document.getElementById('panel').style.display='none';}
+
+// ---- pan & zoom ----
+let scale=1,tx=20,ty=20;
+const stage=document.getElementById('stage');
+function apply(){world.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;}
+stage.addEventListener('mousedown',e=>{if(e.target.closest('.node'))return;
+  stage.classList.add('pan');const sx=e.clientX-tx,sy=e.clientY-ty;
+  const mv=m=>{tx=m.clientX-sx;ty=m.clientY-sy;apply();};
+  document.addEventListener('mousemove',mv);
+  document.addEventListener('mouseup',()=>{document.removeEventListener('mousemove',mv);stage.classList.remove('pan');},{once:true});});
+stage.addEventListener('wheel',e=>{e.preventDefault();
+  const r=stage.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+  const f=e.deltaY<0?1.1:0.9,ns=Math.min(2.5,Math.max(0.2,scale*f));
+  tx=mx-(mx-tx)*ns/scale;ty=my-(my-ty)*ns/scale;scale=ns;apply();},{passive:false});
+function zoomBy(f){const r=stage.getBoundingClientRect(),mx=r.width/2,my=r.height/2,
+  ns=Math.min(2.5,Math.max(0.2,scale*f));
+  tx=mx-(mx-tx)*ns/scale;ty=my-(my-ty)*ns/scale;scale=ns;apply();}
+function fit(){const r=stage.getBoundingClientRect();
+  scale=Math.min(1,(r.width-40)/G.width,(r.height-40)/G.height);
+  tx=20;ty=16;apply();}
+fit();
+</script>
+</body>
+</html>

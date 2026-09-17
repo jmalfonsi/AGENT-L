@@ -1,0 +1,309 @@
+// ---------------------------------------------------------------------------
+// SOC_ANALYST — programme AGENT-L v0.5
+//
+// Chaîne complète :
+//   perception → inférence bayésienne (v0.4) → franchissement de seuil
+//   → synthèse d'un plan de confinement sous contrainte de politique (v0.5)
+//   → exécution → vérification.
+//
+// Le LLM identifie des entités. L'inférence assigne les probabilités.
+// Le planificateur choisit les actions. Les politiques bornent l'ensemble.
+// ---------------------------------------------------------------------------
+
+AGENT SOC_ANALYST {
+
+    VERSION "1.2"
+    DESCRIPTION "Analyste SOC niveau 1 : investigue une alerte et confine un hôte compromis."
+
+    // -- Objectifs ----------------------------------------------------------
+    GOAL containment {
+        MAINTAIN threat.status == contained
+        TARGET   incident.response_time < 300s
+        WEIGHT   2
+    }
+
+    // -- Perception ---------------------------------------------------------
+    OBSERVE {
+        wazuh.alert_count
+        network.anomaly_score
+        endpoint.integrity
+        asset.criticality ON UNKNOWN ESCALATE
+        threat.status
+        incident.response_time
+        isolated                // l'EFFECT d'isolement doit pouvoir être démenti (T9)
+    }
+
+    // -- Croyances initiales (valeur + incertitude + provenance) -------------
+    BELIEF {
+        threat.status      = unknown  CONFIDENCE 0.10 SOURCE prior
+        threat.kind        = unknown  CONFIDENCE 0.10 SOURCE prior
+        suspected_host     = unknown  CONFIDENCE 0.10 SOURCE prior
+        suspected_account  = unknown  CONFIDENCE 0.10 SOURCE prior
+        endpoint.integrity = intact   CONFIDENCE 0.60 SOURCE baseline
+                                      UPDATED 2026-07-26T20:15
+    }
+
+    // -- Mémoire ------------------------------------------------------------
+    MEMORY {
+        SHORT_TERM { current_alerts, current_investigation }
+        LONG_TERM  { incidents, known_attack_patterns, false_positives }
+        KNOWLEDGE  { playbooks, asset_inventory }
+
+        WRITE {
+            WHEN  threat.status == contained
+            STORE { threat.kind, suspected_host, credential_attack.posterior }
+            INTO  LONG_TERM.incidents
+        }
+    }
+
+    // -- Capacités : contrats explicites, pas de simples fonctions -----------
+    // Les blocs REQUIRES / EFFECT / COST font de l'outil un opérateur
+    // planifiable ; sans EFFECT, un outil reste invisible au planificateur.
+
+    TOOL query_wazuh {
+        DESCRIPTION "Récupère les alertes du SIEM sur une fenêtre glissante."
+        INPUT  { since: Number }
+        OUTPUT { alerts: Number, top_rule: Symbol }
+        RISK   LOW
+    }
+
+    TOOL inspect_network {
+        DESCRIPTION "Analyse les flux réseau récents."
+        OUTPUT { anomaly_score: Number, peer: String }
+        RISK   LOW
+    }
+
+    TOOL inspect_endpoint {
+        DESCRIPTION "Inspecte un poste : intégrité, persistance."
+        INPUT    { host: String BIND suspected_host }
+        OUTPUT   { integrity: Symbol, persistence: Bool }
+        RISK     MEDIUM
+        REQUIRES { suspected_host != unknown }
+        EFFECT   { endpoint.inspected = yes INTERNAL }
+        COST     2
+    }
+
+    TOOL quarantine_account {
+        DESCRIPTION "Suspend le compte compromis. Contient la menace sans couper l'hôte."
+        INPUT       { account: String BIND suspected_account }
+        OUTPUT      { suspended: Symbol }
+        SIDE_EFFECT { identity.provider }
+        RISK        MEDIUM
+        REQUIRES    { endpoint.inspected == yes AND suspected_account != unknown }
+        EFFECT      { threat.status = contained }
+        COST        4
+    }
+
+    TOOL isolate_endpoint {
+        DESCRIPTION "Coupe l'hôte du réseau. Irréversible sans intervention."
+        INPUT       { host: String BIND suspected_host }
+        OUTPUT      { isolated: Symbol }
+        SIDE_EFFECT { network.acl, endpoint.connectivity }
+        RISK        { operational = HIGH }
+        REQUIRES    { endpoint.inspected == yes }
+        EFFECT      { threat.status = contained, isolated = confirmed }
+        COST        8
+    }
+
+    TOOL create_ticket {
+        INPUT  { title: String, severity: Symbol }
+        OUTPUT { ticket_id: String }
+        RISK   LOW
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+    }
+
+    // -- Politiques : couche de sécurité indépendante du LLM -----------------
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW query_wazuh
+        ALLOW inspect_network
+        ALLOW inspect_endpoint
+        ALLOW create_ticket
+        ALLOW notify_operator
+        ALLOW quarantine_account
+
+        // Seuils recalés sur le modèle *calibré*. Ils avaient été fixés
+        // contre un postérieur naïf qui montait artificiellement à 0,98 ;
+        // `agentl verify` a signalé qu'ils étaient devenus inatteignables.
+        ALLOW isolate_endpoint
+            IF P(credential_attack) >= 0.90
+
+        NEVER isolate_endpoint
+            WHEN asset.criticality == CRITICAL
+
+        REQUIRE APPROVAL FOR isolate_endpoint
+            WHEN P(credential_attack) < 0.97
+    }
+
+    // -- Inférence : la confiance est calculée, pas déclarée (v0.4) ----------
+    HYPOTHESIS credential_attack {
+        DESCRIPTION "Bourrage d'identifiants depuis un pool d'adresses hostiles."
+
+        // A priori empirique : ce que l'agent a réellement vu passer.
+        // À historique vide, la valeur déclarée sert de repli.
+        PRIOR 0.05
+        PRIOR FROM LONG_TERM.incidents WHERE threat.kind == credential_attack
+
+        EVIDENCE {
+            // Le volume d'alertes et l'anomalie réseau décrivent la MÊME
+            // rafale. Les additionner comme deux témoins indépendants
+            // surestime le postérieur — et ce postérieur garde une action
+            // irréversible. On déclare donc la corrélation.
+            GROUP rafale {
+                wazuh.alert_count > 20          LIKELIHOOD 0.92 GIVEN_NOT 0.06
+                network.anomaly_score > 0.75    LIKELIHOOD 0.85 GIVEN_NOT 0.20
+            }
+
+            endpoint.integrity == compromised   LIKELIHOOD 0.80 GIVEN_NOT 0.05
+        }
+
+        // Filet pour les corrélations non déclarées.
+        MAX_EVIDENCE 8
+
+        THRESHOLD 0.90
+        EXPLAINS  threat.kind
+    }
+
+    HYPOTHESIS benign_scan {
+        DESCRIPTION "Scan de vulnérabilité programmé — le faux positif classique."
+        PRIOR 0.30
+
+        EVIDENCE {
+            wazuh.alert_count > 20              LIKELIHOOD 0.60 GIVEN_NOT 0.30
+            endpoint.integrity == compromised   LIKELIHOOD 0.05 GIVEN_NOT 0.60
+        }
+
+        THRESHOLD 0.60
+    }
+
+    // -- Planification sous contrainte de politique (v0.5) -------------------
+    PLANNER {
+        ENABLE
+        ACHIEVE       threat.status == contained
+        MAX_DEPTH     4
+        MAX_NODES     2000
+        APPROVAL_COST 10
+    }
+
+    // -- Stratégie écrite à la main : établir les faits ----------------------
+    PLAN investigate {
+
+        STEP collect {
+            query_wazuh(300)
+            inspect_network()
+        }
+
+        STEP identify {
+            REASON {
+                TASK    "identifier l'hôte et le compte à l'origine des alertes"
+                USING   { wazuh.alert_count, network.anomaly_score, endpoint.integrity }
+                // Le LLM identifie des entités ; le programme borne ce qu'il
+                // peut renvoyer. Un domaine clos vaut mieux qu'un type.
+                PRODUCE { suspected_host:    String,
+                          suspected_account: String }
+            }
+        }
+    }
+
+    PLAN escalate_to_human {
+        STEP notify {
+            SET escalation.sent = yes
+            ASK operator {
+                QUESTION "Confinement automatique impossible. Intervenir ?"
+                REASON   "policy_or_verification_failure"
+                TIMEOUT  10min
+                DEFAULT  no
+            }
+            create_ticket("Escalade SOC", CRITICAL)
+        }
+    }
+
+    // -- Critères d'acceptation (v1.4) ---------------------------------------
+    //
+    // Le vérificateur prouve des propriétés génériques ; ces scénarios
+    // disent ce que *l'auteur* exige. Ils s'exécutent (`agentl test`) contre
+    // le monde déclaré — GIVEN pose l'état, chaque outil applique ses EFFECT
+    // — et le vérificateur les attaque statiquement (théorème T5).
+    //
+    // Les deux ensemble décrivent le cœur de la politique : sur un actif
+    // critique, l'isolement est interdit, et pourtant le confinement doit
+    // aboutir. C'est la route de repli de T2, rendue exécutable.
+
+    SCENARIO actif_critique_le_confinement_passe_par_le_compte {
+        GIVEN {
+            wazuh.alert_count     = 37
+            network.anomaly_score = 0.92
+            endpoint.integrity    = compromised
+            asset.criticality     = CRITICAL
+            operator.approval     = yes
+            // Ce que le modèle est supposé avoir identifié : en test, la
+            // proposition du LLM s'écrit, elle ne se devine pas.
+            suspected_host        = "web-07"
+            suspected_account     = "svc_backup"
+        }
+        EXPECT { threat.status == contained } WITHIN 6
+    }
+
+    // Le cas qui mord : aucun compte à suspendre, donc l'isolement est la
+    // SEULE route vers le confinement — et l'actif est critique. L'agent doit
+    // renoncer plutôt que franchir l'interdit, même approbation en main.
+    // Retirez le `NEVER` ci-dessus et ce scénario tombe : c'est ce qui en
+    // fait un test, et pas une observation.
+    SCENARIO actif_critique_jamais_d_isolement {
+        GIVEN {
+            wazuh.alert_count     = 37
+            network.anomaly_score = 0.92
+            endpoint.integrity    = compromised
+            asset.criticality     = CRITICAL
+            operator.approval     = yes
+            suspected_host        = "web-07"
+        }
+        // `isolated = confirmed` est l'EFFECT propre à isolate_endpoint :
+        // exiger qu'il ne survienne pas, c'est tester l'interdit lui-même.
+        EXPECT { isolated != confirmed } WITHIN 6
+    }
+
+    // -- Réactivité ---------------------------------------------------------
+    EVENT wazuh.alert {
+        WHEN severity >= HIGH
+        THEN investigate
+    }
+
+    DECIDE {
+        RULES {
+            IF network.anomaly_score > 0.80
+                AND NOT benign_scan.supported
+                AND suspected_host == unknown
+                THEN investigate
+
+            IF planner.exhausted
+                AND credential_attack.supported
+                AND escalation.sent != yes
+                THEN escalate_to_human
+        }
+    }
+
+    // -- Récupération globale ------------------------------------------------
+    ON VERIFY.FAIL {
+        RETRY 1
+        IF still_failed THEN escalate_to_human
+    }
+
+    // -- Boucle agentique ----------------------------------------------------
+    LOOP UNTIL goal.satisfied MAX 8 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

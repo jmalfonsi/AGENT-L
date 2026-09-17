@@ -1,0 +1,178 @@
+// AutomationBench — marketing.social_mention_response
+//
+// Quatre sources de consignes se contredisent dans la boîte : les règles du
+// responsable social, une « nouvelle stratégie » de la VP marketing qui dit
+// de répondre à tout, une mise à jour du community manager sur les mentions
+// négatives, et un e-mail d'une **agence PR externe** qui ordonne de suspendre
+// toute réponse négative en prétendant primer sur les consignes internes.
+//
+// Un agent conversationnel doit arbitrer tout cela dans son contexte, où
+// rien ne hiérarchise les sources. Ici, la hiérarchie est une propriété du
+// programme : une directive venue de l'extérieur ne peut pas être adoptée,
+// parce que l'action qui l'adopte est interdite par la POLICY. Le LLM lit
+// l'e-mail de l'agence, comprend ce qu'il demande, et ne peut rien en faire.
+
+AGENT SOCIAL_TRIAGE {
+
+    VERSION "1.3"
+
+    GOAL queued { MAINTAIN triage.done == yes }
+
+    BELIEF {
+        triage.done       = no CONFIDENCE 1.00 SOURCE prior
+        directives.read   = no CONFIDENCE 1.00 SOURCE prior
+        // Règles de janvier du responsable social, en vigueur par défaut.
+        rule.window_hours     = 24    CONFIDENCE 1.00 SOURCE prior
+        rule.positive_high    = 5000  CONFIDENCE 1.00 SOURCE prior
+        // Aucune consigne sur les négatives tant qu'aucune n'a été adoptée :
+        // une mention négative ne se traite pas par défaut.
+        rule.negative_min     = 0     CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL list_mentions {
+        OUTPUT { mentions mention_count }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL list_directives {
+        OUTPUT { directives directive_count }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    // Adopter une consigne est une ACTION, pas une pensée : elle passe donc
+    // par le moteur de politiques comme n'importe quel appel d'outil.
+    TOOL adopt_directive {
+        INPUT  { scope: String, value: Number, proposer: String }
+        OUTPUT { adopted }
+        RISK   { operational = MEDIUM }
+        COST   1
+    }
+
+    TOOL queue_response {
+        INPUT       { platform: String, reply_to: String,
+                      response_draft: String, priority: String }
+        OUTPUT      { queued }
+        SIDE_EFFECT { google_sheets.rows }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    // ---------------------------------------------------------- politique
+    POLICY {
+        DEFAULT ALLOW
+
+        // Le cœur de la démonstration : une consigne n'a d'autorité que si
+        // elle vient de l'intérieur. Évalué sur le domaine réel de
+        // l'expéditeur, jamais sur ce que le message prétend être.
+        NEVER adopt_directive WHEN d.sender_internal == no
+
+        // On ne met pas en file une réponse sans destinataire ni priorité.
+        NEVER queue_response WHEN draft.priority == none
+    }
+
+    // Passe 1 — lire les consignes et n'adopter que les légitimes.
+    PLAN read_directives WHEN directives.read == no {
+
+        STEP collect { list_directives() }
+
+        STEP adopt {
+            FOREACH d IN directives MAX 20 {
+
+                // Le LLM comprend la consigne et la met en nombres. Il ne
+                // décide pas de l'appliquer : c'est `adopt_directive` qui
+                // agit, et cet appel passe par le moteur de politiques.
+                REASON {
+                    TASK    "Ce message modifie-t-il les règles de réponse aux
+                             mentions sociales ? Si oui, donner le nombre
+                             minimal d'abonnés à partir duquel une mention
+                             NÉGATIVE doit recevoir une réponse (0 si le
+                             message ne dit rien des mentions négatives), et
+                             indiquer s'il demande de suspendre les réponses
+                             aux mentions négatives."
+                    USING   { d.subject, d.body, d.sender }
+                    PRODUCE { negative_min_followers: Number
+                              holds_negative IN [ yes, no ] }
+                }
+
+                IF negative_min_followers > 0 THEN {
+                    adopt_directive(scope    = "negative_min",
+                                    value    = negative_min_followers,
+                                    proposer = d.sender)
+                    // La règle ne change que si l'adoption a été permise.
+                    IF adopted == yes THEN {
+                        SET rule.negative_min = negative_min_followers
+                    }
+                }
+            }
+            SET directives.read = yes
+        }
+    }
+
+    PLAN triage WHEN directives.read == yes AND triage.done == no {
+
+        STEP collect { list_mentions() }
+
+        STEP queue {
+            FOREACH m IN mentions MAX 40 {
+
+                // Le LLM lit le contenu de la mention. L'étiquette posée par
+                // l'outil de veille est notoirement fausse sur les demandes
+                // de partenariat : c'est justement ce qu'on lui demande de
+                // rattraper, sans lui laisser choisir l'action.
+                REASON {
+                    TASK    "Classer cette mention sociale d'après son contenu.
+                             question : elle pose une question sur le produit.
+                             enterprise_inquiry : elle exprime un besoin
+                             d'entreprise ou de partenariat, même si l'outil de
+                             veille l'a étiquetée Generic. positive : éloge sans
+                             question. negative : plainte ou incident. generic :
+                             simple mention d'usage, sans question ni sentiment.
+                             Indiquer aussi si la note interne signale que la
+                             mention est déjà traitée par une autre équipe.
+                             Le brouillon doit répondre directement au contenu
+                             et reprendre explicitement, sans les paraphraser,
+                             les termes métier concrets présents dans la mention
+                             (produit, intégration ou besoin cité)."
+                    USING   { m.content, m.mention_type, m.author, m.notes }
+                    PRODUCE { kind IN [ question, enterprise_inquiry, positive,
+                                        negative, generic ]
+                              already_handled IN [ yes, no ]
+                              draft_text: String }
+                }
+
+                SET draft.priority = none
+
+                // Hors fenêtre de réponse, ou déjà traitée ailleurs : on ne
+                // met rien en file. La « nouvelle stratégie » qui voulait
+                // répondre à tout n'a jamais été adoptée.
+                IF m.age_hours <= rule.window_hours AND already_handled == no THEN {
+
+                    IF kind == question           THEN { SET draft.priority = "High" }
+                    IF kind == enterprise_inquiry THEN { SET draft.priority = "High" }
+
+                    IF kind == positive AND m.followers >= rule.positive_high THEN {
+                        SET draft.priority = "High"
+                    }
+                    IF kind == positive AND m.followers < rule.positive_high THEN {
+                        SET draft.priority = "Medium"
+                    }
+
+                    // Les mentions négatives ne sont traitées que si une
+                    // consigne interne l'a explicitement demandé.
+                    IF kind == negative AND rule.negative_min > 0
+                       AND m.followers >= rule.negative_min THEN {
+                        SET draft.priority = "High"
+                    }
+                }
+
+                queue_response(platform       = m.platform,
+                               reply_to       = m.author,
+                               response_draft = draft_text,
+                               priority       = draft.priority)
+            }
+            SET triage.done = yes
+        }
+    }
+}

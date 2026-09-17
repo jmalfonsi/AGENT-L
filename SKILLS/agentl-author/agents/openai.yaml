@@ -1,0 +1,4 @@
+interface:
+  display_name: "AGENT-L Author"
+  short_description: "Créer des agents AGENT-L vérifiables"
+  default_prompt: "Utilise $agentl-author pour créer et valider un agent AGENT-L gouverné par des politiques."

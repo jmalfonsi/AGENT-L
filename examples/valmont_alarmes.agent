@@ -1,0 +1,482 @@
+// ---------------------------------------------------------------------------
+// VALMONT_ALARMES — sous-agent « surveillance des alarmes ».
+//
+// Spécialiste de l'usine Valmont (métallurgie, usinage, traitement de
+// surface) simulée par ENTERPRISE-SIM. Il PERÇOIT le journal d'alarmes et
+// de défauts, calcule un postérieur d'incident majeur, qualifie la nature de
+// l'alarme la plus grave avec un oracle borné, et rend un VERDICT — rien de
+// plus. Il n'agit jamais sur l'installation : c'est le superviseur
+// (valmont_supervision.agent) qui commande, sous sa propre politique.
+//
+// Frontière : le superviseur ne voit que le contrat
+// EXPECT { verdict_alarme, classe_alarme, confiance_alarme }.
+// ---------------------------------------------------------------------------
+
+AGENT VALMONT_ALARMES {
+
+    VERSION "1.8"
+    DESCRIPTION "Sous-agent de surveillance des alarmes de l'usine Valmont : diagnostic borne, sans action sur l'installation."
+
+    GOAL diagnostic_rendu {
+        MAINTAIN diagnostic.status == rendu
+        WEIGHT   2
+    }
+
+    // -- Perception ---------------------------------------------------------
+    // Les quatre premiers chemins gardent un interdit : un capteur muet doit
+    // avoir une conduite déclarée, sinon la panne bloque l'agent en silence.
+    OBSERVE {
+        alarmes.read_ok           ON UNKNOWN ESCALATE
+        alarmes.critiques         ON UNKNOWN ESCALATE
+        alarmes.non_acquittees    ON UNKNOWN ESCALATE
+        defauts.ouverts           ON UNKNOWN ESCALATE
+        // Une critique SANS defaut equipement derriere elle est une derive de
+        // procede : aucune equipe n'est depechee automatiquement, et aucune
+        // commande de maintenance ne s'y applique. C'est un fait distinct,
+        // parce qu'il appelle une conduite distincte.
+        alarmes.critique_sans_defaut ON UNKNOWN ESCALATE
+        alarmes.actives
+        alarmes.majeures
+        alarmes.pire
+        alarmes.libelles
+        mesures.douteuses
+        diagnostic.status         // les EFFECT doivent rester réfutables (T9)
+        diagnostic.verdict
+    }
+
+    BELIEF {
+        diagnostic.status   = attente     CONFIDENCE 1.00 SOURCE prior
+        diagnostic.verdict  = indetermine CONFIDENCE 1.00 SOURCE prior
+        qualification.done  = no          CONFIDENCE 1.00 SOURCE prior
+        compte_rendu.envoye = no          CONFIDENCE 1.00 SOURCE prior
+        classe              = indetermine CONFIDENCE 0.10 SOURCE prior
+        urgence             = indetermine CONFIDENCE 0.10 SOURCE prior
+        diagnostic.cause    = inconnue    CONFIDENCE 0.10 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { ronde_courante }
+        LONG_TERM  { verdicts, effect_drift }
+
+        WRITE {
+            WHEN  diagnostic.status == rendu
+            STORE { diagnostic.verdict, classe, urgence }
+            INTO  LONG_TERM.verdicts
+        }
+    }
+
+    // -- Capacités : rendre un verdict, jamais conduire l'installation -------
+
+    TOOL exiger_intervention {
+        DESCRIPTION "Verdict : un defaut ouvert appelle une intervention de maintenance."
+        INPUT    { classe: String BIND classe, defauts: Number BIND defauts.ouverts }
+        OUTPUT   { verdict: Symbol }
+        RISK     LOW
+        REQUIRES { qualification.done == yes AND defauts.ouverts > 0 }
+        EFFECT   { diagnostic.status = rendu, diagnostic.verdict = intervention }
+        COST     2
+    }
+
+    TOOL exiger_acquittement {
+        DESCRIPTION "Verdict : pas de defaut, mais un arriere d'alarmes a acquitter."
+        INPUT    { classe: String BIND classe, alarmes: Number BIND alarmes.non_acquittees }
+        OUTPUT   { verdict: Symbol }
+        RISK     LOW
+        REQUIRES { qualification.done == yes
+                   AND defauts.ouverts <= 0
+                   AND alarmes.non_acquittees > 0
+                   AND alarmes.critique_sans_defaut != yes }
+        EFFECT   { diagnostic.status = rendu, diagnostic.verdict = acquittement }
+        COST     2
+    }
+
+    // ESCALADE HUMAINE — le verdict qui manquait.
+    //
+    // Une alarme critique sans defaut equipement ne se repare pas et ne
+    // s'acquitte pas : elle se REMONTE. Sans ce verdict, la ronde rendait
+    // `acquittement` (moins cher) et la critique passait sous silence — un
+    // rejet non conforme a l'arrete prefectoral a ainsi tourne huit heures
+    // sans que personne ne soit nomme.
+    TOOL exiger_escalade_humaine {
+        DESCRIPTION "Verdict : alarme critique sans defaut equipement — rien a reparer, un humain doit trancher."
+        INPUT    { classe: String BIND classe, critiques: Number BIND alarmes.critiques }
+        OUTPUT   { verdict: Symbol }
+        RISK     LOW
+        REQUIRES { qualification.done == yes
+                   AND alarmes.critique_sans_defaut == yes }
+        EFFECT   { diagnostic.status = rendu, diagnostic.verdict = escalade_humaine }
+        // Plus cher qu'une intervention (2) : quand un defaut est reellement
+        // ouvert, le reparer reste l'acte concret. Moins cher que la
+        // surveillance (6) : une critique que personne ne traite ne se
+        // « surveille » pas.
+        COST     3
+    }
+
+    // Repli générique volontairement COÛTEUX : il ne doit être choisi que
+    // lorsque aucun verdict précis n'est permis — politique comprise.
+    TOOL recommander_surveillance {
+        DESCRIPTION "Verdict : rien qui justifie une action, on continue d'observer."
+        INPUT    { classe: String BIND classe, actives: Number BIND alarmes.actives }
+        OUTPUT   { verdict: Symbol }
+        RISK     LOW
+        // « Surveiller » ne doit jamais couvrir une critique que personne ne
+        // traite : ce serait le feu vert le plus dangereux du programme.
+        REQUIRES { qualification.done == yes
+                   AND alarmes.critique_sans_defaut != yes }
+        EFFECT   { diagnostic.status = rendu, diagnostic.verdict = surveillance }
+        COST     6
+    }
+
+    // Chemin explicitement NON CONCLUANT : une mesure ratée n'est pas un
+    // résultat négatif. Sans lui, une API muette rendrait « surveillance »,
+    // qui se lirait comme un feu vert.
+    TOOL signaler_perception_incomplete {
+        DESCRIPTION "Verdict : la perception a echoue, aucun jugement n'est possible."
+        OUTPUT   { verdict: Symbol }
+        RISK     LOW
+        // Les trois façons de n'avoir rien à dire : la qualification n'a pas
+        // eu lieu, l'oracle est retombé sur son repli, ou l'usine a cessé
+        // de répondre APRÈS la qualification. Sans ce troisième cas, ce
+        // dernier scénario n'avait aucune route et l'agent restait muet au
+        // lieu de dire qu'il ne savait pas — c'est le test de mutation qui
+        // l'a montré, pas la relecture.
+        REQUIRES { qualification.done != yes
+                   OR classe == indetermine
+                   OR alarmes.read_ok != yes }
+        EFFECT   { diagnostic.status = rendu, diagnostic.verdict = indetermine }
+        // COÛT LE PLUS ÉLEVÉ, et c'est voulu : se déclarer incapable de
+        // conclure est le DERNIER recours, celui qu'on ne prend que si la
+        // politique interdit tout le reste. Le mettre au coût le plus bas
+        // en faisait le choix par défaut du planificateur, ce qui masquait
+        // les interdits au lieu de les révéler.
+        COST     7
+    }
+
+    // -- Politique ----------------------------------------------------------
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW exiger_acquittement
+        ALLOW recommander_surveillance
+        ALLOW signaler_perception_incomplete
+        ALLOW exiger_escalade_humaine
+
+        // Un verdict d'intervention engage une action de maintenance chez le
+        // superviseur : il exige un postérieur CALCULÉ, pas une opinion.
+        ALLOW exiger_intervention IF P(incident_majeur) >= 0.70
+
+        // Perception ratée : aucun verdict opérationnel.
+        NEVER exiger_intervention      WHEN alarmes.read_ok != yes
+        NEVER exiger_acquittement      WHEN alarmes.read_ok != yes
+        NEVER recommander_surveillance WHEN alarmes.read_ok != yes
+        NEVER exiger_escalade_humaine  WHEN alarmes.read_ok != yes
+
+        // Principe « indéterminé n'est pas zéro » : on n'escalade pas une
+        // critique qu'on n'a pas comptée.
+        NEVER exiger_escalade_humaine WHEN alarmes.critiques <= 0
+
+        // ORACLE MUET — le point le plus important de cette politique.
+        //
+        // `classe` est la sortie du `REASON`, à domaine clos, de repli
+        // `indetermine`. Troncature, JSON invalide, quota dépassé, clé morte :
+        // toutes les pannes de l'oracle aboutissent au MÊME repli. Lier les
+        // interdits à ce repli, plutôt qu'à `reason.degraded`, rend la
+        // garantie *exécutable dans un scénario* — donc réellement testée —
+        // et couvre en plus la réponse hors format, qui n'est pas une panne.
+        // Conséquence : un oracle mort ne peut produire que `indetermine`.
+        NEVER exiger_intervention      WHEN classe == indetermine
+        NEVER exiger_acquittement      WHEN classe == indetermine
+        NEVER recommander_surveillance WHEN classe == indetermine
+        NEVER exiger_escalade_humaine  WHEN classe == indetermine
+
+        // Une instrumentation en dérive allume des alarmes sans qu'aucun
+        // procédé ne soit en cause : envoyer une équipe serait du gâchis.
+        // Le faux positif est ici REFUTÉ par un calcul, pas par une opinion.
+        NEVER exiger_intervention WHEN P(derive_instrumentation) >= 0.50
+
+        // Principe « indéterminé n'est pas zéro » : un compteur qui n'a pas
+        // été lu vaut 0 et laisserait tout passer.
+        NEVER exiger_intervention WHEN defauts.ouverts <= 0
+        NEVER exiger_acquittement WHEN alarmes.non_acquittees <= 0
+    }
+    // Pas de garde sur le disjoncteur d'outil ici : les outils de ce
+    // sous-agent n'écrivent qu'un verdict en mémoire et ne peuvent pas
+    // lever. Un `NEVER` qu'aucun run ne déclenche est une décoration, pas
+    // une garantie — le disjoncteur est gardé chez le superviseur, qui est
+    // le seul à toucher le réseau.
+
+    // -- Inférence : la confiance est calculée, pas déclarée -----------------
+    HYPOTHESIS incident_majeur {
+        DESCRIPTION "Un incident d'exploitation majeur est en cours sur le site."
+
+        PRIOR 0.15
+        PRIOR FROM LONG_TERM.verdicts WHERE diagnostic.verdict == intervention
+
+        EVIDENCE {
+            // Le nombre d'alarmes critiques et la pire criticité décrivent
+            // le MÊME fait. Les compter comme deux témoins indépendants
+            // gonflerait le postérieur qui garde une action de maintenance.
+            GROUP gravite {
+                alarmes.critiques > 0        LIKELIHOOD 0.90 GIVEN_NOT 0.12
+                alarmes.pire == critical     LIKELIHOOD 0.88 GIVEN_NOT 0.14
+            }
+
+            defauts.ouverts > 0              LIKELIHOOD 0.82 GIVEN_NOT 0.10
+            alarmes.majeures > 1             LIKELIHOOD 0.60 GIVEN_NOT 0.30
+        }
+
+        // Filet pour les corrélations non déclarées.
+        MAX_EVIDENCE 6
+
+        THRESHOLD 0.70
+        // La cause explicative est une croyance DISTINCTE de `classe` :
+        // `EXPLAINS` écrase sa cible, et l'on ne veut pas qu'une hypothèse
+        // écrase silencieusement la qualification rendue par l'oracle.
+        EXPLAINS  diagnostic.cause
+    }
+
+    // Le faux positif classique : une dérive d'instrumentation qui allume
+    // des alarmes sans qu'aucun procédé ne soit en cause.
+    HYPOTHESIS derive_instrumentation {
+        DESCRIPTION "Les alarmes proviennent de capteurs en derive ou muets, pas du procede."
+        PRIOR 0.25
+
+        EVIDENCE {
+            mesures.douteuses > 2            LIKELIHOOD 0.75 GIVEN_NOT 0.15
+            // Un défaut réellement ouvert plaide contre la dérive, sans la
+            // réfuter : un capteur peut dériver pendant une vraie panne.
+            defauts.ouverts > 0              LIKELIHOOD 0.45 GIVEN_NOT 0.60
+        }
+
+        THRESHOLD 0.50
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE       diagnostic.status == rendu
+        MAX_DEPTH     2
+        MAX_NODES     300
+        APPROVAL_COST 10
+    }
+
+    // -- Qualification : l'oracle lit le texte, le programme borne sa sortie -
+    //
+    // `alarmes.libelles` est du texte du monde, donc hostile. Il n'entre que
+    // par ce `REASON`, dont les deux sorties sont à domaine clos avec un
+    // repli inoffensif — et ce repli DÉCLENCHE les interdits qu'il garde.
+    // La garde s'éteint (`qualification.done`), sans quoi le plan se
+    // réenfile à chaque tick et la synthèse ne se produit jamais.
+    PLAN qualifier
+        WHEN alarmes.read_ok == yes
+          AND qualification.done == no
+    {
+        STEP lire {
+            REASON {
+                TASK    "Qualifier la nature de l'alarme la plus grave d'une usine de metallurgie et de traitement de surface, a partir des libelles bruts du journal d'alarmes."
+                USING   { alarmes.libelles }
+                PRODUCE { classe:  Symbol IN [securite_environnement, utilite_indisponible, derive_capteur, information, indetermine] DEFAULT indetermine,
+                          urgence: Symbol IN [immediate, planifiable, differable, indetermine] DEFAULT indetermine }
+            }
+        }
+        STEP marquer {
+            SET qualification.done = yes
+        }
+    }
+
+    // Sortie explicite quand plus aucune route n'est permise (V105).
+    PLAN rendre_compte_impossible {
+        STEP marquer {
+            SET compte_rendu.envoye = yes
+        }
+        STEP signaler {
+            signaler_perception_incomplete()
+        }
+    }
+
+    DECIDE {
+        RULES {
+            IF planner.exhausted
+                AND diagnostic.status != rendu
+                AND compte_rendu.envoye != yes
+                THEN rendre_compte_impossible
+        }
+    }
+
+    // -- Critères d'acceptation ---------------------------------------------
+
+    // Nominal : un défaut ouvert sur fond d'alarme critique doit produire un
+    // verdict d'intervention.
+    SCENARIO defaut_ouvert_donne_une_intervention {
+        GIVEN {
+            alarmes.read_ok        = yes
+            alarmes.actives        = 4
+            alarmes.critiques      = 1
+            alarmes.majeures       = 2
+            alarmes.non_acquittees = 12
+            alarmes.pire           = critical
+            alarmes.critique_sans_defaut = no
+            alarmes.libelles       = "[critical] EAU/STEP — Rejet non conforme"
+            defauts.ouverts        = 1
+            mesures.douteuses      = 0
+            classe                 = securite_environnement
+            urgence                = immediate
+        }
+        EXPECT { diagnostic.verdict == intervention } WITHIN 5
+    }
+
+    // MUTATION : retirer `NEVER exiger_intervention WHEN defauts.ouverts <= 0`
+    // ET le `REQUIRES` correspondant fait tomber ce scénario. Sans défaut
+    // ouvert, aucune intervention ne doit être exigée — même avec une alarme
+    // critique au tableau. Invariant : vrai au tick 0, doit tenir à chaque tick.
+    SCENARIO sans_defaut_aucune_intervention {
+        GIVEN {
+            alarmes.read_ok        = yes
+            alarmes.actives        = 3
+            alarmes.critiques      = 1
+            alarmes.majeures       = 2
+            alarmes.non_acquittees = 9
+            alarmes.pire           = critical
+            alarmes.critique_sans_defaut = no
+            alarmes.libelles       = "[critical] ELEC/TR1 — Echauffement transformateur"
+            defauts.ouverts        = 0
+            mesures.douteuses      = 0
+            classe                 = utilite_indisponible
+            urgence                = immediate
+        }
+        EXPECT { diagnostic.verdict != intervention } WITHIN 5
+    }
+
+    // Une API muette ne doit produire AUCUN verdict opérationnel — ni
+    // intervention, ni acquittement, ni « surveillance », qui se lirait
+    // comme un feu vert.
+    //
+    // HONNÊTETÉ SUR CE QUI PORTE CETTE PROPRIÉTÉ : ici, c'est la garde du
+    // plan `qualifier` (`WHEN alarmes.read_ok == yes`) et la chaîne de
+    // `REQUIRES` sur `qualification.done`. Retirer les trois
+    // `NEVER ... WHEN alarmes.read_ok != yes` ne fait PAS tomber ce
+    // scénario — mesuré, pas supposé. Ces interdits sont de la défense en
+    // profondeur, et ils portent réellement dans l'autre cas : celui où
+    // l'usine s'éteint APRÈS la qualification (scénario suivant).
+    SCENARIO api_muette_verdict_non_concluant {
+        GIVEN {
+            alarmes.read_ok        = no
+            alarmes.actives        = 0
+            alarmes.critiques      = 0
+            alarmes.majeures       = 0
+            alarmes.non_acquittees = 0
+            alarmes.pire           = aucune
+            alarmes.critique_sans_defaut = no
+            alarmes.libelles       = ""
+            defauts.ouverts        = 0
+            mesures.douteuses      = 0
+        }
+        EXPECT { diagnostic.verdict == indetermine } WITHIN 4
+    }
+
+    // MUTATION : retirer `NEVER exiger_intervention WHEN
+    // P(derive_instrumentation) >= 0.50` fait tomber ce scénario. Le monde
+    // est le même que le nominal — défaut ouvert, alarme critique — sauf que
+    // l'instrumentation est massivement douteuse. Le faux positif est réfuté
+    // par un postérieur CALCULÉ, pas par une règle écrite à la main.
+    SCENARIO instrumentation_douteuse_bloque_l_intervention {
+        GIVEN {
+            alarmes.read_ok        = yes
+            alarmes.actives        = 4
+            alarmes.critiques      = 1
+            alarmes.majeures       = 2
+            alarmes.non_acquittees = 12
+            alarmes.pire           = critical
+            alarmes.critique_sans_defaut = no
+            alarmes.libelles       = "[critical] ELEC/TGBT1 — Mesures incoherentes"
+            defauts.ouverts        = 1
+            mesures.douteuses      = 9
+            classe                 = derive_capteur
+            urgence                = planifiable
+        }
+        EXPECT { diagnostic.verdict != intervention } WITHIN 5
+    }
+
+    // MUTATION : retirer les trois `NEVER ... WHEN alarmes.read_ok != yes`
+    // fait tomber ce scénario — celui-là, oui.
+    //
+    // L'usine s'est éteinte APRÈS la qualification : `qualification.done`
+    // est déjà à `yes`, la garde du plan ne protège donc plus rien, et les
+    // `REQUIRES` d'`exiger_intervention` sont tous satisfaits. Seuls les
+    // interdits retiennent l'agent. C'est le cas qui donne leur valeur aux
+    // trois `NEVER` que le scénario précédent ne mordait pas.
+    SCENARIO perception_perdue_apres_qualification {
+        GIVEN {
+            alarmes.read_ok        = no
+            qualification.done     = yes
+            alarmes.actives        = 3
+            alarmes.critiques      = 1
+            alarmes.majeures       = 2
+            alarmes.non_acquittees = 30
+            alarmes.pire           = critical
+            alarmes.critique_sans_defaut = no
+            alarmes.libelles       = "[critical] GAZ/CH1 — Defaut bruleur"
+            defauts.ouverts        = 2
+            mesures.douteuses      = 0
+            classe                 = utilite_indisponible
+            urgence                = immediate
+        }
+        EXPECT { diagnostic.verdict == indetermine } WITHIN 5
+    }
+
+    // NON-RÉGRESSION — le cas réel du 2026-08-13 : rejet non conforme à
+    // l'arrêté préfectoral (A-000065, STEP), critique, actif depuis des
+    // heures, SANS défaut équipement derrière lui, pendant que 89 alarmes
+    // attendent l'acquittement.
+    //
+    // L'agent rendait alors `acquittement` et la critique passait sous
+    // silence. MUTATION : retirer `AND alarmes.critique_sans_defaut != yes`
+    // du `REQUIRES` d'`exiger_acquittement` fait retomber ce scénario —
+    // l'acquittement coûte 2 contre 3 pour l'escalade, il gagnerait.
+    SCENARIO critique_sans_defaut_exige_une_escalade_humaine {
+        GIVEN {
+            alarmes.read_ok              = yes
+            alarmes.actives              = 5
+            alarmes.critiques            = 1
+            alarmes.majeures             = 2
+            alarmes.non_acquittees       = 89
+            alarmes.pire                 = critical
+            alarmes.critique_sans_defaut = yes
+            alarmes.libelles             = "[critical] EAU/STEP (A-000065) — Rejet non conforme a l'arrete prefectoral [aucun defaut equipement associe]"
+            defauts.ouverts              = 0
+            mesures.douteuses            = 0
+            classe                       = securite_environnement
+            urgence                      = immediate
+        }
+        EXPECT { diagnostic.verdict == escalade_humaine } WITHIN 5
+    }
+
+    // Arriéré d'alarmes sans défaut : acquittement, pas intervention.
+    SCENARIO arriere_d_alarmes_donne_un_acquittement {
+        GIVEN {
+            alarmes.read_ok        = yes
+            alarmes.actives        = 2
+            alarmes.critiques      = 0
+            alarmes.majeures       = 1
+            alarmes.non_acquittees = 47
+            alarmes.pire           = major
+            alarmes.critique_sans_defaut = no
+            alarmes.libelles       = "[major] ELEC/GEN1 — Niveau de carburant bas"
+            defauts.ouverts        = 0
+            mesures.douteuses      = 0
+            classe                 = information
+            urgence                = planifiable
+        }
+        EXPECT { diagnostic.verdict == acquittement } WITHIN 5
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

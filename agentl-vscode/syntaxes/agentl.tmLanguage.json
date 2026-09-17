@@ -1,0 +1,103 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "AGENT-L",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#epistemic_funcs"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.agentl",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.line.number-sign.agentl",
+          "match": "#.*$"
+        },
+        {
+          "name": "comment.block.agentl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.agentl",
+          "match": "\\b(AGENT|VERSION|DESCRIPTION|GOAL|MAINTAIN|ACHIEVE|TARGET|WEIGHT|BELIEF|CONFIDENCE|SOURCE|UPDATED|OBSERVE|EVERY|WHEN|MEMORY|SHORT_TERM|LONG_TERM|KNOWLEDGE|SHARED|WRITE|STORE|INTO|TOOL|INPUT|OUTPUT|SIDE_EFFECT|RISK|POLICY|NEVER|SEND|UNKNOWN|DEGRADE|ALLOW|DENY|REQUIRE|APPROVAL|FOR|DEFAULT|PLAN|STEP|IF|THEN|ELSE|SET|LOOP|UNTIL|MAX|FOREACH|SCENARIO|GIVEN|WITHIN|VERIFY|CONDITION|ON|FAIL|RETRY|ROLLBACK|ESCALATE|REASON|TASK|USING|PRODUCE|ASK|QUESTION|TIMEOUT|DELEGATE|EXPECT|MESSAGE|TO|BROADCAST|PAYLOAD|EVENT|DECIDE|RULES|UPDATE_BELIEFS|EVALUATE_GOALS|SELECT_PLAN|EXECUTE|UPDATE_MEMORY|ACT|HYPOTHESIS|PREDICT|EVIDENCE|PRIOR|LIKELIHOOD|GIVEN_NOT|THRESHOLD|EXPLAINS|UPDATE_HYPOTHESES|GROUP|MAX_EVIDENCE|IN|FROM|WHERE|PLANNER|ENABLE|MAX_DEPTH|MAX_NODES|APPROVAL_COST|EFFECT|REQUIRES|COST|BIND|SYNTHESIZE|OUTCOME|WITH|UTILITY|VALUE|TARGET_CONFIDENCE|RECEIVE|ATTESTS|DEADLINE|DURATION|TIME_WEIGHT|INTERNAL)\\b"
+        }
+      ]
+    },
+    "epistemic_funcs": {
+      "patterns": [
+        {
+          "name": "support.function.epistemic.agentl",
+          "match": "\\b(CONFIDENCE|UNCERTAINTY|P|PROBABILITY|POSTERIOR)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.agentl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.agentl",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.duration.agentl",
+          "match": "\\b\\d+(\\.\\d+)?(ms|s|sec|min|m|h|d)\\b"
+        },
+        {
+          "name": "constant.numeric.percentage.agentl",
+          "match": "\\b\\d+(\\.\\d+)?%\\b"
+        },
+        {
+          "name": "constant.numeric.agentl",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.logical.agentl",
+          "match": "\\b(AND|OR|NOT|IN)\\b"
+        },
+        {
+          "name": "keyword.operator.comparison.agentl",
+          "match": "(==|!=|>=|<=|>|<)"
+        },
+        {
+          "name": "keyword.operator.assignment.agentl",
+          "match": "(=)"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.agentl"
+}

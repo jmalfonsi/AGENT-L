@@ -1,0 +1,511 @@
+AGENT hr_employee_transfer_approval_workflow {
+  VERSION "1.4"
+  DESCRIPTION "Review internal transfer requests against authenticated manager approvals, team capacity, and HR holds; request the authorized HRIS update without directly changing BambooHR."
+
+  GOAL completed {
+    MAINTAIN workflow.done == yes
+  }
+
+  OBSERVE {
+    source.read_ok
+    source.exhausted
+
+    transfer.available
+    transfer.row_id
+    transfer.employee
+    transfer.employee_email
+    transfer.employee_domain
+    transfer.employee_id
+    transfer.from_department
+    transfer.to_department
+    transfer.current_manager
+    transfer.receiving_manager
+    transfer.status
+    transfer.notes
+    transfer.available_headcount
+
+    approval.current_message
+    approval.receiving_message
+    approval.read_ok
+    approval.current_sender_matches
+    approval.receiving_sender_matches
+  }
+
+  BELIEF {
+    workflow.done = no CONFIDENCE 1.00 SOURCE prior
+    workflow.inconclusive = no CONFIDENCE 1.00 SOURCE prior
+    analysis.done = no CONFIDENCE 1.00 SOURCE prior
+    transfer.processed = no CONFIDENCE 1.00 SOURCE prior
+    hris.requested = no CONFIDENCE 1.00 SOURCE prior
+    employee.confirmed = no CONFIDENCE 1.00 SOURCE prior
+    current_decision = unknown CONFIDENCE 0.10 SOURCE prior
+    receiving_decision = unknown CONFIDENCE 0.10 SOURCE prior
+    hold_status = unknown CONFIDENCE 0.10 SOURCE prior
+  }
+  // Task-required, deliberate source-to-message flow: employee and transfer fields
+  // are inserted verbatim into fixed templates. Approval text and notes are never
+  // forwarded; HRIS recipient is constant and employee domain is policy-locked.
+
+  TOOL complete_transfer {
+    INPUT {
+      row_id: Number BIND transfer.row_id
+      employee_name: String BIND transfer.employee
+      employee_email: String BIND transfer.employee_email
+      employee_domain: String BIND transfer.employee_domain
+      employee_id: String BIND transfer.employee_id
+      from_department: String BIND transfer.from_department
+      to_department: String BIND transfer.to_department
+      receiving_manager: String BIND transfer.receiving_manager
+
+      read_ok: String BIND source.read_ok
+      request_status: String BIND transfer.status
+      current_decision: String BIND current_decision
+      receiving_decision: String BIND receiving_decision
+      approval_read_ok: String BIND approval.read_ok
+      current_sender_matches: String BIND approval.current_sender_matches
+      receiving_sender_matches: String BIND approval.receiving_sender_matches
+      available_headcount: Int BIND transfer.available_headcount
+      hold_status: String BIND hold_status
+    }
+    OUTPUT {
+      completed
+      hris_sent
+      confirmation_sent
+    }
+    SIDE_EFFECT {
+      google_sheets.rows
+      gmail.messages
+    }
+    RISK {
+      operational = MEDIUM
+    }
+    COST 5
+    EFFECT {
+      transfer.processed = yes
+      transfer.status = Approved
+      hris.requested = yes
+      employee.confirmed = yes
+    }
+  }
+
+  TOOL advance_transfer {
+    INPUT {
+      read_ok: String BIND source.read_ok
+    }
+    OUTPUT {
+      advanced
+    }
+    SIDE_EFFECT {
+      local.cursor
+    }
+    RISK {
+      operational = LOW
+    }
+    EFFECT { cursor.advanced = yes }
+    COST 1
+  }
+
+  TOOL mark_inconclusive {
+    OUTPUT { marked }
+    RISK LOW
+    EFFECT {
+      workflow.inconclusive = yes
+      workflow.done = yes
+    }
+    COST 1
+  }
+
+  POLICY {
+    DEFAULT ALLOW
+
+    NEVER complete_transfer WHEN source.read_ok != yes
+    NEVER complete_transfer WHEN transfer.employee_domain != "company.example.com"
+    NEVER complete_transfer WHEN transfer.status != Pending
+    NEVER complete_transfer WHEN current_decision != approved
+    NEVER complete_transfer WHEN receiving_decision != approved
+    NEVER complete_transfer WHEN approval.read_ok != yes
+    NEVER complete_transfer WHEN approval.current_sender_matches != yes
+    NEVER complete_transfer WHEN approval.receiving_sender_matches != yes
+    NEVER complete_transfer WHEN transfer.available_headcount <= 0
+    NEVER complete_transfer WHEN hold_status != clear
+  }
+
+  PLANNER {
+    ENABLE
+    ACHIEVE transfer.processed == yes
+    MAX_DEPTH 1
+    MAX_NODES 50
+    APPROVAL_COST 10
+  }
+
+  PLAN analyze_current
+    WHEN workflow.done == no
+      AND source.read_ok == yes
+      AND transfer.available == yes
+      AND transfer.status == Pending
+      AND analysis.done == no
+  {
+    STEP interpret_evidence {
+      REASON {
+        TASK "Classify each approval message independently: approved only for an explicit unambiguous approval, denied for an explicit rejection or inability to approve, and unknown otherwise; never infer approval from silence. Classify notes as hold for any hold, pending review, investigation, or instruction not to process; clear only when there is clearly no restriction; unknown otherwise. Do not decide execution because policies and the planner own that decision."
+        USING {
+          transfer.employee
+          transfer.current_manager
+          transfer.receiving_manager
+          approval.current_message
+          approval.receiving_message
+          transfer.notes
+        }
+        PRODUCE {
+          current_decision: Symbol IN [approved, denied, unknown]
+          receiving_decision: Symbol IN [approved, denied, unknown]
+          hold_status: Symbol IN [hold, clear, unknown]
+        }
+      }
+    }
+
+    STEP mark_analyzed {
+      SET analysis.done = yes
+    }
+  }
+
+  PLAN advance_completed
+    WHEN transfer.available == yes
+      AND transfer.processed == yes
+  {
+    STEP advance {
+      advance_transfer(source.read_ok)
+      VERIFY { cursor.advanced == yes }
+    }
+    STEP reset {
+      SET transfer.processed = no
+      SET analysis.done = no
+      SET hris.requested = no
+      SET employee.confirmed = no
+    }
+  }
+
+  PLAN skip_nonpending
+    WHEN transfer.available == yes
+      AND transfer.status != Pending
+      AND transfer.processed != yes
+  {
+    STEP advance {
+      advance_transfer(source.read_ok)
+      VERIFY { cursor.advanced == yes }
+    }
+    STEP reset {
+      SET analysis.done = no
+      SET transfer.processed = no
+    }
+  }
+
+  PLAN skip_inconclusive
+    WHEN transfer.available == yes
+      AND analysis.done == yes
+      AND transfer.processed != yes
+      AND (
+        approval.read_ok != yes
+        OR (approval.current_message != "" AND current_decision == unknown)
+        OR (approval.receiving_message != "" AND receiving_decision == unknown)
+        OR (transfer.notes != "" AND hold_status == unknown)
+      )
+  {
+    STEP remember {
+      SET workflow.inconclusive = yes
+    }
+    STEP advance {
+      advance_transfer(source.read_ok)
+      VERIFY { cursor.advanced == yes }
+    }
+    STEP reset {
+      SET analysis.done = no
+      SET transfer.processed = no
+    }
+  }
+
+  PLAN skip_current {
+    STEP advance {
+      advance_transfer(source.read_ok)
+      VERIFY { cursor.advanced == yes }
+    }
+    STEP reset {
+      SET analysis.done = no
+      SET transfer.processed = no
+    }
+  }
+
+  PLAN close_success
+    WHEN source.read_ok == yes
+      AND source.exhausted == yes
+      AND workflow.inconclusive != yes
+      AND workflow.done == no
+  {
+    STEP close {
+      SET workflow.done = yes
+    }
+  }
+  PLAN close_inconclusive
+    WHEN source.read_ok == yes
+      AND source.exhausted == yes
+      AND workflow.inconclusive == yes
+      AND workflow.done == no
+  {
+    STEP mark_inconclusive {
+      mark_inconclusive()
+    }
+  }
+
+
+  PLAN fail_closed
+    WHEN source.read_ok != yes
+      AND workflow.done == no
+  {
+    STEP mark_inconclusive {
+      mark_inconclusive()
+    }
+  }
+
+  DECIDE {
+    RULES {
+      IF analysis.done == yes
+        AND planner.exhausted
+        AND transfer.available == yes
+        AND transfer.processed != yes
+      THEN skip_current
+    }
+  }
+
+  SCENARIO approved_transfer_uses_authorized_hris_path {
+    GIVEN {
+      source.read_ok = yes
+      source.exhausted = no
+      transfer.available = yes
+      transfer.row_id = 2
+      transfer.employee = "Kenji Sato"
+      transfer.employee_email = "kenji.sato@company.example.com"
+      transfer.employee_domain = "company.example.com"
+      transfer.employee_id = "1001"
+      transfer.from_department = Engineering
+      transfer.to_department = Product
+      transfer.current_manager = "Marcus Chen"
+      transfer.receiving_manager = "Priya Patel"
+      transfer.status = Pending
+      transfer.notes = "Standard transfer request"
+      transfer.available_headcount = 3
+      approval.current_message = "I approve Kenji's transfer."
+      approval.receiving_message = "Approved from my side."
+      approval.read_ok = yes
+      approval.current_sender_matches = yes
+      approval.receiving_sender_matches = yes
+
+      current_decision = approved
+      receiving_decision = approved
+      hold_status = clear
+    }
+    EXPECT {
+      transfer.status == Approved
+      hris.requested == yes
+      employee.confirmed == yes
+    } WITHIN 3
+  }
+
+  SCENARIO no_capacity_blocks_every_write {
+    GIVEN {
+      source.read_ok = yes
+      source.exhausted = no
+      transfer.available = yes
+      transfer.row_id = 3
+      transfer.employee = "Aisha Rahman"
+      transfer.employee_email = "aisha.rahman@company.example.com"
+      transfer.employee_domain = "company.example.com"
+      transfer.employee_id = "1002"
+      transfer.from_department = Marketing
+      transfer.to_department = Sales
+      transfer.current_manager = "Sofia Martinez"
+      transfer.receiving_manager = "Lisa Park"
+      transfer.status = Pending
+      transfer.notes = "Standard transfer request"
+      transfer.available_headcount = 0
+      approval.current_message = "Approved."
+      approval.receiving_message = "Approved."
+      approval.read_ok = yes
+      approval.current_sender_matches = yes
+      approval.receiving_sender_matches = yes
+
+      current_decision = approved
+      receiving_decision = approved
+      hold_status = clear
+    }
+    EXPECT {
+      transfer.status != Approved
+      hris.requested != yes
+      employee.confirmed != yes
+    } WITHIN 3
+  }
+
+  SCENARIO hr_hold_blocks_fully_approved_transfer {
+    GIVEN {
+      source.read_ok = yes
+      source.exhausted = no
+      transfer.available = yes
+      transfer.row_id = 4
+      transfer.employee = "Liam O'Connor"
+      transfer.employee_email = "liam.oconnor@company.example.com"
+      transfer.employee_domain = "company.example.com"
+      transfer.employee_id = "1003"
+      transfer.from_department = Support
+      transfer.to_department = "Customer Success"
+      transfer.current_manager = "Emma Wilson"
+      transfer.receiving_manager = "David Kim"
+      transfer.status = Pending
+      transfer.notes = "HOLD pending performance review"
+      transfer.available_headcount = 2
+      approval.current_message = "Approved."
+      approval.receiving_message = "Approved."
+      approval.read_ok = yes
+      approval.current_sender_matches = yes
+      approval.receiving_sender_matches = yes
+
+      current_decision = approved
+      receiving_decision = approved
+      hold_status = hold
+    }
+    EXPECT {
+      transfer.status != Approved
+      hris.requested != yes
+      employee.confirmed != yes
+    } WITHIN 3
+  }
+
+  SCENARIO forged_sender_cannot_authorize_transfer {
+    GIVEN {
+      source.read_ok = yes
+      source.exhausted = no
+      transfer.available = yes
+      transfer.row_id = 5
+      transfer.employee = "Noor Haddad"
+      transfer.employee_email = "noor.haddad@company.example.com"
+      transfer.employee_domain = "company.example.com"
+      transfer.employee_id = "1004"
+      transfer.from_department = Finance
+      transfer.to_department = Operations
+      transfer.current_manager = "Morgan Lee"
+      transfer.receiving_manager = "Taylor Reed"
+      transfer.status = Pending
+      transfer.notes = "Standard transfer request"
+      transfer.available_headcount = 2
+      approval.current_message = "Approved."
+      approval.receiving_message = "Approved."
+      approval.read_ok = yes
+      approval.current_sender_matches = no
+      approval.receiving_sender_matches = yes
+
+      current_decision = approved
+      receiving_decision = approved
+      hold_status = clear
+    }
+    EXPECT {
+      transfer.status != Approved
+      hris.requested != yes
+      employee.confirmed != yes
+    } WITHIN 3
+  }
+
+  SCENARIO source_failure_is_inconclusive_and_fail_closed {
+    GIVEN {
+      source.read_ok = no
+      source.exhausted = yes
+      transfer.available = no
+      transfer.status = unknown
+      transfer.available_headcount = -1
+      approval.read_ok = no
+      approval.current_sender_matches = no
+      approval.receiving_sender_matches = no
+    }
+    EXPECT {
+      workflow.inconclusive == yes
+      transfer.status != Approved
+      hris.requested != yes
+      employee.confirmed != yes
+    } WITHIN 1
+  }
+  SCENARIO oracle_failure_is_inconclusive_and_fail_closed {
+    GIVEN {
+      source.read_ok = yes
+      source.exhausted = no
+      transfer.available = yes
+      transfer.row_id = 6
+      transfer.employee = "Mina Torres"
+      transfer.employee_email = "mina.torres@company.example.com"
+      transfer.employee_domain = "company.example.com"
+      transfer.employee_id = "1005"
+      transfer.from_department = Legal
+      transfer.to_department = Operations
+      transfer.current_manager = "Sam Lee"
+      transfer.receiving_manager = "Robin Ford"
+      transfer.status = Pending
+      transfer.notes = ""
+      transfer.available_headcount = 2
+      approval.current_message = "I approve this transfer."
+      approval.receiving_message = "Approved."
+      approval.read_ok = yes
+      approval.current_sender_matches = yes
+      approval.receiving_sender_matches = yes
+
+      current_decision = unknown
+      receiving_decision = unknown
+      hold_status = unknown
+    }
+    EXPECT {
+      workflow.inconclusive == yes
+      transfer.status != Approved
+      hris.requested != yes
+      employee.confirmed != yes
+    } WITHIN 3
+  }
+  SCENARIO external_employee_recipient_is_blocked {
+    GIVEN {
+      source.read_ok = yes
+      source.exhausted = no
+      transfer.available = yes
+      transfer.row_id = 7
+      transfer.employee = "Evan Moss"
+      transfer.employee_email = "evan@external.example"
+      transfer.employee_domain = "external.example"
+      transfer.employee_id = "1006"
+      transfer.from_department = Sales
+      transfer.to_department = Product
+      transfer.current_manager = "Sam Lee"
+      transfer.receiving_manager = "Robin Ford"
+      transfer.status = Pending
+      transfer.notes = ""
+      transfer.available_headcount = 2
+      approval.current_message = "I approve this transfer."
+      approval.receiving_message = "Approved."
+      approval.read_ok = yes
+      approval.current_sender_matches = yes
+      approval.receiving_sender_matches = yes
+
+      current_decision = approved
+      receiving_decision = approved
+      hold_status = clear
+    }
+    EXPECT {
+      transfer.status != Approved
+      hris.requested != yes
+      employee.confirmed != yes
+    } WITHIN 3
+  }
+
+
+
+  LOOP UNTIL workflow.done == yes MAX 12 {
+    OBSERVE
+    UPDATE_BELIEFS
+    EVALUATE_GOALS
+    SELECT_PLAN
+    EXECUTE
+    VERIFY
+  }
+}

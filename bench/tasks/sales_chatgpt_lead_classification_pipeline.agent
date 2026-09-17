@@ -1,0 +1,211 @@
+// AutomationBench — sales.chatgpt_lead_classification_pipeline
+//
+// La classification des e-mails est rendue par un outil du banc. Ce qui
+// demande un LLM ici, c'est autre chose : le barème de notation n'existe que
+// sous forme de **message Slack en langue naturelle**. Le `REASON` le traduit
+// en nombres ; le programme, lui, applique ces nombres et tranche les seuils.
+//
+// C'est le partage recherché : le modèle lit, le programme décide.
+
+AGENT LEAD_PIPELINE {
+
+    VERSION "1.3"
+
+    GOAL processed { MAINTAIN pipeline.done == yes }
+
+    BELIEF {
+        pipeline.done  = no CONFIDENCE 1.00 SOURCE prior
+        rubric.read    = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL list_inbound {
+        OUTPUT { inbound inbound_count }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL read_routing_policy {
+        OUTPUT { policy_text }
+        RISK   { operational = LOW }
+        COST   1
+    }
+
+    TOOL create_lead {
+        INPUT       { email: String, first_name: String, last_name: String,
+                      company: String, status: String }
+        OUTPUT      { lead_created }
+        SIDE_EFFECT { salesforce.leads }
+        RISK        { operational = HIGH }
+        COST        3
+    }
+
+    TOOL notify_lead {
+        INPUT       { channel: String, lead_name: String, company: String,
+                      score: Number, status: String }
+        OUTPUT      { notified }
+        SIDE_EFFECT { slack.messages }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    TOOL post_processing_summary {
+        INPUT       { processed: Number, hot: Number, warm: Number, cold: Number }
+        OUTPUT      { summary_posted }
+        SIDE_EFFECT { slack.messages }
+        RISK        { operational = MEDIUM }
+        COST        2
+    }
+
+    TOOL mark_processed {
+        INPUT       { message_id: String }
+        OUTPUT      { marked }
+        SIDE_EFFECT { gmail.messages }
+        RISK        { operational = LOW }
+        COST        1
+    }
+
+    // ---------------------------------------------------------- politique
+    // La politique de routage dit explicitement : pas de notification pour
+    // les leads froids. Ce n'est pas une consigne de style, c'est un interdit.
+    POLICY {
+        DEFAULT ALLOW
+        NEVER notify_lead WHEN lead.status == Cold
+        // Un barème mal lu rendrait tous les leads chauds : sans seuil, on
+        // n'agit pas. Indéterminé n'est pas « zéro ».
+        NEVER notify_lead WHEN hot_threshold <= 0
+        NEVER create_lead WHEN lead_email == none
+    }
+
+    // Passe 1 — traduire le barème en langue naturelle en nombres.
+    PLAN learn_rubric WHEN rubric.read == no {
+        STEP read {
+            read_routing_policy()
+            REASON {
+                TASK    "Extraire le barème de notation des leads depuis cette
+                         politique : les points de chaque valeur d'intent,
+                         d'urgency, de budget_signal et de company_size, ainsi
+                         que le score minimal d'un lead chaud (hot) et celui
+                         d'un lead tiède (warm)."
+                USING   { policy_text }
+                PRODUCE { pts_demo_request:   Number
+                          pts_pricing_inquiry: Number
+                          pts_support:        Number
+                          pts_other:          Number
+                          pts_urgency_high:   Number
+                          pts_urgency_medium: Number
+                          pts_urgency_low:    Number
+                          pts_has_budget:     Number
+                          pts_exploring:      Number
+                          pts_no_budget:      Number
+                          pts_enterprise:     Number
+                          pts_midmarket:      Number
+                          pts_smb:            Number
+                          hot_threshold:      Number
+                          warm_threshold:     Number }
+            }
+            SET rubric.read = yes
+        }
+    }
+
+    PLAN process WHEN rubric.read == yes AND pipeline.done == no {
+
+        STEP collect {
+            list_inbound()
+            SET counters.hot  = 0
+            SET counters.warm = 0
+            SET counters.cold = 0
+            SET counters.all  = 0
+        }
+
+        STEP qualify {
+            FOREACH m IN inbound MAX 30 {
+
+                // Le LLM qualifie l'e-mail et en extrait l'état civil. Ses
+                // quatre étiquettes sont bornées à des domaines clos : il ne
+                // peut pas inventer une catégorie. Il n'attribue aucun score
+                // et ne choisit aucune action.
+                REASON {
+                    TASK    "Qualifier cette demande entrante et en extraire
+                             l'identité du prospect. intent : demo_request si
+                             on demande une démonstration, pricing_inquiry si
+                             on demande les tarifs, support si c'est une
+                             question technique, sinon other. urgency d'après
+                             l'empressement exprimé. budget_signal : has_budget
+                             si un budget est validé, exploring si on explore,
+                             no_budget si l'absence de budget est dite, sinon
+                             unknown. company_size : enterprise au-delà de
+                             1000 employés, midmarket entre 100 et 1000, smb
+                             en dessous."
+                    USING   { m.subject, m.body, m.sender }
+                    PRODUCE { intent IN [ demo_request, pricing_inquiry,
+                                          support, other ]
+                              urgency IN [ high, medium, low ]
+                              budget_signal IN [ has_budget, exploring,
+                                                 no_budget, unknown ]
+                              company_size IN [ enterprise, midmarket, smb ]
+                              first_name: String, last_name: String,
+                              lead_email: String, company_name: String }
+                }
+
+                // Le score est calculé par le programme, à partir du barème
+                // lu plus haut. Aucun nombre n'est écrit en dur ici.
+                SET lead.score = 0
+                IF intent == demo_request     THEN { SET lead.score = lead.score + pts_demo_request }
+                IF intent == pricing_inquiry  THEN { SET lead.score = lead.score + pts_pricing_inquiry }
+                IF intent == support          THEN { SET lead.score = lead.score + pts_support }
+                IF intent == other            THEN { SET lead.score = lead.score + pts_other }
+
+                IF urgency == high            THEN { SET lead.score = lead.score + pts_urgency_high }
+                IF urgency == medium          THEN { SET lead.score = lead.score + pts_urgency_medium }
+                IF urgency == low             THEN { SET lead.score = lead.score + pts_urgency_low }
+
+                IF budget_signal == has_budget THEN { SET lead.score = lead.score + pts_has_budget }
+                IF budget_signal == exploring  THEN { SET lead.score = lead.score + pts_exploring }
+                IF budget_signal == no_budget  THEN { SET lead.score = lead.score + pts_no_budget }
+
+                IF company_size == enterprise THEN { SET lead.score = lead.score + pts_enterprise }
+                IF company_size == midmarket  THEN { SET lead.score = lead.score + pts_midmarket }
+                IF company_size == smb        THEN { SET lead.score = lead.score + pts_smb }
+
+                IF lead.score >= hot_threshold THEN {
+                    SET lead.status  = Hot
+                    SET lead.channel = "hot-leads"
+                    SET counters.hot = counters.hot + 1
+                } ELSE {
+                    IF lead.score >= warm_threshold THEN {
+                        SET lead.status  = Warm
+                        SET lead.channel = "sales-queue"
+                        SET counters.warm = counters.warm + 1
+                    } ELSE {
+                        SET lead.status  = Cold
+                        SET lead.channel = "none"
+                        SET counters.cold = counters.cold + 1
+                    }
+                }
+
+                create_lead(email      = lead_email,
+                            first_name = first_name,
+                            last_name  = last_name,
+                            company    = company_name,
+                            status     = lead.status)
+
+                notify_lead(channel   = lead.channel,
+                            lead_name = first_name,
+                            company   = company_name,
+                            score     = lead.score,
+                            status    = lead.status)
+
+                mark_processed(message_id = m.id)
+                SET counters.all = counters.all + 1
+            }
+        }
+
+        STEP report {
+            post_processing_summary(processed = counters.all,
+                                    hot       = counters.hot,
+                                    warm      = counters.warm,
+                                    cold      = counters.cold)
+            SET pipeline.done = yes
+        }
+    }
+}

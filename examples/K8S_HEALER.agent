@@ -1,0 +1,138 @@
+//
+// L'agent diagnostique les pannes de services (fuite mémoire vs pic de trafic),
+// utilise l'inférence bayésienne pour classifier la cause racine et laisse le
+// planificateur trouver l'action la moins risquée (redémarrage, autoscaling, drain
+// de nœud) sous le contrôle strict de la politique de sécurité.
+
+
+AGENT K8S_HEALER {
+
+    GOAL cluster_stability {
+        MAINTAIN app.status == healthy
+        TARGET   app.error_rate < 0.01
+    }
+
+    OBSERVE {
+        metrics.restart_count
+        metrics.memory_usage
+        metrics.error_rate
+        cluster.node_capacity
+        app.status              // ce que les EFFECT de réparation prédisent (T9)
+    }
+
+    BELIEF {
+        app.status = unknown       CONFIDENCE 0.20 SOURCE monitoring
+        app.inspected = no         CONFIDENCE 1.00 SOURCE internal
+        target_service = api_gw    CONFIDENCE 1.00 SOURCE internal
+        suspect_node = node_03     CONFIDENCE 1.00 SOURCE internal
+    }
+
+    // --- Outils & Opérateurs pour le planificateur ---
+    TOOL inspect_pod {
+        INPUT       { service: String BIND target_service }
+        OUTPUT      { logs_clean: Symbol }
+        SIDE_EFFECT { }
+        RISK        LOW
+        EFFECT      { app.inspected = yes INTERNAL }
+        COST        2
+    }
+
+    TOOL restart_pod {
+        INPUT       { service: String BIND target_service }
+        SIDE_EFFECT { pod.lifecycle }
+        RISK        MEDIUM
+        REQUIRES    { app.inspected == yes }
+        EFFECT      { app.status = healthy }
+        COST        5
+    }
+
+    TOOL scale_deployment {
+        INPUT       { service: String BIND target_service }
+        SIDE_EFFECT { cluster.resources, cloud.billing }
+        RISK        HIGH
+        REQUIRES    { app.inspected == yes }
+        EFFECT      { app.status = healthy }
+        COST        12
+    }
+
+    TOOL drain_node {
+        INPUT       { node_id: String BIND suspect_node }
+        SIDE_EFFECT { cluster.topology, workload.migration }
+        RISK        CRITICAL
+        REQUIRES    { app.inspected == yes }
+        EFFECT      { app.status = healthy }
+        COST        30
+    }
+
+    // --- Diagnostic Bayésien ---
+    HYPOTHESIS memory_leak {
+        PRIOR 0.10
+        EVIDENCE {
+            metrics.restart_count > 5          LIKELIHOOD 0.85 GIVEN_NOT 0.05
+            metrics.memory_usage > 0.90         LIKELIHOOD 0.90 GIVEN_NOT 0.10
+        }
+        THRESHOLD 0.80
+        EXPLAINS  root_cause
+    }
+
+    HYPOTHESIS traffic_spike {
+        PRIOR 0.15
+        EVIDENCE {
+            metrics.error_rate > 0.05           LIKELIHOOD 0.80 GIVEN_NOT 0.02
+            metrics.memory_usage > 0.85         LIKELIHOOD 0.70 GIVEN_NOT 0.20
+            metrics.restart_count == 0          LIKELIHOOD 0.90 GIVEN_NOT 0.30
+        }
+        THRESHOLD 0.75
+        EXPLAINS  root_cause
+    }
+
+    // --- Moteur de politiques & Garde-fous ---
+    POLICY {
+        DEFAULT DENY
+        ALLOW  inspect_pod      IF   1 == 1
+        ALLOW  restart_pod      IF   P(memory_leak) >= 0.80
+        ALLOW  scale_deployment IF   P(traffic_spike) >= 0.75
+        ALLOW  drain_node       IF   P(memory_leak) >= 0.80
+        NEVER  drain_node       WHEN cluster.node_capacity == CRITICAL
+        REQUIRE APPROVAL FOR scale_deployment WHEN action.risk >= HIGH
+        REQUIRE APPROVAL FOR drain_node       WHEN P(memory_leak) < 0.95
+    }
+
+    // --- Planification automatique ---
+    PLANNER {
+        ENABLE
+        ACHIEVE app.status == healthy
+        APPROVAL_COST 15
+    }
+
+    // --- Stratégies écrites à la main (référencées par EVENT / ON VERIFY.FAIL) ---
+    PLAN investigate {
+        STEP look {
+            inspect_pod()
+        }
+    }
+
+    PLAN escalate_to_human {
+        STEP notify {
+            SET escalation.sent = yes
+            ASK operator {
+                QUESTION "Auto-remédiation impossible. Intervention requise ?"
+                REASON   "policy_or_verification_failure"
+                TIMEOUT  10min
+                DEFAULT  no
+            }
+        }
+    }
+
+    EVENT alertmanager.firing { WHEN severity >= CRITICAL THEN investigate }
+
+    ON VERIFY.FAIL {
+        RETRY 1
+        IF still_failed THEN escalate_to_human
+    }
+
+    LOOP UNTIL goal.satisfied MAX 6 {
+        OBSERVE  UPDATE_BELIEFS  UPDATE_HYPOTHESES  EVALUATE_GOALS
+        SELECT_PLAN  EXECUTE  VERIFY  UPDATE_MEMORY
+    }
+}
