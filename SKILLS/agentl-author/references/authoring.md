@@ -268,15 +268,17 @@ signal. Voir la règle de partage dans `business-workflows.md`.
 
     Trois pièges de rédaction :
     - `WITHIN n` doit laisser au moins un tick, sinon `E010` ;
-    - un `GIVEN` qui pose un chemin inexistant est silencieux à l'exécution
-      mais signalé `W117` — c'est presque toujours une faute de frappe ;
-    - une attente qui ne porte sur **aucun chemin qu'un `EFFECT` produit**
+    - un `GIVEN` qui pose un chemin inexistant est signalé `W117` et
+      bloque TEST — c'est presque toujours une faute de frappe ;
+    - une attente qui ne porte sur **aucun chemin produit par EFFECT, OUTPUT, SET, REASON ou DELEGATE**
       (`W118`) ne peut devenir vraie : soit l'outil manque, soit l'attente
       vise une croyance que rien ne met à jour.
 
-17. **L'invariant est le seul moyen de tester une non-action.** `EXPECT { x ==
-    valeur }` déjà vraie au tick 0 est traitée comme un **invariant** — elle
-    doit tenir à *chaque* tick. C'est ce qui rend testable « l'agent ne doit
+17. **Tester explicitement une non-action.** `EXPECT NEVER CALL outil`
+    interdit un appel à l’hôte simulé. Un `EXPECT { x ==
+    valeur }` déjà vrai au tick 0 est traité comme un **invariant** — il
+    doit tenir après chaque effet, instruction et phase. Son état initial
+    doit être explicite ; UNKNOWN ne satisfait jamais EXPECT. C'est ce qui rend testable « l'agent ne doit
     jamais isoler cette machine » : `EXPECT { isolated != confirmed }`, où
     `isolated = confirmed` est l'`EFFECT` propre à l'action interdite. Juger
     l'attente au seul tick 0 la rendrait verte sans qu'aucun tick n'ait
@@ -297,3 +299,14 @@ Le `DEFAULT` est la valeur fail-closed des absences et sorties hors domaine.
 `ATTESTS` relie statiquement la preuve à la cible ; l’hôte conserve la charge
 de la fraîcheur, de l’usage unique et de la revalidation juste avant effet.
 `check`, T6/T7 et `boundary` rendent désormais ces omissions visibles.
+
+
+## Scénarios après audit CHECK/TEST
+
+Poser les sorties externes dans GIVEN (`outil.champ = valeur`) et les choix
+ambigus (`scenario.outcome.outil = branche`, `llm.plan = plan`). Aucun OUTPUT
+n'est inventé. Injecter les stimuli avec `GIVEN EVENT source { ... }` ou
+`GIVEN MESSAGE nom FROM acteur { ... }`. Assertions de trace : `EXPECT CALL`,
+`EXPECT NEVER CALL`, `EXPECT BLOCKED`, `EXPECT EVENT`, `EXPECT NO ERROR`.
+Les suites vides échouent par défaut. WITHIN respecte l'arrêt LOOP.
+Voir `docs/audit-followup.md` pour le contrat complet et les limites.

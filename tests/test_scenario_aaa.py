@@ -51,7 +51,7 @@ AGENT T {{
     POLICY {{ DEFAULT DENY  ALLOW escalate {policy} }}
     PLAN react WHEN alert.count > 10 {{ STEP go {{ escalate() }} }}
     SCENARIO nominal {{
-        GIVEN  {{ alert.count = 37 {given} }}
+        GIVEN  {{ alert.count = 37, escalate.ok = yes {given} }}
         EXPECT {{ escalation.sent == yes }} WITHIN 3
     }}
     LOOP UNTIL goal.satisfied MAX 3 {{
@@ -74,7 +74,7 @@ class TestParsing(unittest.TestCase):
         scenario = _agent().scenarios[0]
         self.assertEqual(scenario.name, "nominal")
         self.assertEqual(scenario.within, 3)
-        self.assertEqual([e.path for e in scenario.given], ["alert.count"])
+        self.assertEqual([e.path for e in scenario.given], ["alert.count", "escalate.ok"])
         self.assertEqual(len(scenario.expect), 1)
 
     def test_scenario_without_expect_is_refused(self):
@@ -142,7 +142,7 @@ AGENT X {
     }
 }""").agents[0]
         result = run_scenario(agent, agent.scenarios[0])
-        self.assertIn("noop", result.calls)      # l'outil est bien appelé…
+        self.assertIn("W118", result.error)     # scénario sans effet testable refusé
         self.assertFalse(result.passed)          # …mais le monde ne bouge pas
 
     def test_the_run_is_hermetic(self):
@@ -169,6 +169,7 @@ class TestInvariants(unittest.TestCase):
 AGENT GIVEN_BELIEF {
     VERSION "1.8.2"
     BELIEF { status = pending CONFIDENCE 0.4 SOURCE prior }
+    TOOL change { EFFECT { status = ready } }
     SCENARIO observed {
         GIVEN { status = ready }
         EXPECT { status == ready }
@@ -198,7 +199,7 @@ AGENT INV {{
     POLICY {{ DEFAULT DENY  ALLOW act {policy} }}
     PLAN p WHEN alert.count > 0 {{ STEP s {{ act() }} }}
     SCENARIO jamais_dangereux {{
-        GIVEN  {{ alert.count = 5 }}
+        GIVEN  {{ alert.count = 5, dangerous = safe, act.ok = yes }}
         EXPECT {{ dangerous != confirmed }} WITHIN 3
     }}
     LOOP UNTIL goal.satisfied MAX 3 {{
@@ -324,7 +325,7 @@ AGENT INV {
                EFFECT { done = yes, dangerous = confirmed } }
     POLICY { DEFAULT DENY  ALLOW act  NEVER act }
     PLAN p WHEN a > 0 { STEP s { act() } }
-    SCENARIO jamais { GIVEN { a = 5 } EXPECT { dangerous != confirmed } WITHIN 2 }
+    SCENARIO jamais { GIVEN { a = 5, dangerous = safe } EXPECT { dangerous != confirmed } WITHIN 2 }
     LOOP UNTIL goal.satisfied MAX 2 {
         OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE
     }

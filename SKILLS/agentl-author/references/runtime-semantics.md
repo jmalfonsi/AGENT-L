@@ -330,3 +330,15 @@ réseau**. Ce qu'il faut savoir pour l'expliquer :
   `DECIDE.REASON` rend le verdict « non prouvé » (`V136`) — le modèle peut
   proposer tout plan déclaré. `SHARED` n'est pas relu par le runtime, donc
   T8 ne couvre que `MESSAGE` (`V137`).
+
+
+### Suite des audits CHECK/TEST
+
+E012 : doublon d'AGENT ; E013 : signature d'appel TOOL ; E014 : assertion de
+scénario sur une cible inconnue. W135 porte sur la définition préalable au
+site de garde, W102 sur une vérification postérieure liée, W120 sur une
+approbation inconditionnelle. TEST partage la boucle runtime, applique la
+logique trivalente à EXPECT et exige des sorties et choix explicites dans
+GIVEN. Les stimuli et assertions de trace sont décrits dans
+`docs/audit-followup.md`. Les avertissements CHECK restent non bloquants ;
+W117/W118 rendent en revanche un scénario invalide pour TEST.

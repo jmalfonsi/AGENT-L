@@ -26,7 +26,7 @@ from .nodes import (
 )
 from .planner import Planner, PlanningResult
 from .policy import (ALLOWED, APPROVAL_REQUIRED, DENIED, ActionRequest,
-                     PolicyEngine, action_from_tool)
+                     PolicyEngine, action_from_tool, _ActionScope)
 from .replay import ReplayDivergence
 from .state import Evaluator, State
 
@@ -454,17 +454,25 @@ class Runtime:
 
     # ------------------------------------------------------------- boucle
     def run(self, max_ticks: Optional[int] = None) -> "Runtime":
+        for _ in self.iter_ticks(max_ticks):
+            pass
+        return self
+
+    def iter_ticks(self, max_ticks: Optional[int] = None, *, horizon: Optional[int] = None):
+        """Boucle commune ; horizon borne une exécution sans remplacer LOOP MAX."""
         loop = self.agent.loop
-        limit = max_ticks if max_ticks is not None else (
-            loop.max_iter if loop and loop.max_iter else 10)
-        for _ in range(limit):
+        declared = loop.max_iter if loop else None
+        limit = max_ticks if max_ticks is not None else (declared or 10)
+        if horizon is not None:
+            limit = min(limit, horizon)
+        for _ in range(max(0, limit)):
             self.tick()
+            yield self
             if loop and loop.until is not None and self._safe_test(
                     loop.until, on_error=False, context="LOOP UNTIL globale"):
                 self.trace.log(self.state.tick, "INFO",
                                "condition d'arrêt UNTIL satisfaite")
                 break
-        return self
 
     def tick(self) -> None:
         self.state.tick += 1
@@ -1779,7 +1787,7 @@ class Runtime:
         # pour planifier et celui utilisé pour exécuter ne divergent pas, mais
         # une perception ultérieure prime toujours sur une postcondition.
         if decl.effects:
-            ev = Evaluator(self.state)
+            ev = Evaluator(_ActionScope(self.state, request))
             for effect in decl.effects:
                 self.state.set_belief(
                     effect.path, ev.eval(effect.value),

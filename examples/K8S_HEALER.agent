@@ -108,7 +108,7 @@ AGENT K8S_HEALER {
     // --- Stratégies écrites à la main (référencées par EVENT / ON VERIFY.FAIL) ---
     PLAN investigate {
         STEP look {
-            inspect_pod()
+            inspect_pod(service = target_service)
         }
     }
 

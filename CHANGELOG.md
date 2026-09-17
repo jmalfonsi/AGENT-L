@@ -6,6 +6,18 @@ même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
 ## [1.8.2] — non publié · la preuve cesse de se taire
 
+### Suite des audits CHECK et TEST — contrat auteur 2.8.1
+
+Constats vérifiés par reproduction : E012/E013, kwargs dupliqués, analyses de
+flot W102/W135, approbations conditionnelles et provenance LLM corrigés.
+TEST respecte la boucle runtime, UNKNOWN et les invariants entre actions.
+OUTPUT, OUTCOME multiples et choix de plan deviennent explicites. Ajout de
+GIVEN EVENT/MESSAGE et des assertions de trace ; suite vide en erreur sauf
+--allow-empty. Exemples migrés avec fixtures explicites. La portée des INPUT
+dans les EFFECT runtime est également corrigée. Voir docs/audit-followup.md
+pour les nuances de l'audit et les limites conservées.
+
+
 Cinq points relevés par un **audit externe** conduit sur la v1.8. Trois
 tenaient tels quels, un tenait à moitié, un tapait à côté de sa cible — et
 c'est le premier qui comptait. La grammaire ne bouge pas ; le contrat d'auteur

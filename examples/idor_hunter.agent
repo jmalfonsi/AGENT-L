@@ -217,6 +217,12 @@ AGENT IDOR_HUNTER {
             target.reachable  = yes
             baseline.status   = ok
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            fetch_baseline.status = baseline.status
+            record_inconclusive.logged = yes
+            probe.done = no
+        }
         EXPECT { probe.done != yes } WITHIN 8
     }
 
@@ -230,6 +236,13 @@ AGENT IDOR_HUNTER {
             target.reachable  = yes
             baseline.status   = denied
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            fetch_baseline.status = baseline.status
+            record_inconclusive.logged = yes
+            notify_operator.delivered = yes
+            probe.done = no
+        }
         EXPECT { vulnerability == inconclusive } WITHIN 8
     }
 
@@ -241,6 +254,13 @@ AGENT IDOR_HUNTER {
             target.production = no
             target.reachable  = yes
             baseline.status   = denied
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            fetch_baseline.status = baseline.status
+            record_inconclusive.logged = yes
+            notify_operator.delivered = yes
+            probe.done = no
         }
         EXPECT { probe.done != yes } WITHIN 8
     }

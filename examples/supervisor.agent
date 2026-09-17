@@ -133,6 +133,11 @@ AGENT TRIAGE_SUPERVISOR {
             threat_class        = credential_phishing
             mailbox.criticality = normal
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            quarantine_mail.moved = yes
+            incident.status = open
+        }
         EXPECT { incident.status == handled } WITHIN 5
     }
 
@@ -141,6 +146,11 @@ AGENT TRIAGE_SUPERVISOR {
             forensic.done       = yes
             malicious           = no
             mailbox.criticality = normal
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            close_incident.closed = yes
+            incident.status = open
         }
         EXPECT { incident.status == handled } WITHIN 5
     }
@@ -155,6 +165,11 @@ AGENT TRIAGE_SUPERVISOR {
             malicious           = unknown
             mailbox.criticality = normal
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            notify_operator.delivered = yes
+            incident.status = open
+        }
         EXPECT { incident.status != handled } WITHIN 5
     }
 
@@ -168,6 +183,10 @@ AGENT TRIAGE_SUPERVISOR {
             malicious           = yes
             threat_class        = credential_phishing
             mailbox.criticality = CRITICAL
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            incident.status = open
         }
         EXPECT { incident.status != handled } WITHIN 5
     }

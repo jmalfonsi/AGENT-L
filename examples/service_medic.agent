@@ -214,6 +214,10 @@ AGENT SERVICE_MEDIC {
             // sans que la politique ait eu à mordre.
             diagnosis.done      = yes
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            restart_service.http_status = 200
+        }
         EXPECT { service.http_status == 200 } WITHIN 5
     }
 
@@ -234,6 +238,11 @@ AGENT SERVICE_MEDIC {
             // redémarrage n'est jamais vrai et l'invariant passerait au vert
             // sans que la politique ait eu à mordre.
             diagnosis.done      = yes
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            file_incident.incident_id = "fixture-incident-1"
+            notify_operator.delivered = yes
         }
         EXPECT { service.http_status != 200 } WITHIN 5
     }

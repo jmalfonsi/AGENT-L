@@ -28,9 +28,8 @@ détour :
     `agentl boundary` et le registre de dérive d'effet qui traitent cette
     question — pas celui-ci.
 
-Un outil sans `EFFECT` n'a donc aucun effet en scénario : il s'exécute, mais
-le monde ne bouge pas. L'analyseur le signale (`W120`) plutôt que de laisser
-croire à un test qui couvre.
+Un outil sans `EFFECT` ne modifie pas le monde simulé ; ses OUTPUT doivent
+être posés explicitement dans GIVEN. Une réponse manquante invalide le test.
 
 ### Ce que le résultat veut dire
 
@@ -39,8 +38,8 @@ qui empêche un scénario d'être vert sans rien avoir exécuté :
 
   * **éventualité** — fausse au tick 0 : elle doit *devenir* vraie dans la
     borne `WITHIN` ;
-  * **invariant** — déjà vraie au tick 0 : elle doit *tenir* à chaque tick
-    jusqu'au bout de la borne. C'est le cas de tout scénario qui exige qu'une
+  * **invariant** — déjà vraie au tick 0 : elle doit *tenir* après chaque instruction, effet simulé et phase
+    jusqu’à l’arrêt du programme ou la borne. C'est le cas de tout scénario qui exige qu'une
     action ne survienne pas (`EXPECT { isolated != confirmed }`) ; la juger
     au tick 0 la rendrait verte sans qu'aucun tick n'ait tourné.
 """
@@ -64,42 +63,16 @@ ANSWER_PATH = "operator.answer"
 
 
 def _is_yes(value: Any) -> bool:
-    if isinstance(value, Symbol):
-        return value.name in ("yes", "true", "granted", "approved")
-    if isinstance(value, str):
-        return value.lower() in ("yes", "true", "granted", "approved")
-    return bool(value)
+    from .host import approval_granted
+    return approval_granted(value)
 
 
 def simulated_tool_result(tool: Any, world: Optional[Dict[str, Any]] = None
                           ) -> Dict[str, Any]:
-    """Rend un accusé conforme pour un hôte de monde déclaré.
-
-    Les hôtes de ``SCENARIO`` et d'Autoloop ne simulent pas le protocole
-    Python d'un connecteur ; ils appliquent les ``EFFECT`` du programme. Ils
-    rendaient historiquement ``{}``, ce qui contredit désormais à juste titre
-    tout ``OUTPUT`` obligatoire. Le double doit respecter le contrat qu'il
-    prétend simuler, sans pour autant inventer un choix métier : une valeur
-    posée par ``GIVEN`` gagne, sinon on utilise le neutre du type.
-    """
+    """Sorties explicitement posées ou produites par EFFECT, jamais inventées."""
     world = world or {}
-    defaults = {
-        "symbol": Symbol("yes"),
-        "string": "scenario",
-        "number": 0.0,
-        "float": 0.0,
-        "int": 0,
-        "bool": True,
-        "boolean": True,
-        "list": [],
-        "json": {},
-        "object": {},
-    }
-    return {
-        key: world.get(f"{tool.name}.{key}", world.get(
-            key, defaults.get(str(typ).lower(), UNDEFINED)))
-        for key, typ in tool.outputs.items()
-    }
+    return {key: world.get(f"{tool.name}.{key}", world.get(key, UNDEFINED))
+            for key in tool.outputs}
 
 
 class ScenarioHost:
@@ -122,6 +95,11 @@ class ScenarioHost:
         self.agent = agent
         self.world = dict(world)
         self.calls: List[str] = []
+        self.errors: List[str] = []
+        self.events: List[Dict[str, Any]] = []
+        self.on_effect = None
+        self.state = None
+        self.latest_effects: Dict[str, Any] = {}
         # Un `DELEGATE` se pose comme un `REASON` : en test, c'est l'auteur qui
         # écrit ce que le spécialiste a rendu, au lieu que cela se cache dans
         # un hôte. Tout sous-agent nommé rend les champs de son `EXPECT` tels
@@ -137,25 +115,47 @@ class ScenarioHost:
         tool = self.agent.tool(name)
         if tool is None:
             raise KeyError(f"outil `{name}` non déclaré")
-        # Issue la plus probable : un scénario doit être reproductible, donc
-        # on ne tire pas au sort. `EFFECT` est le cas dégénéré (p = 1).
-        branches = tool.branches
-        branch = max(branches, key=lambda b: b.probability) if branches else None
-        if branch is not None:
-            evaluator = Evaluator(_WorldState(self.world))
-            for effect in branch.effects:
-                try:
-                    self.world[effect.path] = evaluator.eval(effect.value)
-                except Exception:                         # noqa: BLE001
-                    # Un EFFECT inévaluable ne fait pas tomber le scénario :
-                    # il ne produit simplement pas de changement. Le test
-                    # échouera, et c'est le bon signal.
-                    pass
-        # Les OUTPUT homonymes d'un EFFECT doivent refléter le monde que
-        # l'appel vient de produire. Calculer l'accusé avant les effets
-        # laissait le neutre ``yes`` masquer ensuite ``isolated=confirmed``
-        # dans les locales et rendait un invariant faussement vert.
-        return simulated_tool_result(tool, self.world)
+        self.latest_effects = {}
+        try:
+            branches = [b for b in tool.branches if b.probability > 0]
+            selected = self.world.get(f"scenario.outcome.{name}", UNDEFINED)
+            if selected is not UNDEFINED:
+                branch = next((b for b in branches if b.name == str(selected)), None)
+                if branch is None:
+                    raise ValueError(f"OUTCOME inconnu ou impossible pour {name} : {selected}")
+            elif len(branches) > 1:
+                raise ValueError(f"OUTCOME ambigu pour {name} : poser scenario.outcome.{name} dans GIVEN")
+            else:
+                branch = branches[0] if branches else None
+            if branch is not None:
+                # INPUT appartient à la portée de l'effet de cet appel.
+                scope = dict(args)
+                host = self
+                class EffectState(_WorldState):
+                    def get(self, path):
+                        if path in scope:
+                            return scope[path]
+                        if host.state is not None:
+                            return host.state.get(path)
+                        return host.world.get(path, UNDEFINED)
+                evaluator = Evaluator(EffectState(scope))
+                for effect in branch.effects:
+                    value = evaluator.eval(effect.value)
+                    if value is UNDEFINED:
+                        raise ValueError(f"EFFECT {effect.path} indéfini")
+                    scope[effect.path] = value
+                    self.world[effect.path] = value
+                    self.latest_effects[effect.path] = value
+                    if self.on_effect:
+                        self.on_effect(self.latest_effects)
+            result = simulated_tool_result(tool, self.world)
+            missing = [key for key, value in result.items() if value is UNDEFINED]
+            if missing:
+                raise ValueError(f"OUTPUT de {name} non posé dans GIVEN/EFFECT : {', '.join(missing)}")
+            return result
+        except Exception as exc:
+            self.errors.append(str(exc))
+            raise
 
     def ask(self, question: str, reason: str = "") -> Any:
         return self.world.get(ANSWER_PATH, Symbol("no_answer"))
@@ -164,10 +164,11 @@ class ScenarioHost:
         return _is_yes(self.world.get(APPROVAL_PATH))
 
     def drain(self) -> List[Dict[str, Any]]:
-        return []
+        events, self.events = self.events, []
+        return events
 
-    def emit(self, source: str, **payload: Any) -> None:      # pragma: no cover
-        pass
+    def emit(self, source: str, **payload: Any) -> None:
+        self.events.append({"source": source, "payload": payload})
 
 
 class ScenarioLLM(MockLLM):
@@ -187,6 +188,14 @@ class ScenarioLLM(MockLLM):
     def __init__(self, world: Dict[str, Any]) -> None:
         super().__init__()
         self.world = world
+
+    def select_plan(self, context, candidates):
+        choice = self.world.get("llm.plan", UNDEFINED)
+        if choice is UNDEFINED:
+            raise ValueError("sélection LLM non déclarée : poser llm.plan dans GIVEN")
+        if str(choice) not in candidates:
+            raise ValueError(f"llm.plan inconnu : {choice}")
+        return str(choice)
 
     def reason(self, task: str, context, produce):
         posed = {key: self.world[key] for key in produce if key in self.world}
@@ -310,7 +319,7 @@ class ScenarioReport:
 
     @property
     def passed(self) -> bool:
-        return all(r.passed for r in self.results)
+        return bool(self.results) and all(r.passed for r in self.results)
 
     def render(self) -> str:
         if not self.results:
@@ -327,11 +336,33 @@ def _initial_world(scenario: Scenario) -> Dict[str, Any]:
     world: Dict[str, Any] = {}
     evaluator = Evaluator(_WorldState(world))
     for effect in scenario.given:
-        try:
-            world[effect.path] = evaluator.eval(effect.value)
-        except Exception:                                 # noqa: BLE001
-            world[effect.path] = None
+        value = evaluator.eval(effect.value)
+        if value is UNDEFINED:
+            raise ValueError(f"GIVEN {effect.path} indéfini")
+        world[effect.path] = value
     return world
+
+
+def _expectation_holds(agent, state, expression):
+    from .analyzer import Analyzer
+    from .trivalent import evaluate
+    known = Analyzer(agent)._known_state_paths()
+    class ExpectEvaluator(Evaluator):
+        def _path(self, node):
+            if node.dotted in known:
+                return self.state.get(node.dotted)
+            return super()._path(node)
+    # Kleene garde UNKNOWN sous NOT ; strict_undefined seul ne le fait pas.
+    return evaluate(ExpectEvaluator(state, strict_undefined=True), expression) is True
+
+
+def _scenario_errors(agent, scenario):
+    from dataclasses import replace
+    from .analyzer import Analyzer
+    analyzer = Analyzer(replace(agent, scenarios=[scenario]))
+    analyzer._check_scenarios()
+    return [d.render() for d in analyzer.diags
+            if d.severity == "error" or d.code in ("W117", "W118")]
 
 
 def initial_expectations(agent: Agent, scenario: Scenario
@@ -348,12 +379,11 @@ def initial_expectations(agent: Agent, scenario: Scenario
     host = ScenarioHost(agent, _initial_world(scenario))
     runtime = Runtime(agent, host, ScenarioLLM(host.world), echo=False)
     runtime._apply_initial_values(host.world, "scenario")
-    evaluator = Evaluator(runtime.state)
 
     invariants, eventualities = [], []
     for expectation in scenario.expect:
         try:
-            held = bool(evaluator.test(expectation))
+            held = _expectation_holds(agent, runtime.state, expectation)
         except Exception:                                 # noqa: BLE001
             held = False
         (invariants if held else eventualities).append(expectation)
@@ -362,65 +392,116 @@ def initial_expectations(agent: Agent, scenario: Scenario
 
 def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
                  ) -> ScenarioResult:
-    """Exécute un scénario contre le monde déclaré et rend son verdict."""
+    """Exécute le modèle déclaré avec oracles explicites et moniteurs d'état."""
     from .runtime import Runtime, _render_expr
 
-    host = ScenarioHost(agent, _initial_world(scenario))
-    runtime = Runtime(agent, host, ScenarioLLM(host.world), echo=echo)
-
-    def holds(expectation: Node) -> bool:
-        try:
-            return bool(Evaluator(runtime.state).test(expectation))
-        except Exception:                                 # noqa: BLE001
-            return False               # inévaluable = non satisfaite
-
+    runtime = None
+    host = None
     try:
-        # Amorçage : les croyances déclarées et le GIVEN doivent être dans
-        # l'état avant qu'on juge de la satisfaction au tick 0.
+        errors = _scenario_errors(agent, scenario)
+        if errors:
+            raise ValueError("scénario invalide : " + "; ".join(errors))
+        host = ScenarioHost(agent, _initial_world(scenario))
+        broken = []
+        reached = set()
+        invariants = []
+        eventualities = []
+
+        def holds(expectation, overrides=None):
+            class View:
+                def __getattr__(self, key):
+                    return getattr(runtime.state, key)
+                def get(self, path):
+                    return overrides[path] if overrides and path in overrides else runtime.state.get(path)
+            return _expectation_holds(agent, View(), expectation)
+
+        def monitor(overrides=None):
+            for i, inv in enumerate(invariants):
+                if i not in seen_broken and not holds(inv, overrides):
+                    seen_broken.add(i)
+                    broken.append(f"{_render_expr(inv)} (rompu au tick {runtime.state.tick})")
+            for i, expectation in enumerate(eventualities):
+                if holds(expectation, overrides):
+                    reached.add(i)
+
+        class MonitoredRuntime(Runtime):
+            def exec_stmt(self, stmt):
+                result = super().exec_stmt(stmt)
+                monitor()
+                return result
+            def _run_phase(self, phase):
+                super()._run_phase(phase)
+                monitor()
+            def call_tool(self, name, args, origin="plan"):
+                host.latest_effects = {}
+                result = super().call_tool(name, args, origin)
+                # Les OUTCOME du double sont les faits du monde simulé.
+                # Le runtime ne doit pas rester sur une branche nominale.
+                self._apply_initial_values(host.latest_effects, "scenario-effect")
+                monitor()
+                return result
+
+        runtime = MonitoredRuntime(agent, host, ScenarioLLM(host.world), echo=echo)
+        host.state = runtime.state
         runtime._apply_initial_values(host.world, "scenario")
+        for stimulus in scenario.stimuli:
+            payload = {}
+            evaluator = Evaluator(_WorldState(dict(host.world)))
+            for effect in stimulus.payload:
+                value = evaluator.eval(effect.value)
+                if value is UNDEFINED:
+                    raise ValueError(f"stimulus {stimulus.name}.{effect.path} indéfini")
+                payload[effect.path] = value
+            if stimulus.kind == "EVENT":
+                if not any(h.source == stimulus.name for h in agent.events):
+                    raise ValueError(f"EVENT sans gestionnaire : {stimulus.name}")
+                host.emit(stimulus.name, **payload)
+            else:
+                if not any(h.name == stimulus.name for h in agent.messages):
+                    raise ValueError(f"MESSAGE sans gestionnaire : {stimulus.name}")
+                runtime.inbox.append({"name": stimulus.name, "from": stimulus.sender, "payload": payload})
 
-        # Une attente **déjà vraie** au départ n'est pas une attente : c'est
-        # un invariant. C'est le cas de tout scénario qui exige qu'une action
-        # ne survienne PAS (`isolated != confirmed`). La juger au tick 0 la
-        # rendrait toujours verte sans rien exécuter ; on exige donc qu'elle
-        # tienne à *chaque* tick, jusqu'au bout de la borne.
-        invariants = [e for e in scenario.expect if holds(e)]
-        eventualities = [e for e in scenario.expect if e not in invariants]
-        broken: List[str] = []
-        seen_broken: set = set()
-
+        for expectation in scenario.expect:
+            (invariants if holds(expectation) else eventualities).append(expectation)
+        seen_broken = set()
+        host.on_effect = monitor
         used = 0
-        for _ in range(max(1, scenario.within)):
-            if not eventualities and not invariants:
-                break
-            if not invariants and all(holds(e) for e in eventualities):
-                break                  # rien à surveiller : arrêt anticipé
-            runtime.tick()
+        for _ in runtime.iter_ticks(horizon=scenario.within):
             used = runtime.state.tick
-            for inv in invariants:
-                text = _render_expr(inv)
-                # Seule la **première** rupture intéresse : la répéter à
-                # chaque tick noierait le rapport.
-                if text not in seen_broken and not holds(inv):
-                    seen_broken.add(text)
-                    broken.append(f"{text} (rompu au tick {used})")
-        remaining = broken + [_render_expr(e) for e in eventualities
-                              if not holds(e)]
-    except Exception as exc:                              # noqa: BLE001
-        return ScenarioResult(scenario.name, False, 0, scenario.within,
+            monitor()
+            # Les assertions de trace et les invariants exigent toute la borne.
+            if not invariants and not scenario.assertions and len(reached) == len(eventualities):
+                break
+        if host.events or runtime.inbox:
+            raise ValueError("stimulus non consommé : vérifier les phases RECEIVE/SELECT_PLAN du LOOP")
+        errors = [f"{e.text}: {e.detail}" for e in runtime.trace.events if e.kind == "ERROR"]
+        if host.errors or errors:
+            raise ValueError("; ".join(host.errors + errors))
+        remaining = broken + [_render_expr(e) for i, e in enumerate(eventualities) if i not in reached]
+        for assertion in scenario.assertions:
+            if assertion.kind == "CALL":
+                satisfied = assertion.target in host.calls
+            elif assertion.kind == "NEVER CALL":
+                satisfied = assertion.target not in host.calls
+            elif assertion.kind == "BLOCKED":
+                satisfied = any(e.kind == "BLOCKED" and e.text.startswith(assertion.target + "(")
+                                for e in runtime.trace.events)
+            elif assertion.kind == "EVENT":
+                satisfied = any(e.kind == "EVENT" and e.text == assertion.target + " déclenché"
+                                for e in runtime.trace.events)
+            else:  # NO ERROR ; déjà contrôlé ci-dessus
+                satisfied = not errors
+            if not satisfied:
+                remaining.append(f"EXPECT {assertion.kind} {assertion.target}".strip())
+    except Exception as exc:
+        return ScenarioResult(scenario.name, False,
+                              runtime.state.tick if runtime else 0, scenario.within,
+                              calls=list(host.calls) if host else [],
                               error=f"{type(exc).__name__}: {exc}",
-                              trace=runtime.trace.render())
-
-    return ScenarioResult(
-        name=scenario.name,
-        passed=not remaining,
-        ticks_used=used,
-        within=scenario.within,
-        failed=remaining,
-        invariants=[_render_expr(e) for e in invariants],
-        calls=list(host.calls),
-        trace=runtime.trace.render(),
-    )
+                              trace=runtime.trace.render() if runtime else "")
+    return ScenarioResult(scenario.name, not remaining, used, scenario.within,
+                          failed=remaining, invariants=[_render_expr(e) for e in invariants],
+                          calls=list(host.calls), trace=runtime.trace.render())
 
 
 def run_scenarios(agent: Agent, echo: bool = False) -> ScenarioReport:

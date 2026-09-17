@@ -193,6 +193,12 @@ AGENT disk_sentinel {
             operator.approval            = yes    // défaut = refus : on l'écrit
             target_directory             = "logs" // ce que le REASON désigne
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            scan_sandbox.files = sandbox.file_count
+            scan_sandbox.size_kb = 510
+            purge_old_files.removed = 24
+        }
         EXPECT { sandbox.stale_count == 0 } WITHIN 5
     }
 
@@ -243,6 +249,12 @@ AGENT disk_sentinel {
             operator.approval            = yes
             escalation.message           = "nettoyage manuel requis"
             // `target_directory` n'est PAS posé : c'est tout le sujet.
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            scan_sandbox.files = sandbox.file_count
+            scan_sandbox.size_kb = 510
+            notify_operator.delivered = yes
         }
         EXPECT { escalation.sent == yes } WITHIN 5
     }

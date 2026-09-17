@@ -584,7 +584,7 @@ AGENT gmail_butler {
 
     // ------------------------------------------ critères d'acceptation
 
-    // W117 assumé sur `hr_read_ok` : c'est une sortie de `read_hr_hours`, donc
+    // `hr_read_ok` est une sortie explicite de `read_hr_hours`, donc
     // un FAIT du monde, et non une croyance. Le déclarer en `EFFECT` ferait
     // dire à l'outil qu'il réussit toujours — un `EFFECT` menteur (principe 4)
     // qui rendrait justement intestable le scénario de lecture ratée.
@@ -600,6 +600,21 @@ AGENT gmail_butler {
             hr_read_ok        = yes
             rh.hours_care     = 3200
             rh.alert_sent     = no
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            list_recent_mail.inbox = []
+            list_recent_mail.inbox_count = 0
+            list_recent_mail.read_ok = yes
+            read_hr_hours.hr_roles = []
+            read_hr_hours.hr_role_count = 0
+            read_hr_hours.hr_hours_total = rh.hours_care
+            list_delivery_failures.bounces = []
+            list_delivery_failures.bounce_count = 0
+            list_delivery_failures.bounce_read_ok = yes
+            append_journal.written = yes
+            close_cycle.closed = yes
+            hr_sent = no
         }
         EXPECT { hr_sent == yes } WITHIN 6
     }
@@ -618,6 +633,21 @@ AGENT gmail_butler {
             rh.hours_care     = 3200
             rh.alert_sent     = no
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            list_recent_mail.inbox = []
+            list_recent_mail.inbox_count = 0
+            list_recent_mail.read_ok = yes
+            read_hr_hours.hr_roles = []
+            read_hr_hours.hr_role_count = 0
+            read_hr_hours.hr_hours_total = rh.hours_care
+            append_journal.written = yes
+            close_cycle.closed = yes
+            list_delivery_failures.bounces = []
+            list_delivery_failures.bounce_count = 0
+            list_delivery_failures.bounce_read_ok = yes
+            hr_sent = no
+        }
         EXPECT { hr_sent != yes } WITHIN 6
     }
 
@@ -630,6 +660,21 @@ AGENT gmail_butler {
             hr_read_ok        = yes
             rh.hours_care     = 3000
             rh.alert_sent     = no
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            list_recent_mail.inbox = []
+            list_recent_mail.inbox_count = 0
+            list_recent_mail.read_ok = yes
+            read_hr_hours.hr_roles = []
+            read_hr_hours.hr_role_count = 0
+            read_hr_hours.hr_hours_total = rh.hours_care
+            append_journal.written = yes
+            close_cycle.closed = yes
+            list_delivery_failures.bounces = []
+            list_delivery_failures.bounce_count = 0
+            list_delivery_failures.bounce_read_ok = yes
+            hr_sent = no
         }
         EXPECT { hr_sent != yes } WITHIN 6
     }

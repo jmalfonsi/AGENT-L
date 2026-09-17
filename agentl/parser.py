@@ -13,7 +13,7 @@ from .nodes import (
     MessageHandler, MessageStmt, Observer,
     PathExpr, Plan, PlannerSpec, PolicyRule, Program, ReasonStmt, Redaction,
     SetStmt,
-    Outcome, Scenario, Step, Stmt, ThenPlan, ToolDecl, UnOp, UtilityTerm,
+    Outcome, Scenario, ScenarioStimulus, ScenarioAssertion, Step, Stmt, ThenPlan, ToolDecl, UnOp, UtilityTerm,
     VerifyStmt,
 )
 
@@ -239,6 +239,9 @@ class Parser:
                     and self.toks[self.i + 1].value in (":", "="):
                 key = str(self.advance().value)
                 self.advance()
+                if key in kwargs:
+                    raise ParseError(
+                        f"{self.filename}:{line}: argument nommé dupliqué : {key}")
                 kwargs[key] = self.expression()
             else:
                 args.append(self.expression())
@@ -1015,14 +1018,33 @@ class Parser:
         while not self.at("OP", "}"):
             if self.at_kw("GIVEN"):
                 self.advance()
-                scenario.given.extend(self.effect_block())
+                if self.at_kw("EVENT") or self.at_kw("MESSAGE"):
+                    kind = str(self.advance().value)
+                    name = ".".join(self.path_parts())
+                    sender = "scenario"
+                    if kind == "MESSAGE":
+                        self.expect_kw("FROM")
+                        sender = self.name()
+                    scenario.stimuli.append(ScenarioStimulus(
+                        kind, name, self.effect_block(), sender, line=line))
+                else:
+                    scenario.given.extend(self.effect_block())
             elif self.at_kw("EXPECT"):
                 self.advance()
-                self.expect("OP", "{")
-                while not self.at("OP", "}"):
-                    scenario.expect.append(self.expression())
-                    self.opt_comma()
-                self.expect("OP", "}")
+                if self.at("OP", "{"):
+                    self.advance()
+                    while not self.at("OP", "}"):
+                        scenario.expect.append(self.expression())
+                        self.opt_comma()
+                    self.expect("OP", "}")
+                else:
+                    kind = self.name().upper()
+                    if kind in ("NEVER", "NO"):
+                        kind += " " + self.name().upper()
+                    if kind not in ("CALL", "NEVER CALL", "BLOCKED", "EVENT", "NO ERROR"):
+                        raise ParseError(f"{self.filename}:{line}: assertion EXPECT inconnue : {kind}")
+                    target = "" if kind == "NO ERROR" else ".".join(self.path_parts())
+                    scenario.assertions.append(ScenarioAssertion(kind, target, line=line))
                 if self.at_kw("WITHIN"):
                     self.advance(); self.opt_sep()
                     scenario.within = int(self._number("nombre de ticks"))
@@ -1037,7 +1059,7 @@ class Parser:
                     f"attendu dans SCENARIO, obtenu {self.cur.value!r}")
             self.opt_comma()
         self.expect("OP", "}")
-        if not scenario.expect:
+        if not scenario.expect and not scenario.assertions:
             # Un scénario sans attente passerait toujours : c'est un test qui
             # ment, le refuser à la lecture coûte moins cher que l'expliquer.
             raise ParseError(

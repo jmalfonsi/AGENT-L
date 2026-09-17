@@ -608,7 +608,19 @@ class Verifier:
             # doit tenir, pas advenir. Lui chercher une route (« quelle action
             # rend vrai que l'isolement n'a pas eu lieu ? ») n'a pas de sens,
             # et la réfuter faute d'en trouver serait un faux positif.
-            invariants, eventualities = initial_expectations(self.agent, scenario)
+            try:
+                invariants, eventualities = initial_expectations(self.agent, scenario)
+            except Exception as exc:
+                refuted += 1
+                theorem.findings.append(Finding("V127", "error",
+                    f"{scenario.name} : GIVEN invalide", str(exc), scenario.line))
+                continue
+            if scenario.stimuli or scenario.assertions:
+                bounded += 1
+                theorem.findings.append(Finding("V128", "info",
+                    f"{scenario.name} : stimuli/assertions de trace hors du modèle T5",
+                    "exécuter agentl test ; T5 n'explore pas les gestionnaires ni la trace", scenario.line))
+                continue
             if invariants:
                 theorem.findings.append(Finding(
                     "V124", "info",

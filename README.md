@@ -598,6 +598,8 @@ SCENARIO actif_critique_jamais_d_isolement {
         asset.criticality  = CRITICAL
         operator.approval  = yes
         suspected_host     = "web-07"
+        isolated = no
+        create_ticket.ticket_id = "fixture-ticket-1"
     }
     EXPECT { isolated != confirmed } WITHIN 6
 }
@@ -620,7 +622,7 @@ jamais un humain complaisant par accident.
 Deux lectures, et c'est ce qui empêche un test d'être vert sans rien exécuter.
 Une attente fausse au départ est une **éventualité** : elle doit advenir dans
 la borne. Une attente déjà vraie est un **invariant** : elle doit tenir à
-*chaque* tick — sinon « l'isolement n'a pas eu lieu » serait vert avant même
+chaque effet simulé, instruction et phase — sinon « l'isolement n'a pas eu lieu » serait vert avant même
 que l'agent ne démarre.
 
 Le vérificateur les attaque statiquement (**T5**) : une attente qu'aucune
@@ -634,6 +636,19 @@ Retirez le `NEVER` du fichier et le test tombe. C'est ce qui en fait un test
 plutôt qu'une observation.
 
 ---
+
+Les réponses OUTPUT se déclarent dans GIVEN (`outil.champ = valeur`) ; elles
+ne sont jamais inventées d'après leur type. Les choix se déclarent aussi :
+`scenario.outcome.outil = branche` pour plusieurs OUTCOME, `llm.plan = nom`
+pour la sélection LLM. Une attente sur un champ absent ne passe pas, même sous
+NOT. WITHIN ne prolonge ni LOOP MAX ni UNTIL, et une éventualité déjà observée
+reste satisfaite.
+
+Les scénarios acceptent `GIVEN EVENT source { ... }`,
+`GIVEN MESSAGE nom FROM acteur { ... }`, `EXPECT CALL outil`,
+`EXPECT NEVER CALL outil`, `EXPECT BLOCKED outil`, `EXPECT EVENT source`
+et `EXPECT NO ERROR`. Une suite vide retourne 2 (dérogation : `--allow-empty`).
+Contrat complet et constats vérifiés : [suivi des audits](docs/audit-followup.md).
 
 ## Tenir sur d'autres données — `autoloop`
 

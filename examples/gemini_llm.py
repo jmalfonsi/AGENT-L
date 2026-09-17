@@ -29,6 +29,20 @@ RPM = int(os.environ.get("AGENTL_RPM", "10"))
 _PACE_LOCK = threading.Lock()
 _last_call = [0.0]
 
+# ------------------------------------------------------------ adresse du service
+DEFAULT_API_BASE = "https://generativelanguage.googleapis.com"
+
+
+def api_base() -> str:
+    """Adresse du service, surchargeable par `GEMINI_API_BASE`.
+
+    Lue à chaque appel, et non au chargement du module : un banc qui place un
+    proxy devant Gemini (pannes simulées, mesure du trafic) le fait sans
+    modifier l'agent ni l'ordre des imports. Même nom de variable que LiteLLM,
+    pour qu'un seul réglage vaille pour tous les clients d'un même processus.
+    """
+    return os.environ.get("GEMINI_API_BASE", DEFAULT_API_BASE).rstrip("/")
+
 
 def pace(rpm: int = 0) -> None:
     """Bloque le temps qu'il faut pour ne pas dépasser `rpm` requêtes/minute."""
@@ -61,7 +75,7 @@ class GeminiLLM(LLM):  # pragma: no cover - nécessite le réseau
 
     def _call(self, system: str, prompt: str) -> str:
         pace()
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+        url = (f"{api_base()}/v1beta/models/"
                f"{self.model}:generateContent?key={self.api_key}")
         body = json.dumps({
             "system_instruction": {"parts": [{"text": system}]},

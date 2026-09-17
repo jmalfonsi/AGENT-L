@@ -35,6 +35,7 @@ AGENT SOC_ANALYST {
 
     // -- Croyances initiales (valeur + incertitude + provenance) -------------
     BELIEF {
+        escalation.sent = no CONFIDENCE 1 SOURCE initial
         threat.status      = unknown  CONFIDENCE 0.10 SOURCE prior
         threat.kind        = unknown  CONFIDENCE 0.10 SOURCE prior
         suspected_host     = unknown  CONFIDENCE 0.10 SOURCE prior
@@ -138,7 +139,6 @@ AGENT SOC_ANALYST {
             WHEN asset.criticality == CRITICAL
 
         REQUIRE APPROVAL FOR isolate_endpoint
-            WHEN P(credential_attack) < 0.97
     }
 
     // -- Inférence : la confiance est calculée, pas déclarée (v0.4) ----------
@@ -247,6 +247,13 @@ AGENT SOC_ANALYST {
             suspected_host        = "web-07"
             suspected_account     = "svc_backup"
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            inspect_endpoint.integrity = compromised
+            inspect_endpoint.persistence = true
+            quarantine_account.suspended = confirmed
+            isolated = no
+        }
         EXPECT { threat.status == contained } WITHIN 6
     }
 
@@ -266,6 +273,11 @@ AGENT SOC_ANALYST {
         }
         // `isolated = confirmed` est l'EFFECT propre à isolate_endpoint :
         // exiger qu'il ne survienne pas, c'est tester l'interdit lui-même.
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            create_ticket.ticket_id = "fixture-ticket-1"
+            isolated = no
+        }
         EXPECT { isolated != confirmed } WITHIN 6
     }
 

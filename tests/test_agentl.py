@@ -304,7 +304,7 @@ class TestBayes(unittest.TestCase):
         engine = PolicyEngine(agent)
         self.assertEqual(engine.check(request, state).verdict, "DENIED")
         state.set_world("credential_attack.posterior", 0.999)
-        self.assertEqual(engine.check(request, state).verdict, "ALLOWED")
+        self.assertEqual(engine.check(request, state).verdict, "APPROVAL_REQUIRED")
 
     def test_derived_confidence_replaces_declared_confidence(self):
         from soc_analyst import build

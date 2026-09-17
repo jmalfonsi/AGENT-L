@@ -26,6 +26,8 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W115  sortie de LLM non bornée alimentant un seuil de décision
   W116  THRESHOLD d'une hypothèse hors de l'amplitude atteignable
   E010  SCENARIO dont le WITHIN ne laisse pas un tick à l'agent
+  E012  nom d’AGENT dupliqué (insensible à la casse)
+  E013  signature d’appel TOOL invalide
   E011  outil dont le RISK vaut UNSET (import MCP non revu par l'auteur)
   W117  SCENARIO dont le GIVEN pose un chemin qui n'existe nulle part
   W118  SCENARIO dont l'attente ne porte sur aucun chemin qu'un EFFECT produit
@@ -179,6 +181,24 @@ class Analyzer:
                     self.diags.append(Diagnostic(
                         "E001", "error",
                         f"outil non déclaré : {stmt.call.name}()", stmt.line))
+                else:
+                    decl = self.agent.tool(stmt.call.name)
+                    names = list(decl.inputs)
+                    positional = set(names[:len(stmt.call.args)])
+                    keywords = set(stmt.call.kwargs)
+                    problems = []
+                    if len(stmt.call.args) > len(names):
+                        problems.append("trop d'arguments positionnels")
+                    if positional & keywords:
+                        problems.append("paramètres liés deux fois : " + ", ".join(sorted(positional & keywords)))
+                    if keywords - set(names):
+                        problems.append("paramètres inconnus : " + ", ".join(sorted(keywords - set(names))))
+                    missing = set(names) - positional - keywords
+                    if missing:
+                        problems.append("arguments manquants : " + ", ".join(sorted(missing)))
+                    if problems:
+                        self.diags.append(Diagnostic("E013", "error",
+                            f"{stmt.call.name}() : " + "; ".join(problems), stmt.line))
             for expr in _stmt_exprs(stmt):
                 for node in _walk_expr(expr):
                     if isinstance(node, CallExpr):
@@ -314,31 +334,23 @@ class Analyzer:
         aucun préfixe que le runtime publie ou qu'un `FOREACH` projette. Un
         avertissement qui crie à tort n'est plus lu.
         """
-        known = self._known_state_paths()
-        prefixes = _RUNTIME_PATH_PREFIXES | {
-            stmt.var for stmt, _ in self._all_statements()
-            if isinstance(stmt, ForEachStmt)}
-
-        for cond, where, line in self._trigger_guards():
+        from ._check_flow import guard_sites
+        for cond, where, line, known, prefixes in guard_sites(self.agent):
             for node in _walk_expr(cond):
                 if not isinstance(node, BinOp) or node.op != "!=":
                     continue
-                for side, other in ((node.left, node.right),
-                                    (node.right, node.left)):
+                for side, other in ((node.left, node.right), (node.right, node.left)):
                     if not isinstance(side, PathExpr) or len(side.parts) < 2:
                         continue
                     if isinstance(other, PathExpr) and len(other.parts) > 1:
-                        continue          # chemin ≠ chemin : rien à conclure
+                        continue
                     path = side.dotted
                     if path in known or side.parts[0] in prefixes:
                         continue
-                    self.diags.append(Diagnostic(
-                        "W135", "warning",
-                        f"{where} compare `{path} != …`, or rien dans le "
-                        f"programme ne renseigne ce chemin : l'absence rend "
-                        f"la comparaison **vraie** et la garde se déclenche "
-                        f"sur l'ignorance — vérifier l'orthographe, ou poser "
-                        f"le chemin en OBSERVE/BELIEF", line))
+                    self.diags.append(Diagnostic("W135", "warning",
+                        f"{where} compare `{path} != …` sans définition préalable "
+                        "garantie à ce site : l'absence rend la comparaison vraie "
+                        "— poser le chemin en OBSERVE/BELIEF ou avant la garde", line))
 
     def _known_state_paths(self) -> Set[str]:
         """Chemins pointés que le programme fait exister quelque part."""
@@ -584,17 +596,12 @@ class Analyzer:
                     tool.line))
 
     def _check_verification(self) -> None:
-        effectful = {t.name for t in self.agent.tools
-                     if t.side_effects or t.risk in ("HIGH", "CRITICAL")}
+        from ._check_flow import unverified_actions
         for plan in self.agent.plans:
-            stmts = list(self._plan_statements(plan))
-            uses_effect = any(isinstance(s, CallStmt) and s.call.name in effectful
-                              for s in stmts)
-            has_verify = any(isinstance(s, VerifyStmt) for s in stmts)
-            if uses_effect and not has_verify:
-                self.diags.append(Diagnostic(
-                    "W102", "warning",
-                    f"plan {plan.name} agit sur le monde sans VERIFY", plan.line))
+            for call in unverified_actions(self.agent, plan):
+                self.diags.append(Diagnostic("W102", "warning",
+                    f"plan {plan.name} : {call.call.name}() agit sur le monde sans "
+                    "VERIFY postérieur lié à ses effets sur tous les chemins", call.line))
 
     def _refreshed_paths(self) -> Set[str]:
         """Chemins qu'une exécution peut mettre à jour : perception, inférence,
@@ -661,12 +668,13 @@ class Analyzer:
             # Un GIVEN qui pose un chemin que l'agent ne perçoit pas ne sera
             # jamais lu : le scénario teste alors autre chose que ce qu'il dit.
             from .scenario import ANSWER_PATH, APPROVAL_PATH
-            known = ({o.path for o in self.agent.observers}
-                     | {b.path for b in self.agent.beliefs}
-                     | {e.path for t in self.agent.tools
-                        for br in t.branches for e in br.effects}
-                     # L'humain se pose dans le GIVEN, pas dans le programme.
-                     | {APPROVAL_PATH, ANSWER_PATH})
+            known = self._known_state_paths() | {APPROVAL_PATH, ANSWER_PATH, "llm.plan"}
+            for tool in self.agent.tools:
+                known.add(f"scenario.outcome.{tool.name}")
+                known |= {f"{tool.name}.{key}" for key in tool.outputs}
+            for stmt, _ in self._all_statements():
+                if isinstance(stmt, DelegateStmt):
+                    known |= {f"{stmt.agent}.{key}" for key in stmt.expect}
             for effect in scenario.given:
                 if effect.path not in known:
                     self.diags.append(Diagnostic(
@@ -679,14 +687,31 @@ class Analyzer:
             # produire est satisfaite (ou non) par l'énoncé seul.
             produced = {e.path for t in self.agent.tools
                         for br in t.branches for e in br.effects}
+            for tool in self.agent.tools:
+                produced |= set(tool.outputs) | {f"{tool.name}.{k}" for k in tool.outputs}
+                produced |= {f"result.{tool.name}.{k}" for k in tool.outputs}
+            for stmt, _ in self._all_statements():
+                if isinstance(stmt, SetStmt):
+                    produced.add(stmt.target)
+                elif isinstance(stmt, ReasonStmt):
+                    produced |= set(stmt.produce) | {f"reason.{k}" for k in stmt.produce}
+                elif isinstance(stmt, DelegateStmt):
+                    produced |= set(stmt.expect) | {f"{stmt.agent}.{k}" for k in stmt.expect}
+            for assertion in scenario.assertions:
+                if assertion.kind in ("CALL", "NEVER CALL", "BLOCKED") and self.agent.tool(assertion.target) is None:
+                    self.diags.append(Diagnostic("E014", "error",
+                        f"SCENARIO {scenario.name} : outil d'assertion inconnu : {assertion.target}", scenario.line))
+                if assertion.kind == "EVENT" and not any(h.source == assertion.target for h in self.agent.events):
+                    self.diags.append(Diagnostic("E014", "error",
+                        f"SCENARIO {scenario.name} : événement d'assertion inconnu : {assertion.target}", scenario.line))
             for expectation in scenario.expect:
                 paths: Set[str] = set()
                 _collect_paths(expectation, paths)
-                if paths and not (paths & produced):
+                if not (paths & produced):
                     self.diags.append(Diagnostic(
                         "W118", "warning",
                         f"SCENARIO {scenario.name} : l'attente ne porte sur "
-                        f"aucun chemin qu'un EFFECT produit "
+                        f"aucun chemin produit par EFFECT, OUTPUT, SET, REASON ou DELEGATE "
                         f"({', '.join(sorted(paths))}) — elle ne teste rien "
                         f"de l'agent", scenario.line))
 
@@ -986,12 +1011,12 @@ class Analyzer:
         # W120 — être « couvert par une politique » ne signifie pas être
         # approuvé. Les actions à fort impact ont besoin de l'humain.
         approved = {rule.target for rule in self.agent.policies
-                    if rule.effect == "REQUIRE_APPROVAL"}
+                    if rule.effect == "REQUIRE_APPROVAL" and rule.guard is None}
         for name in sorted(risky):
             if name not in approved and "*" not in approved:
                 self.diags.append(Diagnostic(
                     "W120", "warning", f"outil {name}() à risque "
-                    f"{tools[name].risk} sans REQUIRE APPROVAL", tools[name].line))
+                    f"{tools[name].risk} sans REQUIRE APPROVAL inconditionnelle", tools[name].line))
 
         observed = {observer.path for observer in self.agent.observers}
         produced_by_effect = {effect.path for tool in self.agent.tools
@@ -1013,7 +1038,19 @@ class Analyzer:
         for plan in self.agent.plans:
             stmts = list(self._plan_statements(plan))
             reasons = [stmt for stmt in stmts if isinstance(stmt, ReasonStmt)]
-            llm_fields = {field for stmt in reasons for field in stmt.produce}
+            llm_fields = {alias for stmt in reasons for field in stmt.produce
+                          for alias in (field, f"reason.{field}")}
+            # Propagation conservative des aliases SET, sans dépendre du nom
+            # choisi pour l'argument de l'outil.
+            changed = True
+            while changed:
+                before = set(llm_fields)
+                for stmt in stmts:
+                    if isinstance(stmt, SetStmt):
+                        paths = set(); _collect_paths(stmt.value, paths)
+                        if paths & llm_fields:
+                            llm_fields.add(stmt.target)
+                changed = before != llm_fields
             raw_reason = any(any(token in path.lower()
                                  for token in ("raw", "log", "message", "body", "content"))
                              for stmt in reasons for path in stmt.using)
@@ -1027,8 +1064,12 @@ class Analyzer:
                 args = _call_arguments(stmt.call, tool)
                 attested = set(tool.attestations.values())
                 for param, expr in args.items():
+                    # Signal de cible (heuristique), pas preuve sémantique :
+                    # les paramètres de contenu tels que body ne sont pas des cibles.
                     target_words = ("target", "host", "ip", "pid", "user", "account",
-                                    "file", "path", "recipient", "address")
+                                    "file", "path", "recipient", "address", "resource",
+                                    "device", "object", "entity", "vm", "container",
+                                    "key", "id", "repository")
                     if not any(word in param.lower() for word in target_words):
                         continue
                     paths: Set[str] = set(); _collect_paths(expr, paths)
@@ -1051,11 +1092,8 @@ class Analyzer:
                     for guard in guards: _collect_paths(guard, flow)
                     if not (flow & llm_fields):
                         continue
-                    guarded: Set[str] = set()
-                    for guard in guards: _collect_paths(guard, guarded)
-                    if not any(any(word in path.lower() for word in
-                                   ("injection", "untrusted", "trusted", "attested"))
-                               for path in guarded):
+                    from ._check_flow import protective_guard
+                    if not any(protective_guard(guard) for guard in guards):
                         self.diags.append(Diagnostic(
                             "W125", "warning", f"{call.call.name}() suit un "
                             f"REASON sur texte non fiable sans garde d'injection",
@@ -1209,7 +1247,13 @@ def check_program(program: Program) -> List[Diagnostic]:
     destinataire ne peut le vérifier seul.
     """
     diags: List[Diagnostic] = []
-    names = {a.name.lower(): a for a in program.agents}
+    names = {}
+    for agent in program.agents:
+        key = agent.name.lower()
+        if key in names:
+            diags.append(Diagnostic("E012", "error",
+                f"nom d'AGENT dupliqué (sans distinction de casse) : {agent.name}", agent.line))
+        names[key] = agent
     sent: Set[str] = set()
     handled: Set[str] = set()
 
@@ -1290,7 +1334,7 @@ def _guarded_calls(stmts, guards=()):
             yield stmt, guards
         elif isinstance(stmt, IfStmt):
             yield from _guarded_calls(stmt.then, guards + (stmt.cond,))
-            yield from _guarded_calls(stmt.otherwise, guards + (stmt.cond,))
+            yield from _guarded_calls(stmt.otherwise, guards + (UnOp("NOT", stmt.cond),))
         elif isinstance(stmt, (ForEachStmt, LoopStmt)):
             yield from _guarded_calls(stmt.body, guards)
         elif isinstance(stmt, VerifyStmt):

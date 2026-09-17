@@ -1449,6 +1449,11 @@ AGENT VALMONT_SUPERVISION {
             confiance_production        = 0.30
             avis_responsable            = accord
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            alarmes_actives = []
+        }
         EXPECT { ronde.status != terminee } WITHIN 12
     }
 
@@ -1478,6 +1483,15 @@ AGENT VALMONT_SUPERVISION {
             goulot_production           = aucun
             confiance_production        = 0.30
             avis_responsable            = accord
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            cloturer_l_inventaire.close = yes
+            maintenir_cadence.maintenue = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT {
             ronde.volet_alarmes == traite
@@ -1539,6 +1553,15 @@ AGENT VALMONT_SUPERVISION {
             confiance_production        = 0.30
             avis_responsable            = accord
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            cloturer_l_inventaire.close = yes
+            maintenir_cadence.maintenue = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
+        }
         EXPECT {
             site.commande_envoyee != yes
             ronde.status          == terminee
@@ -1575,6 +1598,14 @@ AGENT VALMONT_SUPERVISION {
             goulot_production           = air_comprime
             confiance_production        = 0.88
             avis_responsable            = refus
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            renoncer_a_la_cadence.renonce = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT { site.commande_envoyee != yes } WITHIN 12
     }
@@ -1615,6 +1646,14 @@ AGENT VALMONT_SUPERVISION {
             confiance_production        = 0.99
             avis_responsable            = accord
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            maintenir_cadence.maintenue = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
+        }
         EXPECT { site.commande_envoyee != yes } WITHIN 12
     }
 
@@ -1653,6 +1692,11 @@ AGENT VALMONT_SUPERVISION {
             goulot_production           = indetermine
             confiance_production        = 0.0
             avis_responsable            = accord
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            informer_responsable.transmis = yes
+            alarmes_actives = []
         }
         EXPECT {
             site.commande_envoyee != yes
@@ -1693,6 +1737,15 @@ AGENT VALMONT_SUPERVISION {
             confiance_production        = 0.001
             avis_responsable            = refus
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            cloturer_l_inventaire.close = yes
+            renoncer_a_la_cadence.renonce = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
+        }
         EXPECT {
             ronde.volet_alarmes == traite
             ronde.status        == terminee
@@ -1727,6 +1780,14 @@ AGENT VALMONT_SUPERVISION {
             goulot_production           = air_comprime
             confiance_production        = 0.88
             avis_responsable            = accord
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            brider_cadence.appliquee = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT {
             site.commande_envoyee == yes
@@ -1764,6 +1825,14 @@ AGENT VALMONT_SUPERVISION {
             goulot_production           = aucun
             confiance_production        = 0.999
             avis_responsable            = accord
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            relancer_cadence.appliquee = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT {
             site.commande_envoyee == yes
@@ -1807,6 +1876,14 @@ AGENT VALMONT_SUPERVISION {
             goulot_production                    = aucun
             confiance_production                 = 0.999
             avis_responsable                     = accord
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            constater_consigne_nominale.deja_posee = yes
+            consulter_responsable.reponse = "réponse de fixture"
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT {
             site.commande_envoyee == no
@@ -1854,6 +1931,14 @@ AGENT VALMONT_SUPERVISION {
             avis_responsable            = accord
             avis_conformite             = refus
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            signaler_rejet_non_conforme.signale = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
+        }
         EXPECT {
             site.commande_envoyee == no
             ronde.status          == terminee
@@ -1893,6 +1978,14 @@ AGENT VALMONT_SUPERVISION {
             avis_responsable            = refus
             avis_conformite             = accord
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            brider_pour_conformite.appliquee = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
+        }
         EXPECT {
             site.commande_envoyee == yes
             ronde.status          == terminee
@@ -1929,6 +2022,14 @@ AGENT VALMONT_SUPERVISION {
             confiance_production            = 0.30
             avis_responsable                = refus
             avis_conformite                 = accord
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            signaler_rejet_non_conforme.signale = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT {
             site.commande_envoyee == no
@@ -1967,6 +2068,14 @@ AGENT VALMONT_SUPERVISION {
             confiance_production        = 0.30
             avis_responsable            = refus
             avis_conformite             = refus
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            consulter_responsable.reponse = "réponse de fixture"
+            signaler_rejet_non_conforme.signale = yes
+            cloturer_ronde.cloturee = yes
+            cloturer_ronde.notification = yes
+            alarmes_actives = []
         }
         EXPECT {
             site.commande_envoyee == no

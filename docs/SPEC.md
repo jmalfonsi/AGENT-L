@@ -577,7 +577,7 @@ Ce que le langage permet de prouver avant tout appel de modèle :
 | `E004` | erreur | nom dupliqué (outil, plan, objectif) |
 | `E005` | erreur | `EVENT` sans corps : l'événement est consommé et ne déclenche rien |
 | `W101` | avert. | outil `HIGH`/`CRITICAL` non couvert par une politique |
-| `W102` | avert. | plan à effet de bord sans `VERIFY` |
+| `W102` | avert. | action à effet sans VERIFY postérieur lié sur tous les chemins examinés |
 | `W103` | avert. | observation jamais utilisée |
 | `W104` | avert. | croyance utilisée mais jamais rafraîchie |
 | `W105` | avert. | aucun objectif déclaré |
@@ -1576,7 +1576,7 @@ exécuté :
 - **éventualité** — l'attente est fausse au tick 0 : elle doit *devenir* vraie
   dans la borne `WITHIN` ;
 - **invariant** — l'attente est déjà vraie au tick 0 : elle doit *tenir* à
-  chaque tick jusqu'au bout de la borne.
+  chaque effet simulé, instruction et phase, jusqu’à UNTIL, MAX ou WITHIN.
 
 Le second cas est celui de tout scénario qui exige qu'une action **ne
 survienne pas** — `EXPECT { isolated != confirmed }`. Le juger au tick 0 le
@@ -1605,7 +1605,7 @@ Retirez le `NEVER`, et le scénario tombe. C'est ce qui en fait un test.
 
 Nouveaux diagnostics : `E010` (`WITHIN` ne laissant pas un tick), `W117`
 (`GIVEN` posant un chemin qui n'existe nulle part), `W118` (attente ne portant
-sur aucun chemin qu'un `EFFECT` produit).
+sur aucun chemin produit par EFFECT, OUTPUT, SET, REASON ou DELEGATE).
 
 ---
 
@@ -2116,3 +2116,36 @@ lui-même à un fournisseur. La frontière du §28 reste la frontière.
 | code | nature | contrôle |
 |---|---|---|
 | `W130` | avertissement | `USING` listant un chemin qu'un `NEVER SEND` retient, ou le parent d'un tel chemin |
+
+
+## 33. Corrections des audits CHECK et TEST
+
+`E012` rejette les noms d'AGENT dupliqués sans distinction de casse ; `E013`
+rejette les signatures d'appel TOOL invalides. Un argument nommé répété est
+une erreur de parsing. `E014` rejette une assertion de scénario sur une cible
+inconnue. W102/W135 examinent l'ordre et les branches ; une approbation
+conditionnelle ne supprime pas W120. W119 comprend les aliases reason/SET et
+les cibles resource/device/id notamment ; W125 vérifie la polarité des gardes.
+Ces avertissements demeurent conservateurs et non bloquants dans CHECK.
+
+TEST utilise la logique trivalente pour EXPECT : UNKNOWN, même nié, n'est
+jamais une réussite. Une éventualité devient définitivement satisfaite quand
+elle a été observée vraie. Les invariants sont surveillés entre les actions.
+La boucle partagée respecte UNTIL et MAX ; WITHIN ajoute un plafond.
+
+Les OUTPUT sont posés dans GIVEN ou produits par les effets exécutés. Aucun
+neutre de type n'est fabriqué. Plusieurs OUTCOME possibles exigent
+`scenario.outcome.<outil> = branche` ; la sélection de plan exige
+`llm.plan = nom`. GIVEN et EFFECT invalides, trace ERROR, W117/W118 rendent le
+scénario rouge. Une suite vide retourne 2, sauf `--allow-empty` explicite.
+
+`GIVEN EVENT source { ... }` et `GIVEN MESSAGE nom FROM acteur { ... }`
+injectent les stimuli au début. EXPECT accepte un bloc d'expressions ou
+`CALL outil`, `NEVER CALL outil`, `BLOCKED outil`, `EVENT source`, `NO ERROR`.
+Ce test reste celui d'un runtime isolé, sans transport inter-agents réel.
+T5 ne prouve pas ces nouveaux stimuli/assertions (`V128`, indéterminé) et
+signale les GIVEN invalides (`V127`).
+
+Les détails, reproductions, adaptations des exemples et limites sont décrits
+dans [audit-followup.md](audit-followup.md). La grammaire EBNF fait foi pour
+les formes acceptées.

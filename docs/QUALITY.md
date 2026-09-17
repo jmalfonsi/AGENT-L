@@ -79,3 +79,16 @@ nombre de tests collectés/exécutés/skippés, couverture, verdicts des exemple
 résultat de construction et liste des dérogations. Les nombres inscrits dans
 un ancien README ne valent pas preuve : seul le rapport produit sur la
 révision livrée fait foi.
+
+
+## Exceptions historiques de scénarios
+
+La CI utilise `--allow-empty` uniquement pour les anciens exemples
+K8S_HEALER, complex_soc, forensic, llm_soc, maintenance, soc_risk et soc_team.
+Ils passent CHECK/VERIFY mais n'ont pas de critères SCENARIO : cette exception
+nommée est une dette de couverture. Tous les autres exemples livrables passent
+TEST sans cette option. Les oracles des 57 scénarios existants sont explicites.
+
+La commande suivie par Git `python3 tools/check_examples.py` exécute cette
+chaîne et porte la liste exacte des exceptions. Le workflow `.github` local
+est ignoré par la configuration Git du dépôt ; il appelle la même commande.

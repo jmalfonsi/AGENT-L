@@ -266,6 +266,10 @@ AGENT VALMONT_PRODUCTION {
             goulot                  = air_comprime
             tendance                = degradation
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            conseiller_bridage.conseil = bridage
+        }
         EXPECT { optim.conseil == brider } WITHIN 5
     }
 
@@ -290,6 +294,10 @@ AGENT VALMONT_PRODUCTION {
             goulot                  = air_comprime
             tendance                = degradation
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            conseiller_bridage.conseil = bridage
+        }
         EXPECT { optim.conseil != relancer } WITHIN 5
     }
 
@@ -312,6 +320,10 @@ AGENT VALMONT_PRODUCTION {
             usine.synthese          = "Utilites nominales, fuite d'air 26 %."
             goulot                  = air_comprime
             tendance                = stable
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            conseiller_chasse_fuites.conseil = chasse_fuites
         }
         EXPECT { optim.conseil == chasse_fuites } WITHIN 5
     }
@@ -341,6 +353,10 @@ AGENT VALMONT_PRODUCTION {
             energie.depassement_pct = 0
             usine.synthese          = ""
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            signaler_perception_incomplete.conseil = non_concluant
+        }
         EXPECT { optim.conseil == indetermine } WITHIN 4
     }
 
@@ -360,6 +376,10 @@ AGENT VALMONT_PRODUCTION {
             usine.synthese          = "Toutes utilites nominales, aucune contrainte."
             goulot                  = aucun
             tendance                = stable
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            conseiller_statu_quo.conseil = statu_quo
         }
         EXPECT { optim.conseil == maintenir } WITHIN 5
     }

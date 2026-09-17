@@ -55,12 +55,12 @@ AGENT purger {
         OUTPUT { ok: Symbol }
         RISK LOW
         REQUIRES dir.files > 10%(garde)s
-        EFFECT { dir.files = dir.files - dir.batch  purge.done = yes }
+        EFFECT { dir.files = dir.files - dir.batch  purge.done = yes ok = yes INTERNAL }
     }
     TOOL prevenir {
         OUTPUT { ok: Symbol }
         RISK LOW
-        EFFECT { alarm.sent = yes }
+        EFFECT { alarm.sent = yes ok = yes INTERNAL }
     }
     POLICY {
         DEFAULT DENY
@@ -194,7 +194,7 @@ class Jugement(unittest.TestCase):
         failures = report.last.failures()
         self.assertEqual(len(failures), 1)
         self.assertEqual(failures[0].case.changes, (("dir.batch", MISSING),))
-        self.assertIn("UNDEFINED", failures[0].error or "")
+        self.assertIn("UNDEFINED", failures[0].error or " ".join(failures[0].broken))
 
     def test_la_correction_attendue_referme_le_cas(self):
         # ACT
@@ -246,7 +246,8 @@ class Jugement(unittest.TestCase):
             "        STEP tracer { FOREACH e IN dir.entries MAX 5 "
             "{ prevenir() } } }")
         program = parse_source(source)
-        self.assertTrue(run_scenarios(program.agents[0]).passed)
+        # TEST refuse maintenant les erreurs d'exécution même si EXPECT tient.
+        self.assertFalse(run_scenarios(program.agents[0]).passed)
         # ACT
         gates = {g.name: g for g in run_gates(program)}
         # ASSERT

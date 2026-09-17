@@ -188,6 +188,11 @@ AGENT linux_defender {
 
     SCENARIO unresolved_alert_never_closes {
         GIVEN { cycle.done = no, remediation.unresolved_count = 1, server.threat_level = elevated }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            alerts = []
+            rollback.done = no
+        }
         EXPECT { cycle.done != yes, remediation.unresolved_count == 1, rollback.done != yes } WITHIN 2
     }
 }

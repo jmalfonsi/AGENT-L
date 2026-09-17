@@ -321,6 +321,10 @@ AGENT VALMONT_ALARMES {
             classe                 = securite_environnement
             urgence                = immediate
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            exiger_intervention.verdict = intervention
+        }
         EXPECT { diagnostic.verdict == intervention } WITHIN 5
     }
 
@@ -342,6 +346,10 @@ AGENT VALMONT_ALARMES {
             mesures.douteuses      = 0
             classe                 = utilite_indisponible
             urgence                = immediate
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            exiger_acquittement.verdict = acquittement
         }
         EXPECT { diagnostic.verdict != intervention } WITHIN 5
     }
@@ -370,6 +378,10 @@ AGENT VALMONT_ALARMES {
             defauts.ouverts        = 0
             mesures.douteuses      = 0
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            signaler_perception_incomplete.verdict = non_concluant
+        }
         EXPECT { diagnostic.verdict == indetermine } WITHIN 4
     }
 
@@ -392,6 +404,10 @@ AGENT VALMONT_ALARMES {
             mesures.douteuses      = 9
             classe                 = derive_capteur
             urgence                = planifiable
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            recommander_surveillance.verdict = surveillance
         }
         EXPECT { diagnostic.verdict != intervention } WITHIN 5
     }
@@ -420,6 +436,10 @@ AGENT VALMONT_ALARMES {
             classe                 = utilite_indisponible
             urgence                = immediate
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            signaler_perception_incomplete.verdict = non_concluant
+        }
         EXPECT { diagnostic.verdict == indetermine } WITHIN 5
     }
 
@@ -447,6 +467,10 @@ AGENT VALMONT_ALARMES {
             classe                       = securite_environnement
             urgence                      = immediate
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            exiger_escalade_humaine.verdict = escalade_humaine
+        }
         EXPECT { diagnostic.verdict == escalade_humaine } WITHIN 5
     }
 
@@ -465,6 +489,10 @@ AGENT VALMONT_ALARMES {
             mesures.douteuses      = 0
             classe                 = information
             urgence                = planifiable
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            exiger_acquittement.verdict = acquittement
         }
         EXPECT { diagnostic.verdict == acquittement } WITHIN 5
     }

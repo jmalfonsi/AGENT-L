@@ -52,7 +52,7 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # 2.7.0 : Boundary suit les modules locaux, expose B016 et les politiques
 # de périmètre ; la grammaire ne change pas.
 # 2.7.1 : alias de méthodes liées et argv partiellement dynamiques contrôlés.
-AUTHORING_CONTRACT_VERSION = "2.7.1"
+AUTHORING_CONTRACT_VERSION = "2.8.1"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
@@ -63,6 +63,8 @@ GRAMMAR_FILES = (
 )
 TOOLCHAIN_FILES = (
     "agentl/analyzer.py",
+    "agentl/_check_flow.py",
+    "agentl/runtime.py",
     "agentl/autoloop.py",
     "agentl/boundary.py",
     "agentl/_boundary_project.py",
@@ -327,6 +329,10 @@ def canonical_agent(version: str) -> str:
               approval.sender_matches = yes
               approval.evidence_token = \"proof-1\"
               decision = approved
+              request.applied = no
+              workflow.done = no
+              apply_request.applied = yes
+              finish_workflow.finished = yes
             }}
             EXPECT {{
               request.applied == yes
@@ -343,6 +349,10 @@ def canonical_agent(version: str) -> str:
               approval.sender_matches = yes
               approval.evidence_token = \"proof-1\"
               decision = approved
+              request.applied = no
+              workflow.done = no
+              apply_request.applied = yes
+              finish_workflow.finished = yes
             }}
             EXPECT {{
               request.applied != yes
@@ -359,6 +369,10 @@ def canonical_agent(version: str) -> str:
               approval.sender_matches = yes
               approval.evidence_token = \"proof-1\"
               decision = approved
+              request.applied = no
+              workflow.done = no
+              apply_request.applied = yes
+              finish_workflow.finished = yes
             }}
             EXPECT {{
               request.applied != yes

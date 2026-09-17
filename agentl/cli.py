@@ -773,6 +773,8 @@ def main(argv=None) -> int:
             p.add_argument("--external-policy", choices=("report", "error"), default="report",
                            help="lister ou refuser les dépendances externes hors analyse")
         if name == "test":
+            p.add_argument("--allow-empty", action="store_true",
+                           help="autorise explicitement les agents sans SCENARIO")
             p.add_argument("--trace", action="store_true",
                            help="affiche la trace de chaque scénario")
         if name == "viz":
@@ -1061,14 +1063,18 @@ def main(argv=None) -> int:
             return refusal
 
         failed = False
+        empty = False
         for candidate in program.agents:
             report = run_scenarios(candidate, echo=False)
             print(report.render())
+            if not report.results:
+                empty |= not args.allow_empty
+                continue
             if args.trace:
                 for result in report.results:
                     print(f"\n── {result.name}\n{result.trace}")
             failed |= not report.passed
-        return 1 if failed else 0
+        return 1 if failed else (2 if empty else 0)
 
     if args.cmd in ("plan", "infer"):
         # Comme `check` et `test` : sur une société, on inspecte TOUS les

@@ -453,6 +453,20 @@ class LoopSpec(Node):
 
 
 @dataclass
+class ScenarioStimulus(Node):
+    kind: str
+    name: str
+    payload: List["Effect"] = field(default_factory=list)
+    sender: str = "scenario"
+
+
+@dataclass
+class ScenarioAssertion(Node):
+    kind: str
+    target: str = ""
+
+
+@dataclass
 class Scenario(Node):
     """Critère d'acceptation porté par le programme (v1.4).
 
@@ -469,6 +483,8 @@ class Scenario(Node):
     given: List["Effect"] = field(default_factory=list)   # monde initial
     expect: List[Node] = field(default_factory=list)      # attentes
     within: int = 1                                       # ticks accordés
+    stimuli: List[ScenarioStimulus] = field(default_factory=list)
+    assertions: List[ScenarioAssertion] = field(default_factory=list)
 
 
 @dataclass

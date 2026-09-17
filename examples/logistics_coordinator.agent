@@ -136,6 +136,10 @@ AGENT logistics_coordinator {
             issue_type = breakdown
             operator.approval = yes
         }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            escalate_incident.escalated = yes
+        }
         EXPECT { delivery.handled == yes } WITHIN 3
     }
 
@@ -150,6 +154,10 @@ AGENT logistics_coordinator {
             operator.approval = yes
         }
         // Le camion ne doit PAS être annulé, MAIS l'agent doit escalader.
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            escalate_incident.escalated = yes
+        }
         EXPECT { 
             truck.cancelled != yes
             incident.escalated == yes 

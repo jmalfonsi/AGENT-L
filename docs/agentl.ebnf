@@ -225,8 +225,15 @@ message_handler  = "ON" , "MESSAGE" , ident
    `WITHIN` suit le bloc EXPECT ou figure seul ; défaut : 1 tick.
    Un SCENARIO sans EXPECT est refusé à la lecture. *)
 scenario         = "SCENARIO" , ident , "{"
-                 , { "GIVEN" , effect_block
-                   | "EXPECT" , "{" , { expr , [ "," ] } , "}"
+                 , { "GIVEN" , ( effect_block
+                                | "EVENT" , path , effect_block
+                                | "MESSAGE" , path , "FROM" , ident , effect_block )
+                   | "EXPECT" , ( "{" , { expr , [ "," ] } , "}"
+                                | "CALL" , ident
+                                | "NEVER" , "CALL" , ident
+                                | "BLOCKED" , ident
+                                | "EVENT" , path
+                                | "NO" , "ERROR" )
                                , [ "WITHIN" , [ sep ] , number ]
                    | "WITHIN" , [ sep ] , number }
                  , "}" ;
