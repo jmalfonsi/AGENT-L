@@ -2,6 +2,34 @@ import { DocSection, ErrorCodeInfo } from '../types';
 
 export const DOC_SECTIONS: DocSection[] = [
   {
+    id: 'v19-kernel-durable-provenance',
+    title: 'v1.9 — Noyau, reprise durable, provenance, asynchrone',
+    iconName: 'ShieldCheck',
+    summary: 'Ce que la v1.9 ajoute : un noyau à permis, l’exécution durable sans doublon, la provenance portée par les valeurs et l’exécution asynchrone. Documentation complète sur doc.agent-l.integria.app.',
+    content: `
+### Noyau à permis (SPEC §34)
+L'autorisation et l'appel à l'hôte vivent dans un **noyau** (\`agentl/kernel/\`). Il fige la proposition, évalue la politique, montre une copie à l'approbateur puis émet un **permis** à usage unique lié au condensat de l'action. \`Host.invoke\` sans permis lève \`PermitError\`.
+
+### Exécution durable (SPEC §36)
+\`agentl run X.agent --durable DIR\` écrit l'intention de chaque action avant l'appel. Après un crash, la même commande reprend : l'action interrompue est relancée avec la même clé d'idempotence (\`idempotent=True\`), réconciliée, ou déclarée **indéterminée** — \`tools.<outil>.in_doubt\` le dit à la politique.
+
+### Provenance des valeurs (SPEC §35)
+Chaque valeur porte ses sources : \`OBSERVED\`, \`LLM\`, \`TOOL\`, \`MESSAGE\`… Les gardes \`UNTRUSTED(x)\`, \`LLM_DERIVED(x)\`, \`ATTESTED(x, outil)\` et \`ORIGIN(x)\` la lisent. Une valeur sans étiquette connue est non fiable. \`E015\` et \`E016\` refusent les fonctions inconnues ou mal employées.
+
+### Exécution asynchrone (SPEC §37)
+\`AsyncHost\`, \`AsyncRuntime\`, \`AsyncSociety\` et \`Limits\` : concurrence bornée, délais, annulation. Un outil qui dépasse son délai est indéterminé, jamais réussi.
+
+### Documentation
+https://doc.agent-l.integria.app/ — pages « Noyau et permis », « Provenance des valeurs », « Exécution durable », « Exécution asynchrone » et « Banc comparatif ».
+    `,
+    codeSnippet: `POLICY {
+    DEFAULT ALLOW
+    REQUIRE APPROVAL FOR wipe_host
+    NEVER wipe_host WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_wipeable)
+    NEVER transfer  WHEN tools.transfer.in_doubt == true
+}`
+  },
+  {
     id: 'ebnf-grammar',
     title: 'Grammaire EBNF & Modèle Formel (v1.8)',
     iconName: 'FileText',

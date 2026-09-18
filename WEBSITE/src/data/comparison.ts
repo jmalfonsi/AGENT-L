@@ -1,6 +1,75 @@
 import { ComparisonFeature } from '../types';
 
 export const COMPARISON_FEATURES: ComparisonFeature[] = [
+  // Trois lignes v1.9 : LangGraph et CrewAI sont mesurés par bench/frameworks
+  // (versions figées dans requirements.lock) ; AutoGen ne l'est pas, sa case le
+  // dit plutôt que d'affirmer.
+  {
+    category: 'Exécution fiable (v1.9)',
+    feature: 'Approbation liée aux arguments exacts',
+    description: 'Une approbation humaine vaut pour l’action exacte montrée à l’humain : réécrire les arguments entre l’approbation et l’exécution ne passe pas.',
+    agentL: {
+      supported: true,
+      detail: 'Permis du noyau lié au condensat de l’action ; à la reprise, l’action est re-dérivée et comparée à l’approbation journalisée.',
+      badge: 'Permis du noyau'
+    },
+    langchain: {
+      supported: false,
+      detail: 'Mesuré (LangGraph 1.2, interrupt + SqliteSaver) : un appel réécrit par update_state s’exécute avec l’approbation donnée pour l’original.'
+    },
+    crewAi: {
+      supported: 'partial',
+      detail: 'Sans objet dans le banc : l’approbation par crochet before_tool_call a lieu dans le processus, sans état persisté.'
+    },
+    autogen: {
+      supported: 'unknown',
+      detail: 'Non mesuré par le banc comparatif.'
+    }
+  },
+  {
+    category: 'Exécution fiable (v1.9)',
+    feature: 'Reprise après crash sans doubler un effet',
+    description: 'Le processus meurt juste après un virement ; une reprise ne doit pas le rejouer.',
+    agentL: {
+      supported: true,
+      detail: 'agentl run --durable : intention journalisée avant l’appel, clé d’idempotence stable, action relancée, réconciliée ou déclarée indéterminée.',
+      badge: 'Exactement une fois'
+    },
+    langchain: {
+      supported: 'partial',
+      detail: 'Mesuré : exactement une fois avec durability="sync" et l’identifiant d’appel comme clé ; virement doublé avec le défaut "async".'
+    },
+    crewAi: {
+      supported: false,
+      detail: 'Mesuré : pas de reprise d’une tâche en vol ; la relance double le virement.'
+    },
+    autogen: {
+      supported: 'unknown',
+      detail: 'Non mesuré par le banc comparatif.'
+    }
+  },
+  {
+    category: 'Exécution fiable (v1.9)',
+    feature: 'Approbateur injoignable = action refusée',
+    description: 'Si le service d’approbation lève une exception, l’action soumise à approbation ne doit pas partir.',
+    agentL: {
+      supported: true,
+      detail: 'Une exception de l’approbateur vaut refus dans le noyau, jamais accord.',
+      badge: 'Fail-closed'
+    },
+    langchain: {
+      supported: true,
+      detail: 'Mesuré : l’approbation se fait dans le code applicatif ; l’exception l’interrompt et rien ne s’exécute.'
+    },
+    crewAi: {
+      supported: false,
+      detail: 'Mesuré (CrewAI 1.15) : une exception levée par un crochet before_tool_call est avalée et l’outil s’exécute.'
+    },
+    autogen: {
+      supported: 'unknown',
+      detail: 'Non mesuré par le banc comparatif.'
+    }
+  },
   {
     category: 'Architecture & Sécurité',
     feature: 'Séparation Strict Canaux (LLM vs Runtime)',

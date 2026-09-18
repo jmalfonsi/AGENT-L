@@ -19,24 +19,26 @@ export function Footer() {
             <div className="mt-3 flex items-center gap-3 text-[10px] uppercase tracking-widest text-white/40">
               <span>Licence AGPL-3.0-or-later</span>
               <span>•</span>
-              <span>Langage v1.8 · paquet 1.8.0 · contrat d'écriture 2.4.0</span>
+              <span>v1.9 (en développement) · paquet 1.8.2 · contrat d'écriture 2.10.0</span>
             </div>
           </div>
 
           <div>
             <h4 className="font-bold text-white text-[11px] uppercase tracking-widest mb-3">Ressources et spécifications</h4>
             <ul className="space-y-2 text-white/60 text-xs">
+              <li><a href="https://doc.agent-l.integria.app/" className="text-cyan-400 hover:text-cyan-300 transition-colors">Documentation en ligne (doc.agent-l.integria.app)</a></li>
               <li className="hover:text-cyan-400 transition-colors">Grammaire EBNF (<code className="text-cyan-400">docs/agentl.ebnf</code>)</li>
               <li className="hover:text-cyan-400 transition-colors">Spécification Sémantique (<code className="text-cyan-400">docs/SPEC.md</code>)</li>
               <li className="hover:text-cyan-400 transition-colors">Journal des changements (<code className="text-cyan-400">CHANGELOG.md</code>)</li>
               <li className="hover:text-cyan-400 transition-colors">Banc AutomationBench (<code className="text-cyan-400">bench/</code>)</li>
+              <li className="hover:text-cyan-400 transition-colors">Banc comparatif (<code className="text-cyan-400">bench/frameworks/</code>)</li>
               <li className="hover:text-cyan-400 transition-colors">Studio Web Local (<code className="text-cyan-400">agentl studio</code>)</li>
               <li className="hover:text-cyan-400 transition-colors">Skill d'écriture (<code className="text-cyan-400">SKILLS/agentl-author</code>)</li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-bold text-white text-[11px] uppercase tracking-widest mb-3">Théorèmes formels · v1.8</h4>
+            <h4 className="font-bold text-white text-[11px] uppercase tracking-widest mb-3">Théorèmes formels · v1.9</h4>
             <ul className="space-y-1.5 text-white/50 text-[11px]">
               <li>T1 — Aucun appel interdit n'aboutit</li>
               <li>T2 — Impasse sans escalade démontrée</li>
@@ -46,6 +48,7 @@ export function Footer() {
               <li>T6 / T7 — Provenance & terminaison</li>
               <li className="text-white/70">T8 — Vivacité de la société d'agents</li>
               <li className="text-white/70">T9 — Modèle d'effets réfutable</li>
+              <li className="text-cyan-300/80">Noyau : 10 invariants testés, protocole vérifié en TLA+</li>
             </ul>
           </div>
 

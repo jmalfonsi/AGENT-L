@@ -58,7 +58,7 @@ export function Hero({ setActiveTab }: HeroProps) {
         {/* Top Badges Row */}
         <div className="flex flex-wrap items-center justify-center gap-2.5 mb-6 text-xs font-mono">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 text-[11px] uppercase tracking-widest font-bold">
-            <AgentLLogo size="xs" /> v1.8 // SPEC §32
+            <AgentLLogo size="xs" /> v1.9 // SPEC §34–§38
           </span>
           <span className="inline-block px-3 py-1 border border-white/10 bg-white/5 text-white/70 text-[10px] uppercase tracking-widest">
             Aucune dépendance externe
@@ -68,6 +68,9 @@ export function Hero({ setActiveTab }: HeroProps) {
           </span>
           <span className="inline-block px-3 py-1 border border-white/10 bg-white/5 text-white/70 text-[10px] uppercase tracking-widest">
             Journal scellé & signé
+          </span>
+          <span className="inline-block px-3 py-1 border border-white/10 bg-white/5 text-white/70 text-[10px] uppercase tracking-widest">
+            Reprise sans doublon
           </span>
           <button
             onClick={() => setActiveTab('whatsnew')}

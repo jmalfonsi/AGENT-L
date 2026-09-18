@@ -24,15 +24,15 @@ export interface ComparisonFeature {
     badge?: string;
   };
   langchain: {
-    supported: boolean | 'partial' | 'full';
+    supported: boolean | 'partial' | 'full' | 'unknown';
     detail: string;
   };
   crewAi: {
-    supported: boolean | 'partial' | 'full';
+    supported: boolean | 'partial' | 'full' | 'unknown';
     detail: string;
   };
   autogen: {
-    supported: boolean | 'partial' | 'full';
+    supported: boolean | 'partial' | 'full' | 'unknown';
     detail: string;
   };
 }

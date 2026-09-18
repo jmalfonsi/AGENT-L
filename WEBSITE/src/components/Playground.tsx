@@ -210,7 +210,7 @@ export function Playground() {
 
           {/* Console Footer Status */}
           <div className="border-t border-slate-800 bg-slate-900/60 p-3 text-[11px] font-mono text-slate-400 flex items-center justify-between">
-            <span>Moteur AGENT-L v1.8</span>
+            <span>Moteur AGENT-L v1.9</span>
             <span className="text-emerald-400">Empreinte SHA-256 validée</span>
           </div>
 

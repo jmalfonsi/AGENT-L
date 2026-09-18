@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
   Sparkles, ShieldCheck, EyeOff, PlugZap, Infinity as InfinityIcon, Plug,
-  Timer, Network, Crosshair, FileSignature, AlertTriangle, Trash2, ArrowRight
+  Timer, Network, Crosshair, FileSignature, AlertTriangle, Trash2, ArrowRight,
+  KeyRound, DatabaseBackup, Fingerprint, Workflow, Scale
 } from 'lucide-react';
 import { AgentLText } from './AgentLLogo';
 
@@ -51,6 +52,86 @@ const TONES: Record<Entry['tone'], { chip: string; border: string; icon: string 
 };
 
 const ENTRIES: Entry[] = [
+  {
+    version: 'v1.9',
+    tag: 'Noyau',
+    tone: 'purple',
+    icon: KeyRound,
+    title: "Noyau à permis — aucun outil appelé sans autorisation liée aux arguments exacts",
+    spec: 'SPEC §34',
+    body:
+      "L'autorisation et l'appel à l'hôte quittent l'interpréteur pour un noyau de quelques fichiers. Le noyau fige " +
+      "la proposition, évalue la politique, montre une copie à l'approbateur, puis émet un permis à usage unique lié " +
+      "au condensat de l'action. Host.invoke sans permis lève PermitError : ce qui a été approuvé est exactement ce " +
+      "qui s'exécute. Dix invariants testés, protocole vérifié en TLA+.",
+    snippet: `host.invoke("wipe", {"host": "prod-db"})
+# PermitError: invoke \`wipe\` sans permis
+#   d'exécution : seul le noyau AGENT-L
+#   appelle l'hôte (Kernel.execute)`
+  },
+  {
+    version: 'v1.9',
+    tag: 'Exécution',
+    tone: 'emerald',
+    icon: DatabaseBackup,
+    title: 'Exécution durable — un crash ne double pas un virement',
+    spec: 'SPEC §36',
+    body:
+      "L'intention de chaque action est écrite sur disque avant l'appel, le résultat après. À la reprise, le programme " +
+      "est re-dérivé depuis le journal, sans effet ni appel au modèle. Une action interrompue est relancée avec la même " +
+      "clé d'idempotence, réconciliée, ou déclarée indéterminée — jamais relancée à l'aveugle.",
+    snippet: `agentl run pay.agent --durable runs/pay
+agentl durable status runs/pay
+
+NEVER transfer WHEN tools.transfer.in_doubt == true`
+  },
+  {
+    version: 'v1.9',
+    tag: 'Sécurité',
+    tone: 'rose',
+    icon: Fingerprint,
+    title: 'Provenance portée par les valeurs — UNTRUSTED, LLM_DERIVED, ATTESTED',
+    spec: 'SPEC §35',
+    body:
+      "Chaque valeur porte l'ensemble de ses sources (capteur, modèle, outil, message…), à travers les recopies, " +
+      "l'arithmétique et les branches. La politique refuse une action dont la cible vient d'une donnée injectée, " +
+      "même si un humain l'approuve. Attester n'est pas faire confiance : une valeur validée reste une valeur du modèle.",
+    codes: ['E015', 'E016'],
+    snippet: `NEVER wipe_host WHEN UNTRUSTED(host)
+      AND NOT ATTESTED(host, check_wipeable)
+NEVER transfer WHEN LLM_DERIVED(to)
+      AND NOT ATTESTED(to, resolve_account)`
+  },
+  {
+    version: 'v1.9',
+    tag: 'Exécution',
+    tone: 'cyan',
+    icon: Workflow,
+    title: 'Exécution asynchrone — concurrence bornée, délais, sociétés concurrentes',
+    spec: 'SPEC §37',
+    body:
+      "AsyncHost, AsyncRuntime et AsyncSociety : les agents attendent leurs outils en même temps, dans des bornes " +
+      "explicites (contre-pression, délais, boîtes de réception). Un agent reste séquentiel, et un outil qui dépasse " +
+      "son délai est indéterminé, jamais présumé réussi. Les journaux v1.8.2 se rejouent à l'octet.",
+    snippet: `rt = AsyncRuntime(agent, AsyncHost(), llm,
+        limits=Limits(max_concurrent_tools=8,
+                      tool_timeout=10))
+await rt.run(max_ticks=8)`
+  },
+  {
+    version: 'v1.9',
+    tag: 'Validation',
+    tone: 'amber',
+    icon: Scale,
+    title: 'Banc comparatif contre LangGraph, PydanticAI et CrewAI',
+    spec: 'SPEC §38',
+    body:
+      "Le même modèle compromis, scripté, face au mécanisme de sûreté recommandé de chaque framework. Oracle extérieur, " +
+      "un processus par phase, versions figées, vérifié en CI. S'y ajoutent des tests de propriétés sur la politique, " +
+      "le solveur et le parseur, et la compatibilité des journaux entre versions.",
+    snippet: `cd bench/frameworks
+.venv/bin/python run.py --check --repeat 2`
+  },
   {
     version: 'v1.8',
     tag: 'Langage',
@@ -237,7 +318,7 @@ agentl replay run.json --require-seal`
   }
 ];
 
-const VERSIONS = ['Toutes', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
+const VERSIONS = ['Toutes', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
 
 export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
   const [filter, setFilter] = useState<string>('Toutes');
@@ -250,7 +331,7 @@ export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
       <div className="mb-10 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-3 py-1 text-xs font-mono font-semibold text-cyan-400 mb-3">
           <Sparkles className="h-3.5 w-3.5" />
-          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.8.1'}
+          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.9'}
         </div>
         <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           {compact ? 'Ce qui change dans AGENT-L' : 'Évolutions majeures du langage et du moteur'}
@@ -282,7 +363,7 @@ export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
         {[
           { value: '9', label: 'Théorèmes prouvés hors ligne', hint: 'T1–T7 + T9 par agent, T8 sur la société' },
           { value: '6', label: 'Portes de qualité', hint: 'check · test · verify · boundary · autoloop · run' },
-          { value: '119', label: 'Mots réservés au contrat', hint: 'contrat d\'écriture 2.4.0, scellé par empreinte' },
+          { value: '119', label: 'Mots réservés au contrat', hint: 'contrat d\'écriture 2.10.0, scellé par empreinte' },
           { value: '0', label: 'Dépendance du cœur', hint: 'stdlib Python 3.10+ · extras studio/sign/mcp/anthropic' }
         ].map((m, i) => (
           <div key={i} className="bg-white/5 border border-white/10 p-5 text-center">

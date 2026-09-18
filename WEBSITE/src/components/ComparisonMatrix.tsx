@@ -55,7 +55,7 @@ export function ComparisonMatrix() {
               <th className="p-4 w-1/6 text-cyan-400 font-bold bg-cyan-500/10 border-l border-r border-cyan-500/30">
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-4 w-4 text-cyan-400" />
-                  AGENT-L (v1.8)
+                  AGENT-L (v1.9)
                 </div>
               </th>
               <th className="p-4 w-1/6 text-white/50 font-normal">LangChain / LangGraph</th>
@@ -104,6 +104,8 @@ export function ComparisonMatrix() {
                         <Check className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                       ) : feat.langchain.supported === 'partial' ? (
                         <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      ) : feat.langchain.supported === 'unknown' ? (
+                        <HelpCircle className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
                       ) : (
                         <X className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
                       )}
@@ -122,6 +124,8 @@ export function ComparisonMatrix() {
                         <Check className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                       ) : feat.crewAi.supported === 'partial' ? (
                         <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      ) : feat.crewAi.supported === 'unknown' ? (
+                        <HelpCircle className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
                       ) : (
                         <X className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
                       )}
@@ -140,6 +144,8 @@ export function ComparisonMatrix() {
                         <Check className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                       ) : feat.autogen.supported === 'partial' ? (
                         <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      ) : feat.autogen.supported === 'unknown' ? (
+                        <HelpCircle className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
                       ) : (
                         <X className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
                       )}
