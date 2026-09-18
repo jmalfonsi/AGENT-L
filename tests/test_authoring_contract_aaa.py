@@ -130,10 +130,6 @@ class TheArtefactsAreInSync(unittest.TestCase):
         self.assertEqual(sync.check(sync.expected_files()), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def test_markdown_accepts_trace_call_assertions(tmp_path, monkeypatch):
     """Le vrai parseur accepte EXPECT CALL ; le validateur ne doit pas le bannir."""
     (tmp_path / 'references').mkdir()
@@ -163,3 +159,14 @@ AGENT quoted { DESCRIPTION "CALL INVARIANT LLM_OUTPUTS" }
 ''')
     monkeypatch.setattr(sync, 'SKILL', tmp_path)
     assert sync.validate_markdown() == []
+
+
+def test_markdown_accepts_call_assertion_fragments_and_ignores_comments(tmp_path, monkeypatch):
+    (tmp_path / 'references').mkdir()
+    (tmp_path / 'SKILL.md').write_text('```agentl\nEXPECT CALL act\nEXPECT NEVER CALL act\n// CALL INVARIANT LLM_OUTPUTS\n/* CALL INVARIANT */\n```\n')
+    monkeypatch.setattr(sync, 'SKILL', tmp_path)
+    assert sync.validate_markdown() == []
+
+
+if __name__ == "__main__":
+    unittest.main()

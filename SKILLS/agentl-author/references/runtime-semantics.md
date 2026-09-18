@@ -239,8 +239,8 @@ reste indéterminé. Augmenter --depth peut aider V113/V122, pas V128.
 
 B000 : hôte absent ; B001–B007 : motifs de décision, filtrage, priorisation,
 seuils et disproportion hôte/agent ; B008–B013 : signaux de protection aux
-sites d'action ; B014 : contrat des registres ; B015 : mutation d'état hors
-contrat ; B016 : surface d'analyse non résolue.
+sites d'action ; B014 : contrat des registres ; B015 : description d'outil tierce à tonalité
+impérative ; B016 : surface d'analyse non résolue.
 
 L'analyse suit les imports locaux sans exécuter Python. Les dépendances
 externes sont listées hors analyse ; --external-policy error les refuse et
