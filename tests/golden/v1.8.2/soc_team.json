@@ -1,0 +1,178 @@
+{
+  "meta": {
+    "agent": "soc_analyst · network_agent",
+    "source": "/home/ubuntu/AGENT-L/examples/soc_team.agent",
+    "source_sha256": "390bf90fc06fb724bd1ef17802c82439580d2fbee8d1e0cfc5f108f51d808808",
+    "ticks": 4,
+    "trace_sha256": "6c763e68c94de7707d90e2d695c30922aba180fff6578df0e1727b5e36bd0b41",
+    "chain_sha256": "e39a9c5bc787ec2d42633b64167548d841b0062097f6144faa29782cd810992e",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "alert.host",
+      "value": "PC-042",
+      "h": "13b431939a67c692143171ac33ef7dee69c68dd0f7231812ef300647c99ad4ed"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "alert.severity",
+      "value": {
+        "$sym": "HIGH"
+      },
+      "h": "7b72695160452339c0108993d4283d81d67d898670111a7e69b62a52e0bb8915"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "b2827f619e56f4b3f0b3a9644981c9fecb97f59779f7e16446d5ee26e9d41f37"
+    },
+    {
+      "seq": 3,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "f36a7e7e3e4fd22974df78142582336a24ada1bdebca903057499b7aba36bc23"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "queue.pending",
+      "value": 1,
+      "h": "cc1f687924b4bd8e3e330d02c5ff1ea3c102039a202e7857a0c58d8c217de1f7"
+    },
+    {
+      "seq": 5,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "e8af7806bd8682e9061d4561a1617868c09e0ecb25786610e3e975f688c9ffed"
+    },
+    {
+      "seq": 6,
+      "kind": "invoke",
+      "key": "inspect_flows",
+      "args": {
+        "$dict": [
+          [
+            "host",
+            "PC-042"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "verdict",
+            {
+              "$sym": "hostile"
+            }
+          ],
+          [
+            "confidence",
+            0.93
+          ],
+          [
+            "analyzed_host",
+            "PC-042"
+          ]
+        ]
+      },
+      "h": "37a722c7f5d7822d9e22bdf1332509c1c3712eacc3c80203fa06684ec4188394"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "alert.host",
+      "value": "PC-042",
+      "h": "a6f02da2a5e9c0b0a2dabba3f150116abd302874880004118169fdc04a11b45d"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "alert.severity",
+      "value": {
+        "$sym": "HIGH"
+      },
+      "h": "586d98b844ce33893a739e8192ed60d449a2ccad234c4e98a8b5e2de9105fa6c"
+    },
+    {
+      "seq": 9,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "acb598e46f9bf7e058282ea9de5e18b3db72d1b8c76d1c310545b1b023cdc251"
+    },
+    {
+      "seq": 10,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "a423b8518184d354f4e4332ec4d3b28e5dbbd44e5d3ba83c270aacce45214ca1"
+    },
+    {
+      "seq": 11,
+      "kind": "invoke",
+      "key": "block_host",
+      "args": {
+        "$dict": [
+          [
+            "host",
+            "PC-042"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "blocked",
+            {
+              "$sym": "confirmed"
+            }
+          ]
+        ]
+      },
+      "h": "e7ccafdbbc3d334cb0c1c3ec2e9c583c34a5b0b32dca6e0546711daf8de1e2ec"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "contained"
+      },
+      "h": "0c30d4a60aefd96fdcaed594d51f93f14db6da40c740c4b1db74f3def6f40bc8"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "queue.pending",
+      "value": 0,
+      "h": "5b9ff2e058710ae5a5ebad5344bf7c9cbdd6671cababdc54120b6c4f7e42b13d"
+    },
+    {
+      "seq": 14,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "e39a9c5bc787ec2d42633b64167548d841b0062097f6144faa29782cd810992e"
+    }
+  ]
+}

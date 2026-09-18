@@ -1,0 +1,226 @@
+// ---------------------------------------------------------------------------
+// TRIAGE_SUPERVISOR — agent SUPERVISEUR d'une hiérarchie à deux étages.
+//
+// Sur un e-mail signalé, il DÉLÈGUE l'analyse lourde à un agent AGENT-L
+// imbriqué (MAIL_FORENSIC, cf. forensic.agent), n'en reçoit qu'un verdict
+// BORNÉ par EXPECT, puis décide de la remédiation SOUS SA PROPRE POLITIQUE.
+//
+// Motif : composition auditable. Le superviseur ne « recrute » pas — il
+// délègue à un spécialiste déclaré. Chacun passe `agentl verify` seul.
+// ---------------------------------------------------------------------------
+
+AGENT TRIAGE_SUPERVISOR {
+
+    VERSION "1.4"
+    DESCRIPTION "Superviseur de tri : délègue l'analyse d'un e-mail signalé à un spécialiste imbriqué, puis remédie sous politique."
+
+    GOAL handled {
+        MAINTAIN incident.status == handled
+        WEIGHT   2
+    }
+
+    OBSERVE {
+        mail.reported
+        mailbox.criticality
+        incident.status         // les EFFECT de traitement doivent être réfutables (T9)
+    }
+
+    BELIEF {
+        incident.status = open     CONFIDENCE 0.10 SOURCE prior
+        threat_class    = unknown  CONFIDENCE 0.10 SOURCE prior
+        malicious       = unknown  CONFIDENCE 0.10 SOURCE prior
+        // Marqueur d'avancement : il garde deux REQUIRES et une règle DECIDE,
+        // il doit donc exister avant le premier tick — un état que seul un
+        // `SET` enfoui fait naître ne se pose ni ne se raisonne.
+        forensic.done   = no       CONFIDENCE 0.10 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { current }
+        LONG_TERM  { triaged }
+
+        WRITE {
+            WHEN  incident.status == handled
+            STORE { threat_class, malicious, forensic_confidence }
+            INTO  LONG_TERM.triaged
+        }
+    }
+
+    // -- Capacités de remédiation -------------------------------------------
+
+    TOOL quarantine_mail {
+        DESCRIPTION "Met l'e-mail en quarantaine (réversible)."
+        INPUT       { class: Symbol BIND threat_class }
+        OUTPUT      { moved: Symbol }
+        SIDE_EFFECT { mailbox }
+        RISK        { operational = MEDIUM }
+        REQUIRES    { forensic.done == yes AND malicious == yes }
+        EFFECT      { incident.status = handled }
+        COST        3
+    }
+
+    TOOL close_incident {
+        DESCRIPTION "Clôt l'incident comme bénin."
+        OUTPUT   { closed: Symbol }
+        RISK     LOW
+        REQUIRES { forensic.done == yes AND malicious == no }
+        EFFECT   { incident.status = handled }
+        COST     1
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+    }
+
+    // -- Politique du superviseur (indépendante de celle du spécialiste) -----
+    // Sous-agent délégué : contrat explicite, donc risque déclaré et règle
+    // de politique possible (v1.6 — `DELEGATE` passe par le moteur).
+    TOOL forensic {
+        INPUT  { }
+        OUTPUT { malicious: Symbol, threat_class: Symbol, forensic_confidence: Number }
+        RISK   { operational = LOW }
+    }
+
+    POLICY {
+        DEFAULT DENY
+
+        // Sans cette ligne, DEFAULT DENY bloque la délégation —
+        // et c'est bien ce qu'il doit faire.
+        ALLOW forensic
+        ALLOW quarantine_mail
+        ALLOW close_incident
+        ALLOW notify_operator
+
+        // Boîte critique : un humain valide toute quarantaine.
+        REQUIRE APPROVAL FOR quarantine_mail
+            WHEN mailbox.criticality == CRITICAL
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE       incident.status == handled
+        MAX_DEPTH     3
+        MAX_NODES     300
+        APPROVAL_COST 10
+    }
+
+    // -- Délégation à l'agent imbriqué --------------------------------------
+    PLAN investigate {
+        STEP delegate {
+            DELEGATE forensic {
+                TASK   "analyser l'e-mail signalé et rendre un verdict borné"
+                INPUT  { mail.reported }
+                EXPECT { malicious, threat_class, forensic_confidence }
+            }
+        }
+        STEP mark {
+            SET forensic.done = yes
+        }
+    }
+
+    // -- Critères d'acceptation ---------------------------------------------
+    //
+    // Ils portent sur la FRONTIÈRE : le verdict du spécialiste se POSE dans le
+    // `GIVEN` (c'est tout ce que le superviseur en voit, cf. EXPECT), et l'on
+    // vérifie que la politique DU SUPERVISEUR en tire la bonne conduite.
+
+    SCENARIO verdict_malveillant_mise_en_quarantaine {
+        GIVEN {
+            forensic.done       = yes
+            malicious           = yes
+            threat_class        = credential_phishing
+            mailbox.criticality = normal
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            quarantine_mail.moved = yes
+            incident.status = open
+        }
+        EXPECT { incident.status == handled } WITHIN 5
+    }
+
+    SCENARIO verdict_benin_incident_clos {
+        GIVEN {
+            forensic.done       = yes
+            malicious           = no
+            mailbox.criticality = normal
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            close_incident.closed = yes
+            incident.status = open
+        }
+        EXPECT { incident.status == handled } WITHIN 5
+    }
+
+    // Indéterminé n'est pas faux : sans verdict, les deux `REQUIRES` sont
+    // faux, aucune remédiation n'est possible — l'agent escalade au lieu de
+    // clore. Invariant : le statut ne doit JAMAIS passer à `handled`.
+    // Relâchez un `REQUIRES` sur `malicious` et ce scénario tombe.
+    SCENARIO verdict_indetermine_aucune_remediation {
+        GIVEN {
+            forensic.done       = yes
+            malicious           = unknown
+            mailbox.criticality = normal
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            notify_operator.delivered = yes
+            incident.status = open
+        }
+        EXPECT { incident.status != handled } WITHIN 5
+    }
+
+    // Boîte critique et opérateur silencieux — le défaut du `GIVEN` est le
+    // REFUS, comme dans le runtime. La quarantaine exige un humain, l'humain
+    // ne répond pas : rien ne se fait. Retirez le `REQUIRE APPROVAL` et ce
+    // scénario tombe : c'est ce qui en fait un test.
+    SCENARIO boite_critique_sans_humain_rien_ne_bouge {
+        GIVEN {
+            forensic.done       = yes
+            malicious           = yes
+            threat_class        = credential_phishing
+            mailbox.criticality = CRITICAL
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            incident.status = open
+        }
+        EXPECT { incident.status != handled } WITHIN 5
+    }
+
+    EVENT mail.report {
+        WHEN severity >= LOW
+        THEN investigate
+    }
+
+    DECIDE {
+        RULES {
+            IF planner.exhausted
+                AND incident.status != handled
+                AND forensic.done == yes
+                AND escalation.sent != yes
+                THEN escalate
+        }
+    }
+
+    PLAN escalate {
+        STEP notify {
+            SET escalation.sent = yes
+            notify_operator("Tri impossible : verdict du spécialiste insuffisant pour remédier automatiquement.")
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

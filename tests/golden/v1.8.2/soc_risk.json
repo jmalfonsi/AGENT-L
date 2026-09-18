@@ -1,0 +1,159 @@
+{
+  "meta": {
+    "agent": "SOC_RISK",
+    "source": "/home/ubuntu/AGENT-L/examples/soc_risk.agent",
+    "source_sha256": "08dc076d9b712e746622d6b5fbd7b2b14d8a4aaa170a8a4276823d577d1e8113",
+    "ticks": 4,
+    "trace_sha256": "2839eb5a004474e0903be451d630a60efeca6649781e331781b8fa233cb982a5",
+    "chain_sha256": "1f44466ace3fefa379b19fcb2c8fedc725d5251cbb2e6f2da695307f27f7a538",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "9da54e9d70c1b2609b4759ffc56f35665b35dda6d1f025f2c3560f528def1422"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "asset.criticality",
+      "value": {
+        "$sym": "MEDIUM"
+      },
+      "h": "f40fda21683d1f6af27c1459235f4f5d88bd7b69237f5da6a984af5bebb9a7df"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "suspected_host",
+      "value": "PC-042",
+      "h": "ff0746306fc9c912b3c48c5c57256deab5a470f7b8ebaec2a267013841433a84"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "suspected_account",
+      "value": "svc-backup",
+      "h": "cccb63bb4f62a9cfae2e4aea2c60cc4b4cb59c5ea456c46ec2704abee7705636"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "account.suspended",
+      "value": null,
+      "h": "f81aff1b7269300ac7e8d8f4f5c23306ada624005076af5eee6b3f65151f52a2"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "endpoint.connectivity",
+      "value": null,
+      "h": "efbed37af1c5c707aca5916b8043da470bfbd9e6fe94202c08b845b0f1d44b54"
+    },
+    {
+      "seq": 6,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "1a510bb805601617ee7ad927eb4152d581cc1049f214a667a077918e331e268e"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "837ac16a5d5370414396576a5449ca4bc33457015f19a3a83f2d114b5ad84f32"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "account.suspended",
+      "value": null,
+      "h": "8ce98386518504db344035389fa2ec8e5bda6b4de32f2e3fdb53442c3ffbcfb7"
+    },
+    {
+      "seq": 9,
+      "kind": "invoke",
+      "key": "quarantine_account",
+      "args": {
+        "$dict": [
+          [
+            "account",
+            "svc-backup"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "suspended",
+            {
+              "$sym": "confirmed"
+            }
+          ]
+        ]
+      },
+      "h": "b04316cb26e40046e514c1a8d0705ade0348595b790ee53ef1806b28e1e3b9f3"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "22a913a8176b215a1dce5a7f432d4b6d8451d2ac3856d1f7fb2a094a735bee2c"
+    },
+    {
+      "seq": 11,
+      "kind": "invoke",
+      "key": "isolate_endpoint",
+      "args": {
+        "$dict": [
+          [
+            "host",
+            "PC-042"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "isolated",
+            {
+              "$sym": "confirmed"
+            }
+          ]
+        ]
+      },
+      "h": "cfa342910c372b28f03e946530990013722197467f22cd1328b6f083e6a9d1c1"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "contained"
+      },
+      "h": "0bbe587c2b022cc552d75e794148e10c47c0bd57e24e37b927fb9801bcd84a32"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "contained"
+      },
+      "h": "1f44466ace3fefa379b19fcb2c8fedc725d5251cbb2e6f2da695307f27f7a538"
+    }
+  ]
+}

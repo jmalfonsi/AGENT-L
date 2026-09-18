@@ -1,0 +1,103 @@
+{
+  "meta": {
+    "agent": "MAIL_FORENSIC",
+    "source": "/home/ubuntu/AGENT-L/examples/forensic.agent",
+    "source_sha256": "2360c7bdce3c404bced9af8993cc016e7d5c9bd84d473df73a9bbb7832527ed1",
+    "ticks": 4,
+    "trace_sha256": "0d96b4582087d23134873c34073ab417709e3f31d7ea68125a62ef5338cce0fd",
+    "chain_sha256": "204bb8bcc79d47876d185771992ed98fa9094aee0e0b48f09495207db1178c02",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "mail.spf_result",
+      "value": {
+        "$sym": "fail"
+      },
+      "h": "fcfd031c36d382fc738862af25be48c58b95e9f51bc445a4eb0ec256e3991c50"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "mail.url_reputation",
+      "value": {
+        "$sym": "bad"
+      },
+      "h": "d7196f7242f9eab989ac4cce1b0ff7ef6b29f3080c195580c717b759b212b3a9"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "mail.attachment_risk",
+      "value": {
+        "$sym": "high"
+      },
+      "h": "a06cbce585febf67962dc8c37b631cf3260ca2aacbd35d67c67f04b9fbde3494"
+    },
+    {
+      "seq": 3,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "7d51c11f75baaddfef152e6bba11ea1325437ded49c5add851c96ce541b4cf44"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "mail.attachment_risk",
+      "value": {
+        "$sym": "high"
+      },
+      "h": "abb39902b7b637cb82b45a481866bf2f9494fe27be7c533c2bb0f24540a03378"
+    },
+    {
+      "seq": 5,
+      "kind": "invoke",
+      "key": "deep_scan",
+      "args": {
+        "$dict": []
+      },
+      "value": {
+        "$dict": [
+          [
+            "verdict_ready",
+            {
+              "$sym": "yes"
+            }
+          ]
+        ]
+      },
+      "h": "70322e31ca6caec04da66fe3196f0f9fab30ac057320e0acf7e861e1964c0669"
+    },
+    {
+      "seq": 6,
+      "kind": "invoke",
+      "key": "record_verdict",
+      "args": {
+        "$dict": [
+          [
+            "class",
+            {
+              "$sym": "phishing"
+            }
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "ok",
+            {
+              "$sym": "yes"
+            }
+          ]
+        ]
+      },
+      "h": "204bb8bcc79d47876d185771992ed98fa9094aee0e0b48f09495207db1178c02"
+    }
+  ]
+}

@@ -1,0 +1,344 @@
+{
+  "meta": {
+    "agent": "linux_defender",
+    "source": "/home/ubuntu/AGENT-L/examples/linux_defender.agent",
+    "source_sha256": "8917b0372d5afaa030309e8bc96d560ec51039a6e44dd68eeeab3d4f5d1c10fc",
+    "ticks": 4,
+    "trace_sha256": "ff8c342123c5ba7a80d2d7c80e69b6222ec93afe55bee9ffd2baf00a812d3364",
+    "chain_sha256": "63a8ccfe64526779b85792ab69f2bd94f74cc84222f48c194b12d39f0961ffa4",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "alerts",
+      "value": {
+        "$list": []
+      },
+      "h": "a80c77817ca8866f1e1c747ab4591e842a5675082483b8ddf48b661bc043ef79"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "auth.failed_ssh_count",
+      "value": 0,
+      "h": "b6d319cd96013b87311685d870c97a51998cf5f27625a6325245befa36baf85c"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "process.suspicious_count",
+      "value": 0,
+      "h": "37775c7b653727e15a3c5fd3587e720408a0c540307af7df838ba7bba3e8ee62"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "file.tamper_detected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "a5474f4b6b5e687586e4141cbce5fde687a8932dfbcf09f179e86f1236304712"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "a1c968a86a6b2e5ab63ceed2775f03835e68c00e1186c6c1eb235852956d4579"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "54956997e808ee739e9d9de5c6282a5a609f231201d4c2a9c28f99e5ee1a431e"
+    },
+    {
+      "seq": 6,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "af997982c44eb2c3c79fb4e96a8195df9caa4aeb141d45fe7b4d77c73a8578d2"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "9bf2cdc22a87b58d7bc54ca5c47536392551654e5d09b7c27fc3c731357284be"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "efdc75d3de4caa0560301c7a39b0632a20557761fd62d68557ec5fd25b1f7040"
+    },
+    {
+      "seq": 9,
+      "kind": "invoke",
+      "key": "close_cycle",
+      "args": {
+        "$dict": []
+      },
+      "error": [
+        "PermissionError",
+        "[Errno 13] Permission denied: '/var/lib/linux_defender'"
+      ],
+      "h": "3c5183084fbdcf5d5bfc65904d4009ca1147c3c7e2bfe7c4b942154bc541dc41"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "alerts",
+      "value": {
+        "$list": []
+      },
+      "h": "21e626d220b98fb19af9925fa95af5039313a8bbcf93b511269e47d5640c2230"
+    },
+    {
+      "seq": 11,
+      "kind": "read",
+      "key": "auth.failed_ssh_count",
+      "value": 0,
+      "h": "f13b692a20b376c040952e10e35221acc9543ccc87179870a3ff11dc3435888d"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "process.suspicious_count",
+      "value": 0,
+      "h": "6e14fea967b202595424e3e46c5f1de8164a1dcd96c65ff51c5756b5973e286e"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "file.tamper_detected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "62f2c4bd4f18d0e027364095d9b8e3396d4a6b61901be983805edbeb7695b3ff"
+    },
+    {
+      "seq": 14,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "7fac27c0d48fa22aac76ca952cb1353543669140fc9341cb964a90357ea53c75"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "ff7c375dace30353d4960ff5761613c5cb02e6767a5a78a7575eaa2d119b953a"
+    },
+    {
+      "seq": 16,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "5f1b7e8972b4180d06699e87032ee583a076860dc792d3a575828b20537c5aff"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "60263df19cd41b4cb388652d6cf1e5ff451411028a7ad2d86e5380ee1066f2cc"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "e0572fffdc109e0dbef1faab844401b6549e4aea05b76e82a48201ae1d63c8de"
+    },
+    {
+      "seq": 19,
+      "kind": "invoke",
+      "key": "close_cycle",
+      "args": {
+        "$dict": []
+      },
+      "error": [
+        "PermissionError",
+        "[Errno 13] Permission denied: '/var/lib/linux_defender'"
+      ],
+      "h": "77d5e51d9640c07e4c44200b6cf48977bf0311d19f59a260fd7d2f93772fbfd8"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "alerts",
+      "value": {
+        "$list": []
+      },
+      "h": "55eb6bbd8fbc3c1dceb34511498ae4f9bdbadb9333869fa03c9e3b0dacc60e37"
+    },
+    {
+      "seq": 21,
+      "kind": "read",
+      "key": "auth.failed_ssh_count",
+      "value": 0,
+      "h": "68ddae441e50864a76bf27b856d7480d50292534062bfeede8572908cbe511a0"
+    },
+    {
+      "seq": 22,
+      "kind": "read",
+      "key": "process.suspicious_count",
+      "value": 0,
+      "h": "a6093184172c42598d177bd3cd40aa94d4f1c02d7958e36832d4f3d920be8498"
+    },
+    {
+      "seq": 23,
+      "kind": "read",
+      "key": "file.tamper_detected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "fd06ff541ed8beeb4b800eaac0d624c074e8cb64d52d1a5f6ae0fb8080f93d0c"
+    },
+    {
+      "seq": 24,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "68916ed502b7f6816c442dffb1ee7778f268119593cd8dd6e209ed6d4c6b017f"
+    },
+    {
+      "seq": 25,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "d6ddecf616390d3828ccfcbe4bf3293b9210d7231f556f4ed3a55b8a30e27136"
+    },
+    {
+      "seq": 26,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "26525f56ad40b762dd41c63f56eefcc47c346667d31cee633c6b1fbbb301aa6a"
+    },
+    {
+      "seq": 27,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "b6ecf4c6ca6db4cfc32a0378b7cd16f8e4ec1c431cfc7950c79e7425a288a98d"
+    },
+    {
+      "seq": 28,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "6045ddcca799dca01029a74d5b1852f8dc45925d977135645bdec88aa7aa3fd7"
+    },
+    {
+      "seq": 29,
+      "kind": "invoke",
+      "key": "close_cycle",
+      "args": {
+        "$dict": []
+      },
+      "error": [
+        "PermissionError",
+        "[Errno 13] Permission denied: '/var/lib/linux_defender'"
+      ],
+      "h": "44a710bfced7b5621ed39bf3365acfc0c43c8a473cc375e457dfbb44ef1e61f1"
+    },
+    {
+      "seq": 30,
+      "kind": "read",
+      "key": "alerts",
+      "value": {
+        "$list": []
+      },
+      "h": "d24512146fcee5f0f089ff1e37f6ce169eb64b2fda1ff6cbdb1ab7e1fda60999"
+    },
+    {
+      "seq": 31,
+      "kind": "read",
+      "key": "auth.failed_ssh_count",
+      "value": 0,
+      "h": "2cb1e9d6a7fa7a7b135996bc987d9a51b135f13163988c571bafbcbe9350b25b"
+    },
+    {
+      "seq": 32,
+      "kind": "read",
+      "key": "process.suspicious_count",
+      "value": 0,
+      "h": "56326415438a88906f6806ba8314356fd916029f82ba1c7b148339421402e38d"
+    },
+    {
+      "seq": 33,
+      "kind": "read",
+      "key": "file.tamper_detected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "36131640cf77c9a75e1e98e5c513e8b76aee2ae41c246ab7a3c34bd6f7315cdc"
+    },
+    {
+      "seq": 34,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "a6a90718323a7047d900b8365c30c94070e7e14b031c216a0eaaf1b719208a22"
+    },
+    {
+      "seq": 35,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "64fe2a770a913efcdeae63191954ffc72dd19b987c42f0dae6428fc4bc22eb2c"
+    },
+    {
+      "seq": 36,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "993c84e3d024384cb1ce90b026bb8bec8be1c29518b097bab2f11d8bbe3cda3a"
+    },
+    {
+      "seq": 37,
+      "kind": "read",
+      "key": "server.threat_level",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "ea7f5bdf7aeed877d6c095f378dfc86ef415e9455b21cc24487eb50465ea18a5"
+    },
+    {
+      "seq": 38,
+      "kind": "read",
+      "key": "remediation.unresolved_count",
+      "value": 0,
+      "h": "63a8ccfe64526779b85792ab69f2bd94f74cc84222f48c194b12d39f0961ffa4"
+    }
+  ]
+}

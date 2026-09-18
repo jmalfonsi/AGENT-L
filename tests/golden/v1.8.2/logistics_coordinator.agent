@@ -1,0 +1,174 @@
+AGENT logistics_coordinator {
+    VERSION "1.0"
+    DESCRIPTION "Coordinateur logistique traitant les incidents de livraison sous stricte gouvernance."
+
+    GOAL resolve_incident {
+        ACHIEVE delivery.handled == yes
+    }
+
+    OBSERVE {
+        source.read_ok
+        truck.id
+        truck.status
+        delivery.handled
+        report.text
+        truck.cancelled         // l'EFFECT d'annulation doit pouvoir être démenti (T9)
+    }
+
+    BELIEF {
+        delivery.handled = no CONFIDENCE 1.00 SOURCE prior
+        analysis.done = no CONFIDENCE 1.00 SOURCE prior
+        issue.type = unknown CONFIDENCE 1.00 SOURCE prior
+        issue_type = unknown CONFIDENCE 1.00 SOURCE prior
+        truck.cancelled = no CONFIDENCE 1.00 SOURCE prior
+        incident.escalated = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL reroute_truck {
+        INPUT {
+            read_ok: String BIND source.read_ok
+            truck_id: String BIND truck.id
+        }
+        OUTPUT { rerouted: Symbol }
+        RISK LOW
+        REQUIRES { truck.status == ok AND issue.type == traffic }
+        EFFECT { delivery.handled = yes }
+        COST 2
+    }
+
+    TOOL cancel_delivery {
+        INPUT {
+            read_ok: String BIND source.read_ok
+            truck_id: String BIND truck.id
+            // T6: La sortie LLM (issue_type) atteste la cible (truck_id)
+            issue_token: Symbol BIND issue.type ATTESTS truck_id
+        }
+        EFFECT { 
+            delivery.handled = yes
+            truck.cancelled = yes    // <-- Ajout de l'effet spécifique
+        }
+        OUTPUT { cancelled: Symbol }
+        SIDE_EFFECT { logistics.schedule }
+        RISK HIGH
+        REQUIRES { issue.type == breakdown }
+        COST 5
+    }
+
+    TOOL escalate_incident {
+        OUTPUT { escalated: Symbol }
+        RISK LOW
+        EFFECT { 
+            incident.escalated = yes INTERNAL
+            delivery.handled = yes // Clôt l'incident sans annuler le camion
+        }
+        COST 1
+    }
+
+    POLICY {
+        DEFAULT DENY
+        
+        // Autorisations
+        ALLOW reroute_truck IF source.read_ok == yes AND issue.type == traffic
+        ALLOW cancel_delivery IF source.read_ok == yes AND issue.type == breakdown
+
+        ALLOW escalate_incident
+        
+        // T1: Interdit irrévocable
+        NEVER cancel_delivery WHEN truck.status == ok
+        
+        // T6/W120: Opt-in humain pour les actions destructives
+        REQUIRE APPROVAL FOR cancel_delivery WHEN action.risk >= HIGH
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE delivery.handled == yes
+        MAX_DEPTH 2
+        MAX_NODES 50
+        APPROVAL_COST 10
+    }
+
+
+    PLAN analyze
+        WHEN source.read_ok == yes 
+         AND analysis.done == no
+    {
+        STEP classify {
+            REASON "Extraire le type d'incident logistique depuis le message du chauffeur." {
+                USING { report.text }
+                // T6/W115: Le LLM est strictement borné. S'il hallucine, il retombe sur 'unknown'.
+                PRODUCE { issue_type: Symbol IN [traffic, breakdown, unknown] DEFAULT unknown }
+            }
+        }
+        STEP mark {
+            SET issue.type = reason.issue_type
+            SET analysis.done = yes
+        }
+    }
+
+    DECIDE {
+        RULES {
+            // T2: Si le planificateur est bloqué par un NEVER (ex: breakdown mais truck=ok),
+            // l'agent ne cale pas en silence, il déclenche une escalade.
+            IF planner.exhausted 
+               AND analysis.done == yes 
+               AND delivery.handled != yes 
+            THEN escalate_failure
+        }
+    }
+
+    PLAN escalate_failure {
+        STEP fail {
+            SET incident.escalated = yes
+            // L'agent rend la main proprement sans appeler d'outil métier
+            SET delivery.handled = yes
+            escalate_incident()
+        }
+    }
+
+    // T5: Le scénario nominal qui mord.
+    SCENARIO breakdown_requires_approval_and_cancels {
+        GIVEN {
+            source.read_ok = yes
+            truck.id = "TRK-042"
+            truck.status = broken
+            report.text = "Engine exploded."
+            issue_type = breakdown
+            operator.approval = yes
+        }
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            escalate_incident.escalated = yes
+        }
+        EXPECT { delivery.handled == yes } WITHIN 3
+    }
+
+    // T5/Test de mutation: Invariant vérifiant que l'interdiction prime sur le LLM
+    SCENARIO truck_ok_never_cancels {
+        GIVEN {
+            source.read_ok = yes
+            truck.id = "TRK-042"
+            truck.status = ok
+            report.text = "I think the engine sounds weird."
+            issue_type = breakdown
+            operator.approval = yes
+        }
+        // Le camion ne doit PAS être annulé, MAIS l'agent doit escalader.
+        // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            escalate_incident.escalated = yes
+        }
+        EXPECT { 
+            truck.cancelled != yes
+            incident.escalated == yes 
+        } WITHIN 4
+    }
+
+    LOOP UNTIL goal.satisfied MAX 4 {
+        OBSERVE
+        UPDATE_BELIEFS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+    }
+}

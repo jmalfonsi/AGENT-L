@@ -1,0 +1,301 @@
+{
+  "meta": {
+    "agent": "VALMONT_ALARMES",
+    "source": "/home/ubuntu/AGENT-L/examples/valmont_alarmes.agent",
+    "source_sha256": "1cf7b0f3ffb51a47b9409d8d5a5c50822b9b8fc63ecfcf43f272706e9b7e455a",
+    "ticks": 4,
+    "trace_sha256": "9eef9bcbb84947d0cccde5d5ada51bd926f8c21f909648cc73e21b1494774d56",
+    "chain_sha256": "612327f8993d38ff58b4ce09cf98223d01b42fa7c3ef3e99bacf70033b7b6996",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "alarmes.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "9941f67eebf6c56bc1c5093939ebb3a9ad0780e6e9f70cf65013eda56d0dd042"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "alarmes.critiques",
+      "value": 0,
+      "h": "d5e2aa3dd5119c7fc48c5b9279cfffa46b462c47d894d8c636803426dda3c5ba"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "alarmes.non_acquittees",
+      "value": 313,
+      "h": "0658ed196e456b2bede644a35e05f64b773a2af1d4b456cbadb643bcafdb4585"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "defauts.ouverts",
+      "value": 0,
+      "h": "83696c05c1e3dd40d3d51ef2c980a48c182720e70d5f74de06162ba845f6e9e0"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "alarmes.critique_sans_defaut",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "a816df9cd89770cad87ac6294ee77d4fe2533e2543af60037b26ee9f7ab6f6f3"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "alarmes.actives",
+      "value": 4,
+      "h": "bba253191121238c9b9c7d2e7946f206194ce687a03cf735729a5407f579d1dc"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "alarmes.majeures",
+      "value": 1,
+      "h": "403c0d0b3e164e36af71c3bd36654247c605ab202a62967c6516a7af7d0da168"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "alarmes.pire",
+      "value": {
+        "$sym": "major"
+      },
+      "h": "d74d1f37b7a3ff83ee08542f2d95b35f8ff7e8202a05192a8e2128e407209979"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "alarmes.libelles",
+      "value": "[major] PERSONNEL/ADMIN (A-000458) — Sous-effectif operationnel — Administration & encadrement (Presence 66.7 % (minimum 80 %), 2/3 presents sur l'equipe) [aucun defaut equipement associe] [x7 occurrences]\n[major] EAU/GF1 (A-000460) — Groupe froid en defaut — GF1 (Arret compresseur : bascule sur le groupe de secours)\n[major] PERSONNEL/RH_SITE (A-000451) — Taux d absence eleve sur le site (8.0 % d absence (limite 8 %)) [aucun defaut equipement associe] [x19 occurrences]\n[major] PRODUCTION/L3 (A-000449) — Ligne a l'arret — L3 (Ligne 3 — Traitement de surface : etat DOWN) [aucun defaut equipement associe] [x7 occurrences]\n[major] PRODUCTION/L1 (A-000447) — Ligne a l'arret — L1 (Ligne 1 — Fusion & Coulee : etat DOWN) [aucun defaut equipement associe] [x13 occurrences]\n[major] PRODUCTION/L2 (A-000443) — Ligne a l'arret — L2 (Ligne 2 — Usinage CN : etat DOWN) [aucun defaut equipement associe] [x11 occurrences]\n[major] EAU/EAU (A-000442) — Vanne d'arrivee d'eau bloquee fermee (Plus d'appoint : les baches se vident)\n[major] PRODUCTION/L4 (A-000430) — Ligne a l'arret — L4 (Ligne 4 — Assemblage : etat DOWN) [aucun defaut equipement associe] [x7 occurrences]\n[major] PERSONNEL/HSE (A-000392) — Accident du travail en cours (1 dossier(s) accident actif(s)) [aucun defaut equipement associe]\n[major] EAU/SOFT (A-000399) — Percage de durete a l'adoucisseur (1.0 degf en sortie (limite 1 degf) — entartrage chaudieres) [aucun defaut equipement associe]\n… et 20 autre(s) alarme(s) ouverte(s), moins graves.",
+      "h": "790b36ca858b508a4f053d369f2bf8940bdf7013b78c37de789d084bf3c16ada"
+    },
+    {
+      "seq": 9,
+      "kind": "read",
+      "key": "mesures.douteuses",
+      "value": 0,
+      "h": "038462f080e545a7bf9c1870e5aa05d346f41e98aba82c5d12713b35f1fa3e61"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "diagnostic.status",
+      "value": {
+        "$sym": "attente"
+      },
+      "h": "49914cb2bafb0be22beb80c1701cfab3b02e1b72162428452cccb1030c5cb70a"
+    },
+    {
+      "seq": 11,
+      "kind": "read",
+      "key": "diagnostic.verdict",
+      "value": {
+        "$sym": "indetermine"
+      },
+      "h": "b52ba2ef90e1f7cd90a4e2fc74102e5546b87cec172e0e3ca96caad07d52602f"
+    },
+    {
+      "seq": 12,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "9a968f9e920ee310a5a97b48247f7bb1e11ff59b6f96af5285909a4be98179fa"
+    },
+    {
+      "seq": 13,
+      "kind": "reason",
+      "key": "Qualifier la nature de l'alarme la plus grave d'une usine de metallurgie et de traitement de surface, a partir des libelles bruts du journal d'alarmes.",
+      "value": {
+        "$dict": [
+          [
+            "classe",
+            {
+              "$sym": "utilite_indisponible"
+            }
+          ],
+          [
+            "urgence",
+            {
+              "$sym": "planifiable"
+            }
+          ]
+        ]
+      },
+      "h": "0484c4ac68506497389ff1876280f737c2f7bf5ad53ed7ec4b1793a437737375"
+    },
+    {
+      "seq": 14,
+      "kind": "read",
+      "key": "alarmes.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "b6c98f60196ae637ff92117352a64d1335d1ea1722ec229ddf575b0bbe38b769"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "alarmes.critiques",
+      "value": 0,
+      "h": "43de8818a819070a8e3cbd26f4975264ba4bfeda77ba39a64ab3f5e44a5be0b3"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "alarmes.non_acquittees",
+      "value": 313,
+      "h": "87605243b11694499e7a02c18d067c2ff27db0481b0f344d40906340dc729a81"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "defauts.ouverts",
+      "value": 0,
+      "h": "4437135021e8edf286c3f4720c3959e50a6c9c3cae6a4d320564c5a4fbc255a6"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "alarmes.critique_sans_defaut",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "dd08f3c69279a7bcf50b2f295104b9f6e0c1e0e57f10a31c521b1718caf1c1b1"
+    },
+    {
+      "seq": 19,
+      "kind": "read",
+      "key": "alarmes.actives",
+      "value": 4,
+      "h": "a169c62ad9ab7c06cd1b00b450c047cdc9a9f8895b689d49e60d353020beb3ce"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "alarmes.majeures",
+      "value": 1,
+      "h": "1f8d7bf3749266ee6570e2a9638f362d5345eae9d164647e2e447073b1e58ef3"
+    },
+    {
+      "seq": 21,
+      "kind": "read",
+      "key": "alarmes.pire",
+      "value": {
+        "$sym": "major"
+      },
+      "h": "21908aa0e07388e425f4f067675218f1e9f6c36b6941fa921c7e4cd7bea16d9b"
+    },
+    {
+      "seq": 22,
+      "kind": "read",
+      "key": "alarmes.libelles",
+      "value": "[major] PERSONNEL/ADMIN (A-000458) — Sous-effectif operationnel — Administration & encadrement (Presence 66.7 % (minimum 80 %), 2/3 presents sur l'equipe) [aucun defaut equipement associe] [x7 occurrences]\n[major] EAU/GF1 (A-000460) — Groupe froid en defaut — GF1 (Arret compresseur : bascule sur le groupe de secours)\n[major] PERSONNEL/RH_SITE (A-000451) — Taux d absence eleve sur le site (8.0 % d absence (limite 8 %)) [aucun defaut equipement associe] [x19 occurrences]\n[major] PRODUCTION/L3 (A-000449) — Ligne a l'arret — L3 (Ligne 3 — Traitement de surface : etat DOWN) [aucun defaut equipement associe] [x7 occurrences]\n[major] PRODUCTION/L1 (A-000447) — Ligne a l'arret — L1 (Ligne 1 — Fusion & Coulee : etat DOWN) [aucun defaut equipement associe] [x13 occurrences]\n[major] PRODUCTION/L2 (A-000443) — Ligne a l'arret — L2 (Ligne 2 — Usinage CN : etat DOWN) [aucun defaut equipement associe] [x11 occurrences]\n[major] EAU/EAU (A-000442) — Vanne d'arrivee d'eau bloquee fermee (Plus d'appoint : les baches se vident)\n[major] PRODUCTION/L4 (A-000430) — Ligne a l'arret — L4 (Ligne 4 — Assemblage : etat DOWN) [aucun defaut equipement associe] [x7 occurrences]\n[major] PERSONNEL/HSE (A-000392) — Accident du travail en cours (1 dossier(s) accident actif(s)) [aucun defaut equipement associe]\n[major] EAU/SOFT (A-000399) — Percage de durete a l'adoucisseur (1.0 degf en sortie (limite 1 degf) — entartrage chaudieres) [aucun defaut equipement associe]\n… et 20 autre(s) alarme(s) ouverte(s), moins graves.",
+      "h": "05582e2631aa86b5be4eceb69c22525ea80c753292f5f1edfa437ff55325b7d5"
+    },
+    {
+      "seq": 23,
+      "kind": "read",
+      "key": "mesures.douteuses",
+      "value": 0,
+      "h": "003cf5d4732da716bef718a7ba3ae77c81a4ebbf21832778c0694a7e9995b6a9"
+    },
+    {
+      "seq": 24,
+      "kind": "read",
+      "key": "diagnostic.status",
+      "value": {
+        "$sym": "attente"
+      },
+      "h": "56dd1b51ef255b2ec0443accaca95b01dadaf0003aac9cb76a5c045e8d1d24cb"
+    },
+    {
+      "seq": 25,
+      "kind": "read",
+      "key": "diagnostic.verdict",
+      "value": {
+        "$sym": "indetermine"
+      },
+      "h": "e0d8cb66a91063e1411db823ec8f2db87209f8ada6a2968d3367d3f3d7f304dd"
+    },
+    {
+      "seq": 26,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "745491b016289a3614ab51903d7ab40331dc3428f17fe4fc2ccf7c93f2f6d4ce"
+    },
+    {
+      "seq": 27,
+      "kind": "read",
+      "key": "alarmes.non_acquittees",
+      "value": 313,
+      "h": "3a93ebb19c0e10094117e46c496e33d64c5805c08898075a6c82ba65b7abb7b1"
+    },
+    {
+      "seq": 28,
+      "kind": "read",
+      "key": "defauts.ouverts",
+      "value": 0,
+      "h": "40bfde251954f022217e521837d68cb6b056eba78f715e43e568a4be75c16736"
+    },
+    {
+      "seq": 29,
+      "kind": "read",
+      "key": "alarmes.critique_sans_defaut",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "456529e59bfdf8be3728a5421567e43eed51dc0792c5dde011d66fb765c7f707"
+    },
+    {
+      "seq": 30,
+      "kind": "invoke",
+      "key": "exiger_acquittement",
+      "args": {
+        "$dict": [
+          [
+            "classe",
+            "utilite_indisponible"
+          ],
+          [
+            "alarmes",
+            313
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "verdict",
+            {
+              "$sym": "acquittement"
+            }
+          ]
+        ]
+      },
+      "h": "d6b66350c47dde4902ddccba630dce78126f1039281b3ae8336e0cb265fc6903"
+    },
+    {
+      "seq": 31,
+      "kind": "read",
+      "key": "diagnostic.status",
+      "value": {
+        "$sym": "rendu"
+      },
+      "h": "612327f8993d38ff58b4ce09cf98223d01b42fa7c3ef3e99bacf70033b7b6996"
+    }
+  ]
+}

@@ -1,0 +1,291 @@
+{
+  "meta": {
+    "agent": "VALMONT_PRODUCTION",
+    "source": "/home/ubuntu/AGENT-L/examples/valmont_production.agent",
+    "source_sha256": "a7f71ec239c81f1926c8beff90341b240e597268fbb810a9b996788cef656468",
+    "ticks": 4,
+    "trace_sha256": "58f05134146d01452986b6622870ab0c403b1e3f36941d486fd912820e539d03",
+    "chain_sha256": "7eb02fed6a3aaf9ca4460715b2a4c82e90e0c0db90b24b4a3ca48eb4142b7921",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "usine.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "14e75e2b6ee567d4dfa76d1676e1757db5006b94a4cf1e9a8b30c8a818a2a489"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "prod.cadence_pct",
+      "value": 87.5,
+      "h": "d49eec93a71932cf809528f6237a7da7d6fb08d3101578e66c86f075af010c8a"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "air.fuite_pct",
+      "value": 9.999999999999604,
+      "h": "0cf84f07483335a4755ce50701a3d9e5354ec62e793673eb23d53364df0b57a7"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "air.marge_bar",
+      "value": 0.38541410197661374,
+      "h": "6a67ee3f51d876cfd95c73a0b103c430efc1901dd63754f88411a42484919e0e"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "prod.trs",
+      "value": 0.8981404961488432,
+      "h": "e92c9fcfcc811610bfd6f40e7b5b80b98c483a0f986d2c599608d3bdac529402"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "prod.lignes_bridees",
+      "value": 0,
+      "h": "5f6fedefe04072ae49130b5a210de42eaf926a3c006f004665c618baffc551c1"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "vapeur.pression_bar",
+      "value": 9.000000000000002,
+      "h": "95b0ccdb72049f895123a5e1b4cdf731697e2b92fc0fc8a5ac3db8b5ceb90da0"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "elec.souscrit_pct",
+      "value": 86.57946207466512,
+      "h": "da644fde3dc5521fe5ea0b4a045f52a013c91077a25f3a901805a1b6df7d49f9"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "elec.delestage",
+      "value": 0,
+      "h": "c680a23475ea5377ba52ae26553e745e29ac54fb15709cda2b28983780de6323"
+    },
+    {
+      "seq": 9,
+      "kind": "read",
+      "key": "energie.depassement_pct",
+      "value": -20.020862986350007,
+      "h": "a18c82b564da2fbc966e8c557c243b6d47d192e9df06205bfbaea2eef0f6aee7"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "usine.synthese",
+      "value": "Cadence moyenne 87.5 %, TRS 89.8 %, 4 lignes en marche.\nLignes — L1: etat=RUN cadence=100% contrainte=aucune; L2: etat=RUN cadence=100% contrainte=aucune; L3: etat=RUN cadence=50% contrainte=aucune; L4: etat=RUN cadence=100% contrainte=aucune\nAir comprime : 6.19 bar (consigne 6.2, mini 5.8), fuites 10.0 %, puissance 254 kW.\nVapeur : 9.0 bar (consigne 9), rendement chaudieres 85.0 %.\nElectricite : 86.6 % du souscrit, tarif HCE, presence 174 personnes.",
+      "h": "3a53b39eeb65d5716b00691f20b38ecf464d81e963bce4660fa1d51b790bc8ee"
+    },
+    {
+      "seq": 11,
+      "kind": "read",
+      "key": "optim.status",
+      "value": {
+        "$sym": "attente"
+      },
+      "h": "6a01b0162285774c8e0d406142a3cf6e7e9e829497703b4e9013651577c1fd3b"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "optim.conseil",
+      "value": {
+        "$sym": "indetermine"
+      },
+      "h": "e10a64b4cf6d2d05b00a62efbc130b64f176f24694938b512a30256933c99cd2"
+    },
+    {
+      "seq": 13,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "06e4e5bbb8d66adfa561454466d99cafdcf208ca4a444ee15f984bc34a632234"
+    },
+    {
+      "seq": 14,
+      "kind": "reason",
+      "key": "Identifier le goulot d'etranglement d'une usine de metallurgie, d'usinage et de traitement de surface a partir de la synthese des utilites, et dire si la situation se degrade.",
+      "value": {
+        "$dict": [
+          [
+            "goulot",
+            {
+              "$sym": "air_comprime"
+            }
+          ],
+          [
+            "tendance",
+            {
+              "$sym": "stable"
+            }
+          ]
+        ]
+      },
+      "h": "0cddb1cce4c38e3e6aa78844fd47707718e5d691f14f93f090acd809bb115ac3"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "usine.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "e15770b9befe4678bf571d8618c1f0807374c13a947f95e328f34488e3e1a041"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "prod.cadence_pct",
+      "value": 87.5,
+      "h": "443516f0b57e73c9fdd94179fe1ebd94fbad1eff0528982a622b76a2b2aa39fc"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "air.fuite_pct",
+      "value": 9.999999999999604,
+      "h": "64c28ef3733543ab81740f897d6797f9fd5eb453faaa2f9b363594472ef175b1"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "air.marge_bar",
+      "value": 0.38541410197661374,
+      "h": "a4dd894da55fcd2bf750ab09b072c1be740a9b9dd994d4fe12e3df2a69b4308e"
+    },
+    {
+      "seq": 19,
+      "kind": "read",
+      "key": "prod.trs",
+      "value": 0.8981404961488432,
+      "h": "e52a438d3e211dd17f2cf9dca0f8daf9da4730a2320dadcbdc6bd5f737b4e1c3"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "prod.lignes_bridees",
+      "value": 0,
+      "h": "68685e32dd6133685f5481e0c1f8e9987c30d234069ee02761b0bb6fb28056a6"
+    },
+    {
+      "seq": 21,
+      "kind": "read",
+      "key": "vapeur.pression_bar",
+      "value": 9.000000000000002,
+      "h": "77300b185eee643ee76332380ddab4eb781eff4fc6e4ddd5ccf2abcaec6f1dd9"
+    },
+    {
+      "seq": 22,
+      "kind": "read",
+      "key": "elec.souscrit_pct",
+      "value": 86.57946207466512,
+      "h": "ec14b52cc55ecb4011d7a301ffa7f5283fea78bfe99669f3646dd851c0ead37c"
+    },
+    {
+      "seq": 23,
+      "kind": "read",
+      "key": "elec.delestage",
+      "value": 0,
+      "h": "5efedbdab775819a7e9a8b95320b7bc43235cdc1a1ddb1e754bcb46c0aba30d0"
+    },
+    {
+      "seq": 24,
+      "kind": "read",
+      "key": "energie.depassement_pct",
+      "value": -20.020862986350007,
+      "h": "aa3dfe045a877018f453a9f9cc27c98150d3ee4ecda913277fe56f3bcc0bfd1c"
+    },
+    {
+      "seq": 25,
+      "kind": "read",
+      "key": "usine.synthese",
+      "value": "Cadence moyenne 87.5 %, TRS 89.8 %, 4 lignes en marche.\nLignes — L1: etat=RUN cadence=100% contrainte=aucune; L2: etat=RUN cadence=100% contrainte=aucune; L3: etat=RUN cadence=50% contrainte=aucune; L4: etat=RUN cadence=100% contrainte=aucune\nAir comprime : 6.19 bar (consigne 6.2, mini 5.8), fuites 10.0 %, puissance 254 kW.\nVapeur : 9.0 bar (consigne 9), rendement chaudieres 85.0 %.\nElectricite : 86.6 % du souscrit, tarif HCE, presence 174 personnes.",
+      "h": "79a7df198c9cbb3898cae2d05bbdcf52c8c51863c77c2f88f495e77ca5b46361"
+    },
+    {
+      "seq": 26,
+      "kind": "read",
+      "key": "optim.status",
+      "value": {
+        "$sym": "attente"
+      },
+      "h": "7db984d396479bf5b4c7588ede226164dfdd9092fb32bcf308bd2b4900203a13"
+    },
+    {
+      "seq": 27,
+      "kind": "read",
+      "key": "optim.conseil",
+      "value": {
+        "$sym": "indetermine"
+      },
+      "h": "332d88435ac233307e21fc1c485376fa20eb6222b29356a3edc08be19ee83931"
+    },
+    {
+      "seq": 28,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "932a9063241891747588610912e4f504e8fea2369259c9ee39e65f58ff78a2f8"
+    },
+    {
+      "seq": 29,
+      "kind": "read",
+      "key": "prod.cadence_pct",
+      "value": 87.5,
+      "h": "d6375578d8b14d619d0767ab0fdff157e8739da603323c295242c8302f6e6e75"
+    },
+    {
+      "seq": 30,
+      "kind": "invoke",
+      "key": "conseiller_relance",
+      "args": {
+        "$dict": [
+          [
+            "goulot",
+            "air_comprime"
+          ],
+          [
+            "cadence",
+            87.5
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "conseil",
+            {
+              "$sym": "relancer"
+            }
+          ]
+        ]
+      },
+      "h": "1c856203538e9fbf863ff4d96999acd9686e2d5179d5dddc2814f9297c6a0756"
+    },
+    {
+      "seq": 31,
+      "kind": "read",
+      "key": "optim.status",
+      "value": {
+        "$sym": "rendu"
+      },
+      "h": "7eb02fed6a3aaf9ca4460715b2a4c82e90e0c0db90b24b4a3ca48eb4142b7921"
+    }
+  ]
+}

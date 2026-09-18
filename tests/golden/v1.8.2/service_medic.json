@@ -1,0 +1,397 @@
+{
+  "meta": {
+    "agent": "SERVICE_MEDIC",
+    "source": "/home/ubuntu/AGENT-L/examples/service_medic.agent",
+    "source_sha256": "a711faf5fa27cb4b08f468ceff23be279c178e09d050069bd508fbc21c4c3fa8",
+    "ticks": 4,
+    "trace_sha256": "ea0c8bf01824274f4debdefd1ac035f7e64692cf4b9310933115a9555864d008",
+    "chain_sha256": "2f6ad6babeca71f88a4bfcbe00a353e86c57dd7364c95d7b58026eeb895f60f4",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "service.http_status",
+      "value": 0,
+      "h": "f45e536cdaf696e6e16dbc60fcc1634ccdabbafa1a5af622046c23d73343851e"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "service.latency_ms",
+      "value": 0.2,
+      "h": "272f3d8f0fa2c7d4f2f2f50ad2d5c01626c38a53a8292fdd8a00c5ca76baf0e8"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "process.alive",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "9f686744c2e33759d76b0197a92b7ac75df9863df1956c35412addc293f6aea4"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "service.error_count",
+      "value": 4,
+      "h": "d616ae940a4e80c601dc92033534512c31c3db276d07b71030d1def0896c903f"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "service.log_tail",
+      "value": "2026-09-18 04:07:40,917 INFO svc-demo service svc-demo demarre sur le port 8763\n2026-09-18 04:07:40,917 INFO svc-demo chargement de l'index du cache en memoire\n2026-09-18 04:07:40,917 ERROR svc-demo echec fatal au demarrage\nTraceback (most recent call last):\n  File \"/home/ubuntu/AGENT-L/examples/live_service.py\", line 29, in main\n    raise MemoryError(\"cannot allocate 8589934592 bytes for cache index\")\nMemoryError: cannot allocate 8589934592 bytes for cache index",
+      "h": "c4634cf903b11b98673134372505dcfcceb59cd2209d4baa628682f05fe9cb94"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "system.load1",
+      "value": 0.67,
+      "h": "7098442b8343c824739983325ddef5f460499d492bd28026cc5c129126326c0c"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "maintenance.window",
+      "value": {
+        "$sym": "closed"
+      },
+      "h": "6e5f9894f2c4d670251b911612eb16c0fccc2a025a9f7996f2628367a96a4158"
+    },
+    {
+      "seq": 7,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": [
+          {
+            "$dict": [
+              [
+                "source",
+                "watchdog.alert"
+              ],
+              [
+                "payload",
+                {
+                  "$dict": [
+                    [
+                      "severity",
+                      {
+                        "$sym": "HIGH"
+                      }
+                    ],
+                    [
+                      "service",
+                      "svc-demo"
+                    ]
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "h": "4fa0ca615e2f3635ccaf65648ace775d1219008f56241a2a570324f835ccb532"
+    },
+    {
+      "seq": 8,
+      "kind": "invoke",
+      "key": "read_logs",
+      "args": {
+        "$dict": []
+      },
+      "value": {
+        "$dict": [
+          [
+            "error_count",
+            2
+          ],
+          [
+            "tail",
+            "2026-09-18 04:07:40,917 INFO svc-demo service svc-demo demarre sur le port 8763\n2026-09-18 04:07:40,917 INFO svc-demo chargement de l'index du cache en memoire\n2026-09-18 04:07:40,917 ERROR svc-demo echec fatal au demarrage\nTraceback (most recent call last):\n  File \"/home/ubuntu/AGENT-L/examples/live_service.py\", line 29, in main\n    raise MemoryError(\"cannot allocate 8589934592 bytes for cache index\")\nMemoryError: cannot allocate 8589934592 bytes for cache index"
+          ]
+        ]
+      },
+      "h": "5f0cadb9fe695f2290d6e10dc7400f373a4015f603983cc9a90954f308e1022a"
+    },
+    {
+      "seq": 9,
+      "kind": "delegate_lookup",
+      "key": "prober",
+      "value": true,
+      "h": "c7135541168c5ad23d89747eb8085677a764b54faad9a6a85c4e4d757faa41be"
+    },
+    {
+      "seq": 10,
+      "kind": "delegate",
+      "key": "prober",
+      "args": {
+        "$dict": [
+          [
+            "service.http_status",
+            0
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "probe_code",
+            0
+          ],
+          [
+            "probe_evidence",
+            "GET /health → code 0 en 0 ms"
+          ]
+        ]
+      },
+      "h": "a179ecdb35050aea33e9d1f68fc93757e8d05e8d3e3c7c7cd853f0d40037cbff"
+    },
+    {
+      "seq": 11,
+      "kind": "reason",
+      "key": "identifier la cause racine du crash à partir du journal, et donner le nom exact du service tel qu'il y apparaît",
+      "error": [
+        "HTTPError",
+        "HTTP Error 403: Forbidden"
+      ],
+      "h": "81170eceb511bf4bfe077f04a10d54ebb54cc59425c6318ce11f2c907c3a98aa"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "service.http_status",
+      "value": 0,
+      "h": "b4a1ba8319e1615c6a7631e7abf0609aea57420eca7a913a28150fedb57855ac"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "service.latency_ms",
+      "value": 0.2,
+      "h": "29613450242990cd71f114711d48e0f42d392f83bdcb792bcd5c716a3f90745d"
+    },
+    {
+      "seq": 14,
+      "kind": "read",
+      "key": "process.alive",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "73f693787e1a74d4233ad57feb2104cd102029276d3fa93fc8fcbdf74a990bc3"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "service.error_count",
+      "value": 4,
+      "h": "70c6d966145c8cc2b194c085f4bbbded95d50ffda0a2d650cd8a68741e9f110b"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "service.log_tail",
+      "value": "2026-09-18 04:07:40,917 INFO svc-demo service svc-demo demarre sur le port 8763\n2026-09-18 04:07:40,917 INFO svc-demo chargement de l'index du cache en memoire\n2026-09-18 04:07:40,917 ERROR svc-demo echec fatal au demarrage\nTraceback (most recent call last):\n  File \"/home/ubuntu/AGENT-L/examples/live_service.py\", line 29, in main\n    raise MemoryError(\"cannot allocate 8589934592 bytes for cache index\")\nMemoryError: cannot allocate 8589934592 bytes for cache index",
+      "h": "a4b931802e16887ad5da90f960f64505b7a61b43a0dec63589982b0d9ab6a23b"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "system.load1",
+      "value": 0.67,
+      "h": "3064758e5730fcd0a73815138f90a0aea2bb979e3a000e9815872342a5e79811"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "maintenance.window",
+      "value": {
+        "$sym": "closed"
+      },
+      "h": "ff036b9c9f05d32ada57a03aa261586f8433a77828f4029b05cc35316e1b691a"
+    },
+    {
+      "seq": 19,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "c65b2fc55c7df357aebc609252e2786a36454ff3d5e4e9a2e2df49ac2947979a"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "service.http_status",
+      "value": 0,
+      "h": "0cfdb38c1223c764751065d28302ff92971ebcc117ac852001e6ed2c512adfb3"
+    },
+    {
+      "seq": 21,
+      "kind": "read",
+      "key": "service.latency_ms",
+      "value": 0.2,
+      "h": "0b8b1c9efd750ee5c66e08ab62bc119ee627ea9b031e6edf8c193718c59b8056"
+    },
+    {
+      "seq": 22,
+      "kind": "read",
+      "key": "process.alive",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "8b8a04b51fec4023fefa9527aa48b7931b5e393ef6e24ca624f24ef5a27138ac"
+    },
+    {
+      "seq": 23,
+      "kind": "read",
+      "key": "service.error_count",
+      "value": 4,
+      "h": "99e2a546b9eed112c2634d28f6152a8ef7cc074338cb3b5ea80b763a9a2ee3b9"
+    },
+    {
+      "seq": 24,
+      "kind": "read",
+      "key": "service.log_tail",
+      "value": "2026-09-18 04:07:40,917 INFO svc-demo service svc-demo demarre sur le port 8763\n2026-09-18 04:07:40,917 INFO svc-demo chargement de l'index du cache en memoire\n2026-09-18 04:07:40,917 ERROR svc-demo echec fatal au demarrage\nTraceback (most recent call last):\n  File \"/home/ubuntu/AGENT-L/examples/live_service.py\", line 29, in main\n    raise MemoryError(\"cannot allocate 8589934592 bytes for cache index\")\nMemoryError: cannot allocate 8589934592 bytes for cache index",
+      "h": "dccecf1a06ca3ad5f95a0bbbb0b25fbabe5546417afc37af37f8a4d63135f061"
+    },
+    {
+      "seq": 25,
+      "kind": "read",
+      "key": "system.load1",
+      "value": 0.67,
+      "h": "7ac485a64641e60d0a450fa499c7184f54c3da2636f91646abdc180b9c85628e"
+    },
+    {
+      "seq": 26,
+      "kind": "read",
+      "key": "maintenance.window",
+      "value": {
+        "$sym": "closed"
+      },
+      "h": "ff53d507a4d7aaeb15a62cf401c1d553949efca8379a3882ffb099875cee0407"
+    },
+    {
+      "seq": 27,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "44f16ded958be6b1a8c27ae405c67bd79b7aebbc37c37b965f003bffe0366095"
+    },
+    {
+      "seq": 28,
+      "kind": "invoke",
+      "key": "file_incident",
+      "args": {
+        "$dict": [
+          [
+            "summary",
+            "Redémarrage automatique interdit — intervention manuelle requise"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "incident_id",
+            "INC-0001"
+          ]
+        ]
+      },
+      "h": "0d8a45741e67808a543a3d0ea3cb01d7628ef73021d4d80c53422259e984f025"
+    },
+    {
+      "seq": 29,
+      "kind": "invoke",
+      "key": "notify_operator",
+      "args": {
+        "$dict": [
+          [
+            "message",
+            "svc-demo est mort et la politique interdit d'agir : incident ouvert"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "delivered",
+            {
+              "$sym": "yes"
+            }
+          ]
+        ]
+      },
+      "h": "586c15d47c7d51c924171a497e3775ea65db60390e915d6235bf6cf5e12592c1"
+    },
+    {
+      "seq": 30,
+      "kind": "read",
+      "key": "service.http_status",
+      "value": 0,
+      "h": "950a3bd24101ae2a753fa8eb5d110af2b7d6e8cf14f80425f296174aa21378c2"
+    },
+    {
+      "seq": 31,
+      "kind": "read",
+      "key": "service.latency_ms",
+      "value": 0.2,
+      "h": "bf8d1506d823d37dbbb1417f2e03dd62d7e9f6494e08654c5020ef00c1e64923"
+    },
+    {
+      "seq": 32,
+      "kind": "read",
+      "key": "process.alive",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "399be63cd5dbbc8947aa4549312a9995a670bc8fe28e0bf1630ebc947f0f2f45"
+    },
+    {
+      "seq": 33,
+      "kind": "read",
+      "key": "service.error_count",
+      "value": 4,
+      "h": "1493da9d508ea13229a031dc310662869ec471d59a23bf5915e9c13ff6f6e08d"
+    },
+    {
+      "seq": 34,
+      "kind": "read",
+      "key": "service.log_tail",
+      "value": "2026-09-18 04:07:40,917 INFO svc-demo service svc-demo demarre sur le port 8763\n2026-09-18 04:07:40,917 INFO svc-demo chargement de l'index du cache en memoire\n2026-09-18 04:07:40,917 ERROR svc-demo echec fatal au demarrage\nTraceback (most recent call last):\n  File \"/home/ubuntu/AGENT-L/examples/live_service.py\", line 29, in main\n    raise MemoryError(\"cannot allocate 8589934592 bytes for cache index\")\nMemoryError: cannot allocate 8589934592 bytes for cache index",
+      "h": "07248d3edcdbf0911b60a3aa33c9896b1bc70b252cf320982964ed69e3ea283d"
+    },
+    {
+      "seq": 35,
+      "kind": "read",
+      "key": "system.load1",
+      "value": 0.67,
+      "h": "1c8c5367cb66087aae1d39f98ef48be3f77b549b9c7e03e9b9a177edacd84996"
+    },
+    {
+      "seq": 36,
+      "kind": "read",
+      "key": "maintenance.window",
+      "value": {
+        "$sym": "closed"
+      },
+      "h": "a73d39455682fe2e60ea92852274e74ee731547b7966328a4dd4fea24dbf5bad"
+    },
+    {
+      "seq": 37,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "2f6ad6babeca71f88a4bfcbe00a353e86c57dd7364c95d7b58026eeb895f60f4"
+    }
+  ]
+}

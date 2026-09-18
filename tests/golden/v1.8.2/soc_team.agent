@@ -1,0 +1,171 @@
+// ---------------------------------------------------------------------------
+// SOC_TEAM — deux agents AGENT-L v0.6 dans un même fichier.
+//
+// `DELEGATE` (v0.3) est synchrone : on appelle, on attend, on obtient.
+// `MESSAGE` est asynchrone : on dépose, l'autre traite à son tour de rôle,
+// la réponse arrive plus tard. Les deux agents partagent une mémoire
+// versionnée dans laquelle chacun consigne ce qu'il a fait.
+// ---------------------------------------------------------------------------
+
+AGENT soc_analyst {
+
+    VERSION "0.6"
+    DESCRIPTION "Reçoit l'alerte, demande un avis réseau, bloque si hostile."
+
+    GOAL containment {
+        MAINTAIN threat.status == contained
+    }
+
+    OBSERVE {
+        alert.host
+        alert.severity
+        threat.status
+    }
+
+    BELIEF {
+        threat.status = unknown CONFIDENCE 0.10 SOURCE prior
+        verdict       = pending CONFIDENCE 0.10 SOURCE prior
+    }
+
+    MEMORY {
+        // Deux clés distinctes : `blocked_hosts` n'appartient qu'à l'analyste,
+        // `incidents` est un journal que les deux agents alimentent.
+        SHARED { blocked_hosts, incidents }
+
+        WRITE {
+            WHEN  threat.status == contained
+            STORE { alert.host, verdict }
+            INTO  SHARED.blocked_hosts
+        }
+
+        WRITE {
+            WHEN  threat.status == contained
+            STORE { alert.host, verdict }
+            INTO  SHARED.incidents
+        }
+    }
+
+    TOOL block_host {
+        DESCRIPTION "Ajoute l'hôte à la liste de blocage périmétrique."
+        INPUT       { host: String BIND alert.host }
+        OUTPUT      { blocked: Symbol }
+        SIDE_EFFECT { firewall.rules }
+        RISK        HIGH
+        REQUIRES    { verdict == hostile }
+        EFFECT      { threat.status = contained }
+        COST        5
+    }
+
+    POLICY {
+        DEFAULT DENY
+        ALLOW block_host IF verdict == hostile
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE threat.status == contained
+    }
+
+    // L'analyste ne tranche pas seul : il demande l'avis du réseau.
+    PLAN request_analysis {
+        STEP ask {
+            SET request.sent = yes
+            MESSAGE check_host {
+                TO      network_agent
+                PAYLOAD { host = alert.host, severity = alert.severity }
+            }
+        }
+    }
+
+    DECIDE {
+        RULES {
+            IF alert.severity >= HIGH
+                AND verdict == pending
+                AND request.sent != yes
+                THEN request_analysis
+        }
+    }
+
+    // Un verdict peu sûr est ignoré : le seuil est dans le langage.
+    ON MESSAGE traffic_verdict {
+        WHEN payload.confidence >= 0.80
+        THEN { SET verdict = payload.verdict }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 6 {
+        RECEIVE
+        OBSERVE
+        UPDATE_BELIEFS
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}
+
+
+AGENT network_agent {
+
+    VERSION "0.6"
+    DESCRIPTION "Analyse les flux d'un hôte à la demande et rend un verdict."
+
+    GOAL served {
+        MAINTAIN queue.pending == 0
+    }
+
+    OBSERVE {
+        queue.pending
+    }
+
+    MEMORY {
+        SHARED { incidents }
+
+        WRITE {
+            WHEN  verdict != pending
+            STORE { analyzed_host, verdict, confidence }
+            INTO  SHARED.incidents
+        }
+    }
+
+    TOOL inspect_flows {
+        DESCRIPTION "Corrèle les flux sortants de l'hôte avec la threat intel."
+        INPUT  { host: String }
+        OUTPUT { verdict: Symbol, confidence: Number, analyzed_host: String }
+        RISK   LOW
+    }
+
+    POLICY {
+        DEFAULT DENY
+        ALLOW inspect_flows
+    }
+
+    ON MESSAGE check_host {
+        WHEN payload.severity >= HIGH
+        THEN analyze
+    }
+
+    PLAN analyze {
+        STEP look {
+            inspect_flows(payload.host)
+        }
+        STEP reply {
+            MESSAGE traffic_verdict {
+                TO      soc_analyst
+                PAYLOAD { host       = payload.host,
+                          verdict    = verdict,
+                          confidence = confidence }
+            }
+        }
+    }
+
+    LOOP MAX 6 {
+        RECEIVE
+        OBSERVE
+        UPDATE_BELIEFS
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        UPDATE_MEMORY
+    }
+}

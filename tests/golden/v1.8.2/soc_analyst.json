@@ -1,0 +1,273 @@
+{
+  "meta": {
+    "agent": "SOC_ANALYST",
+    "source": "/home/ubuntu/AGENT-L/examples/soc_analyst.agent",
+    "source_sha256": "78597ad6ee8b27d3a3e5e412ea8f316a160c52f36f16e84de5a777f00c54a141",
+    "ticks": 4,
+    "trace_sha256": "bcf5629f8230bdfd46827a223380c49661df43450929eb873d51813cea480a8f",
+    "chain_sha256": "bda224819bcb978f6ced0528d42b5e9a8757f6fde572dc86068fdf44e2ba1945",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "wazuh.alert_count",
+      "value": 37,
+      "h": "5146200df80baa60477e6ff9d82f4204e5b201629e428a74bd1d689d01ca4629"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "network.anomaly_score",
+      "value": 0.91,
+      "h": "1587c61272d68740792d39005fb76f1104753035a3f0010b36fd5aba5388128b"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "endpoint.integrity",
+      "value": {
+        "$sym": "compromised"
+      },
+      "h": "83b7543ba66c76a0bb5a8bfde26f04a9f48f22daa2560da090498133f23e69c9"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "asset.criticality",
+      "value": {
+        "$sym": "MEDIUM"
+      },
+      "h": "045dfd0c6c499212b01e39297987d318b92c1b56d486f0c3448c271f1ded15e2"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "012c48ff9fd702ab3c5047df71327eb3b2ff896398acaa6c884ae19c3d5716c8"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "incident.response_time",
+      "value": 75.0,
+      "h": "fc5655a008bd911dd9b8aafffc19a7a200fa69fdd4c1237f86ef6be106510358"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "isolated",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "8d1497cd93c4afea5afa2d56dc3c03e703f7e8120c1a429e9eb7daf901b568a1"
+    },
+    {
+      "seq": 7,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "25d19c9026518f3e3236a977ab0360a6f34935b57fd9d1377d01c6d7ad77484c"
+    },
+    {
+      "seq": 8,
+      "kind": "invoke",
+      "key": "query_wazuh",
+      "args": {
+        "$dict": [
+          [
+            "since",
+            300
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "alerts",
+            37
+          ],
+          [
+            "top_rule",
+            {
+              "$sym": "brute_force_ssh"
+            }
+          ]
+        ]
+      },
+      "h": "735b66eca2d958c478ec27aad97f69fcb1cb3ff05d3f7aa4e0a451b91c521156"
+    },
+    {
+      "seq": 9,
+      "kind": "invoke",
+      "key": "inspect_network",
+      "args": {
+        "$dict": []
+      },
+      "value": {
+        "$dict": [
+          [
+            "anomaly_score",
+            0.91
+          ],
+          [
+            "peer",
+            "203.0.113.44"
+          ]
+        ]
+      },
+      "h": "70db1f578008ecdb6fa37c1d1e94baaaa863e9a3469a967854e33a18ce5aba4e"
+    },
+    {
+      "seq": 10,
+      "kind": "reason",
+      "key": "identifier l'hôte et le compte à l'origine des alertes",
+      "value": {
+        "$dict": [
+          [
+            "suspected_host",
+            "PC-042"
+          ],
+          [
+            "suspected_account",
+            "svc-backup"
+          ]
+        ]
+      },
+      "h": "a4ccdb1f43a600cc402371c8c2f945f0054dd667c6610680293ec6c5af2647de"
+    },
+    {
+      "seq": 11,
+      "kind": "read",
+      "key": "wazuh.alert_count",
+      "value": 37,
+      "h": "10a8d717364077742f9b6a3550e73fa71acef53ce0a6b27c35a729fbea672148"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "network.anomaly_score",
+      "value": 0.91,
+      "h": "53a82e05382f3418dea3ece35cf66d791ca971ba81186ac225074d5d464452fb"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "endpoint.integrity",
+      "value": {
+        "$sym": "compromised"
+      },
+      "h": "47214b7bc813be5f03b8fa55413a68cb079328d3354e39148d4481ea607d3b7a"
+    },
+    {
+      "seq": 14,
+      "kind": "read",
+      "key": "asset.criticality",
+      "value": {
+        "$sym": "MEDIUM"
+      },
+      "h": "a73c5d6f2eecf65ce08baa13c3e856ec50144dfa02f640a088fa3ba8c541bcc6"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "active"
+      },
+      "h": "137dc198b1622080305c302c0d37aa322b5849eb71efdfd6c748ebe22190940a"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "incident.response_time",
+      "value": 105.0,
+      "h": "dbdcc915b9a0c3152ec985a6fff00c95be8723a92f5b3d4aa2ffbf3a139f6811"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "isolated",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "4097f6187642ecec63c70c0faeee6a51f27e662ea3f5aa8e6835dc2b3355bd06"
+    },
+    {
+      "seq": 18,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "3271e1c765eef5879d26d71ec2f6ab2e15f8909fe191446fec6dce1fc255ab72"
+    },
+    {
+      "seq": 19,
+      "kind": "invoke",
+      "key": "inspect_endpoint",
+      "args": {
+        "$dict": [
+          [
+            "host",
+            "PC-042"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "integrity",
+            {
+              "$sym": "compromised"
+            }
+          ],
+          [
+            "persistence",
+            true
+          ]
+        ]
+      },
+      "h": "ee5a8e7e72ae0923bb6a6f734393a1142890d8e650e863fca3dc20887cb678b5"
+    },
+    {
+      "seq": 20,
+      "kind": "invoke",
+      "key": "quarantine_account",
+      "args": {
+        "$dict": [
+          [
+            "account",
+            "svc-backup"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "suspended",
+            {
+              "$sym": "confirmed"
+            }
+          ]
+        ]
+      },
+      "h": "688f09ddd6f6649be5e62b697f58d0ad8fb879d7b18d4351d3700fe4e5524898"
+    },
+    {
+      "seq": 21,
+      "kind": "read",
+      "key": "threat.status",
+      "value": {
+        "$sym": "contained"
+      },
+      "h": "bda224819bcb978f6ced0528d42b5e9a8757f6fde572dc86068fdf44e2ba1945"
+    }
+  ]
+}

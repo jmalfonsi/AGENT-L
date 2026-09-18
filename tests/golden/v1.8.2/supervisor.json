@@ -1,0 +1,244 @@
+{
+  "meta": {
+    "agent": "TRIAGE_SUPERVISOR",
+    "source": "/home/ubuntu/AGENT-L/examples/supervisor.agent",
+    "source_sha256": "8ef6012b441e397874235866fa1693d0fbed2460cb15c6fc68fc748e844e8033",
+    "ticks": 4,
+    "trace_sha256": "ca1812bc9b727e99e7a7d0b2def56ced079ed42b586eabafec787995dd1ec611",
+    "chain_sha256": "17105c6be07bbfe8d2b15e99db50d369bb9059252a6990a0985ad6da0583ae57",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "mail.reported",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "e1e99d0c3f03497c2ef42c780ef3536f07cc41b03d74fbc1b73543982308993b"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "mailbox.criticality",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "aa931ade117d49fdb1ad5bee95e0f04fa9974be7a089716c2759ab4c6594c9de"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "incident.status",
+      "value": null,
+      "h": "f1d507164010d3af9ae75bd903cb4ab2dac57a1caaaead9d4cd0c2d09cd6a1ff"
+    },
+    {
+      "seq": 3,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": [
+          {
+            "$dict": [
+              [
+                "source",
+                "mail.report"
+              ],
+              [
+                "payload",
+                {
+                  "$dict": [
+                    [
+                      "severity",
+                      {
+                        "$sym": "HIGH"
+                      }
+                    ],
+                    [
+                      "origin",
+                      {
+                        "$sym": "user_report"
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "h": "1b467e8d0cc9b6ad03f32da1b7ee9ef8b0a12e1fd236c08dda0347a42f7323f3"
+    },
+    {
+      "seq": 4,
+      "kind": "delegate_lookup",
+      "key": "forensic",
+      "value": true,
+      "h": "51039693a3fcb03ab65627a5043b386c6de9951b653b78326332d705a2d4fb87"
+    },
+    {
+      "seq": 5,
+      "kind": "delegate",
+      "key": "forensic",
+      "args": {
+        "$dict": [
+          [
+            "mail.reported",
+            {
+              "$sym": "yes"
+            }
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "malicious",
+            {
+              "$sym": "yes"
+            }
+          ],
+          [
+            "threat_class",
+            {
+              "$sym": "phishing"
+            }
+          ],
+          [
+            "forensic_confidence",
+            0.895
+          ]
+        ]
+      },
+      "h": "8b9a873b05809d58ba0530b31bbbfe6e53b8e7496fed93546c081ba5711b8b42"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "mail.reported",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "dae98b3ce45d8ded7cb8f8a1c15ef2446e8b466116d531ce2e2aa20936e07a39"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "mailbox.criticality",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "59efccb1ea8b26416dad2d64dba74f15be9cc3b789c778b5380ff53647cfd2fd"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "incident.status",
+      "value": null,
+      "h": "e4c45d58547b333dc58524d72ab7a11e89797526b867a19a58b98736754a7ada"
+    },
+    {
+      "seq": 9,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "ed525442dc0b1783f30197c6a143216146e55a293b7287f8d6e5207a09aeb00b"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "mail.reported",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "daa023bed5aff8cc126c05c732ded9977ae8fc7bccce3011664fa8f8f9860c95"
+    },
+    {
+      "seq": 11,
+      "kind": "read",
+      "key": "mailbox.criticality",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "bfb68bf1b0b98688cc536d7c1b3abb302fb73c46d359c5140486d09c133e13df"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "incident.status",
+      "value": null,
+      "h": "9e4a2a4ba84462401da993dbbd0e649d4ddfb06e7d5fb393ecc1e6ba4645cf21"
+    },
+    {
+      "seq": 13,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "46f3cf8e0f1bc7c28b55a247064de333a12b7b3551e309558b5a69c866bd1ba0"
+    },
+    {
+      "seq": 14,
+      "kind": "invoke",
+      "key": "notify_operator",
+      "args": {
+        "$dict": [
+          [
+            "message",
+            "Tri impossible : verdict du spécialiste insuffisant pour remédier automatiquement."
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "delivered",
+            {
+              "$sym": "yes"
+            }
+          ]
+        ]
+      },
+      "h": "abf073cec266848e251c73657974db128e55ef18536b24de6446d85806cb5b69"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "mail.reported",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "3217e9243cb35f922d6c1dfe189eb25dc2ef4dd61ad9163cfdeb9104fb8290f4"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "mailbox.criticality",
+      "value": {
+        "$sym": "normal"
+      },
+      "h": "f0de2931a4d17ba2a5c9285046790730cce4ae0f488b798027dacbc9817c7d65"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "incident.status",
+      "value": null,
+      "h": "2c5f2ceacfbdb78e38207187a738bda8bd4ba777d29e0605d0c316ea0da833a9"
+    },
+    {
+      "seq": 18,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "17105c6be07bbfe8d2b15e99db50d369bb9059252a6990a0985ad6da0583ae57"
+    }
+  ]
+}

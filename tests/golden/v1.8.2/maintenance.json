@@ -1,0 +1,277 @@
+{
+  "meta": {
+    "agent": "MAINTENANCE_AGENT",
+    "source": "/home/ubuntu/AGENT-L/examples/maintenance.agent",
+    "source_sha256": "3e82f8aefb0a3189ad22f02403f2dceb05a7a1b92713460afba44d8e7ef8d217",
+    "ticks": 4,
+    "trace_sha256": "ac3b625b78a9309fbe06967aa7f4d236efbc28efc9ee1c14a1dde688489f1459",
+    "chain_sha256": "9a25dd93f247239613665c57cf92060d0d5830f6e2f933f05cc6c626249e6970",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "service.status",
+      "value": {
+        "$sym": "degraded"
+      },
+      "h": "d0da58c18d702f197fe1a3b6278b394140c627d1bca29f2dff6fba4ab53807ef"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "service.availability",
+      "value": 0.972,
+      "h": "da7c9c1300ef5f5dca0908a820ce306fa1b871c268238dd9a9e2db9d584ebe0a"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "service.latency",
+      "value": 820.0,
+      "h": "4b08818072a2fbab1c32218098c2655e4309571ac00ca1f3ea1b6037df27c0c4"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "service.environment",
+      "value": {
+        "$sym": "production"
+      },
+      "h": "b5b4d01f2ace106c1cdc92460d70827239aa7b22077b6837d440721174c2f610"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "server.cpu",
+      "value": 94.0,
+      "h": "8dd5b62839b7187f117427a09fda632bc099e5b91e25a462b6ada2c13d59a851"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "incident.severity",
+      "value": {
+        "$sym": "HIGH"
+      },
+      "h": "5f03d0714cfbf854fe2773f8d6b2686528dd94a29afb39e9e3235188960ef635"
+    },
+    {
+      "seq": 6,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "ba621f5daa10fddafa7d8ab7bd6bada0f16c6b33c3ca80885652464b318981c4"
+    },
+    {
+      "seq": 7,
+      "kind": "invoke",
+      "key": "inspect_logs",
+      "args": {
+        "$dict": []
+      },
+      "value": {
+        "$dict": [
+          [
+            "errors",
+            412
+          ],
+          [
+            "pattern",
+            {
+              "$sym": "connection_pool_exhausted"
+            }
+          ]
+        ]
+      },
+      "h": "8be1132c98981e4c0f0fcccc391b19462f1e9d03dc905343912b7a9f54c92465"
+    },
+    {
+      "seq": 8,
+      "kind": "invoke",
+      "key": "query_metrics",
+      "args": {
+        "$dict": [
+          [
+            "service",
+            "api"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "cpu",
+            94.0
+          ],
+          [
+            "latency",
+            820.0
+          ]
+        ]
+      },
+      "h": "1a32d501e7fdfded9ec04e9f34e666664c213a18d24e515694173803ada9aa16"
+    },
+    {
+      "seq": 9,
+      "kind": "reason",
+      "key": "identifier la cause racine à partir des logs et métriques",
+      "value": {
+        "$dict": [
+          [
+            "root_cause",
+            {
+              "$sym": "connection_pool_exhausted"
+            }
+          ],
+          [
+            "confidence",
+            0.88
+          ]
+        ]
+      },
+      "h": "112e0c874e63d92733edf6e6b6afa78c907d6deced1c8b655c2d16244a60c830"
+    },
+    {
+      "seq": 10,
+      "kind": "delegate_lookup",
+      "key": "db_agent",
+      "value": true,
+      "h": "c5147f605228d0d036fd5523e15650bb615167063fbb2b2c6b425b98dc607910"
+    },
+    {
+      "seq": 11,
+      "kind": "delegate",
+      "key": "db_agent",
+      "args": {
+        "$dict": [
+          [
+            "service.latency",
+            820.0
+          ],
+          [
+            "root_cause",
+            {
+              "$sym": "connection_pool_exhausted"
+            }
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "db_healthy",
+            {
+              "$sym": "yes"
+            }
+          ],
+          [
+            "evidence",
+            "aucun verrou > 5s sur les 15 dernières minutes"
+          ]
+        ]
+      },
+      "h": "88151b998e687cf4c5e67aeb8dc597b93e02e90eaf3dcfc5e64eadc9736245ad"
+    },
+    {
+      "seq": 12,
+      "kind": "approve",
+      "key": "restart_service(service=api)",
+      "value": true,
+      "h": "e3bf1d6ce14340d8b4014a0bc23e169e2e16c3814821835776294b237fb1ba92"
+    },
+    {
+      "seq": 13,
+      "kind": "invoke",
+      "key": "restart_service",
+      "args": {
+        "$dict": [
+          [
+            "service",
+            "api"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "status",
+            {
+              "$sym": "healthy"
+            }
+          ]
+        ]
+      },
+      "h": "7550a033e2e06aa279bc48a0e552fdf5bfb7403a5997600615e82cc17c56c015"
+    },
+    {
+      "seq": 14,
+      "kind": "read",
+      "key": "service.status",
+      "value": {
+        "$sym": "healthy"
+      },
+      "h": "d09414e3d9c6e7cb91db1a2bda61abf98d421257eb95594e2425de5b3d510db5"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "service.status",
+      "value": {
+        "$sym": "healthy"
+      },
+      "h": "b1d9e4a1d04d2b4430e815296397b380c5faeb38773383da935d4306ecdb1f8f"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "service.availability",
+      "value": 0.9993,
+      "h": "82439c7f6af94244ec448424f5dfe500bc84b344df724b68e0449b18e3b3175b"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "service.latency",
+      "value": 110.0,
+      "h": "cd40e8746bd50e10e6adcb2b27c8bfc306bd69e439310798486333d5c35e1673"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "service.environment",
+      "value": {
+        "$sym": "production"
+      },
+      "h": "b1cc178d4c593e0af29f61e7afc5a80bbfe8fdbd74c3016a40fdec06f13d2b36"
+    },
+    {
+      "seq": 19,
+      "kind": "read",
+      "key": "server.cpu",
+      "value": 31.0,
+      "h": "c04a47888cf295a35eef64381d496f2799d99e84f8e059fc1d4cf70244904543"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "incident.severity",
+      "value": {
+        "$sym": "HIGH"
+      },
+      "h": "a3ecde41cb2019edf65a1980a6b3ba6b2f37fd85d3d0707b4461859886cf0ee3"
+    },
+    {
+      "seq": 21,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "9a25dd93f247239613665c57cf92060d0d5830f6e2f933f05cc6c626249e6970"
+    }
+  ]
+}

@@ -1,0 +1,380 @@
+{
+  "meta": {
+    "agent": "TriageSupervisor · SecurityAnalyst · RemediationAgent",
+    "source": "/home/ubuntu/AGENT-L/examples/complex_soc.agent",
+    "source_sha256": "12dcafedbeb270a2a52478a180f7457671053b26ac3cc8aa378693f55f53b60a",
+    "ticks": 4,
+    "trace_sha256": "9cee56d51fd10b885f2ba220ce526a32ae2f1100dab8bbffae01ad9b0b2176e9",
+    "chain_sha256": "6e097aacf5b53e3ef00ab31de00f81cbd065e2c34284b78d19c171812d4a03d5",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "sandbox.alert_triggered",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "54fc02bc7b9719b6d9a001bf76d36b9011b92ae52355760ecc21233249b64d76"
+    },
+    {
+      "seq": 1,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "f4a762c60124c581dd0ac00294037b3eafec240a720487b6e2d0de1c077b2f8f"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "sandbox.suspicious_file_count",
+      "value": 5,
+      "h": "786d6e51cedf279d57691580ceaaac55c1b6c3109510de012540193c35404cc4"
+    },
+    {
+      "seq": 3,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "d8dbce277a08a8cea432f1a5d46986576f3e97f58c58270935949ee22a522779"
+    },
+    {
+      "seq": 4,
+      "kind": "delegate_lookup",
+      "key": "forensic_specialist",
+      "value": true,
+      "h": "f0bd396d5f64801c1103a76cc61028809f1dc182b9f5ae675c75180706bb0ac3"
+    },
+    {
+      "seq": 5,
+      "kind": "delegate",
+      "key": "forensic_specialist",
+      "args": {
+        "$dict": [
+          [
+            "target_folder",
+            "suspicious_logs"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "threat_level",
+            {
+              "$sym": "HIGH"
+            }
+          ],
+          [
+            "forensic_score",
+            0.95
+          ]
+        ]
+      },
+      "h": "55596ec122f0f014a6e8815b8f7fee466b51f8bf736a29d93a93785bead4ab00"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "sandbox.cleaned",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "becab1f621b7b89f80f4d962a827e13cd8f7dbab7d890665a232be1b2a84687d"
+    },
+    {
+      "seq": 7,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "938327f4206b02f40fce2a6bf9177931ec8649ab5e78cc056cc1a0d4811eb6ff"
+    },
+    {
+      "seq": 8,
+      "kind": "approve",
+      "key": "quarantine_folder(folder=suspicious_logs)",
+      "error": [
+        "EOFError",
+        "EOF when reading a line"
+      ],
+      "h": "eb5e21c196ada10c845ecf735714741bbc609a0e2ab76e256390eb4b7d78dcff"
+    },
+    {
+      "seq": 9,
+      "kind": "read",
+      "key": "sandbox.cleaned",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "3cb48fd16c8b5cd2b499a03d1dc48fe06922ebfd67418a6469eba8196f9aa030"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "sandbox.alert_triggered",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "79521c603bdc91d32947eab02ab40847e78f562dd6f74b6ff9025ac3220d0e4f"
+    },
+    {
+      "seq": 11,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "3ff8d7898222c4f61836406649e40705e5e2a9892c9535b19f746cd5aa1ab133"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "sandbox.suspicious_file_count",
+      "value": 5,
+      "h": "7ad83e801280931d9a2680eb3e0ab634528c7f75ab7ffdcd03f7461568be45be"
+    },
+    {
+      "seq": 13,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "dc045cea01e5c5b98d148c31cd2ab751fc5606ce4a20202832756ead9b346292"
+    },
+    {
+      "seq": 14,
+      "kind": "delegate_lookup",
+      "key": "forensic_specialist",
+      "value": true,
+      "h": "50823cc2ce21c628bb3f735a935c068fce6a7e341fa3b404f895558ce1b607d2"
+    },
+    {
+      "seq": 15,
+      "kind": "delegate",
+      "key": "forensic_specialist",
+      "args": {
+        "$dict": [
+          [
+            "target_folder",
+            "suspicious_logs"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "threat_level",
+            {
+              "$sym": "HIGH"
+            }
+          ],
+          [
+            "forensic_score",
+            0.95
+          ]
+        ]
+      },
+      "h": "1f1b12145cd4defc222776320a5104fd5b401c9259fd56ce0dfdb219f5dddb1b"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "sandbox.cleaned",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "649388fbbbcbadae0e53a77c5d8a9e367fdc95be13e96a970aab8f70deacaa4d"
+    },
+    {
+      "seq": 17,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "8293ef194deb9bb7703cf09fc72a61469cb9a151a4870d39f175efef2dee9134"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "sandbox.alert_triggered",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "f2155eaae4b787a16ca1faec2de835f939779be9b08d085dcf751c58d254bef1"
+    },
+    {
+      "seq": 19,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "dae607baddca97fca6296173c5d30cdf0fdb610d525f218e3d2328413e9a58d1"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "sandbox.suspicious_file_count",
+      "value": 5,
+      "h": "e328293099f09795f13b741eb39dac5d7a30b97eb8b05aea68225f0adfd13c65"
+    },
+    {
+      "seq": 21,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "75485e36af23e626a16052fba156e818a4f7d0e9f6a0b24f514274e13bf68ed8"
+    },
+    {
+      "seq": 22,
+      "kind": "delegate_lookup",
+      "key": "forensic_specialist",
+      "value": true,
+      "h": "6d243dc68e2deb45f48559d035cf28f366700f71c50d02599e25f966a1ef727b"
+    },
+    {
+      "seq": 23,
+      "kind": "delegate",
+      "key": "forensic_specialist",
+      "args": {
+        "$dict": [
+          [
+            "target_folder",
+            "suspicious_logs"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "threat_level",
+            {
+              "$sym": "HIGH"
+            }
+          ],
+          [
+            "forensic_score",
+            0.95
+          ]
+        ]
+      },
+      "h": "6015421069a7e35893a3c122ea6e521f17251601b162c7d516e8ec3634462d72"
+    },
+    {
+      "seq": 24,
+      "kind": "read",
+      "key": "sandbox.cleaned",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "aede78f62b126a27fa7344f85176b046f2e2f6c8fa77714071e34eaeae33df98"
+    },
+    {
+      "seq": 25,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "d8c8e656c82c7ad8399db79ee8bdfae11a7837bbebe2fbb16ab2c2af945d4bde"
+    },
+    {
+      "seq": 26,
+      "kind": "read",
+      "key": "sandbox.alert_triggered",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "46377db7244cb288617d83b2f77c3f94a3c662f9002bae80d60a638496d8add5"
+    },
+    {
+      "seq": 27,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "85b20fdf3b94909159ff0571ca455e56f322b6d202aabb77be9f4c2f32d04bde"
+    },
+    {
+      "seq": 28,
+      "kind": "read",
+      "key": "sandbox.suspicious_file_count",
+      "value": 5,
+      "h": "a1bf75b63703c3f4ae80d2ada60f6d4d32561cbe654f16f6a5151f519e5ec155"
+    },
+    {
+      "seq": 29,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "fe7b7adc6879e8ed2b91014ee396f4ba65260bec01b052871f9e67d614c863d6"
+    },
+    {
+      "seq": 30,
+      "kind": "delegate_lookup",
+      "key": "forensic_specialist",
+      "value": true,
+      "h": "055dc51eb2342930ea501270f9a5e6dee74de1f3b942b223437a5849217acec8"
+    },
+    {
+      "seq": 31,
+      "kind": "delegate",
+      "key": "forensic_specialist",
+      "args": {
+        "$dict": [
+          [
+            "target_folder",
+            "suspicious_logs"
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "threat_level",
+            {
+              "$sym": "HIGH"
+            }
+          ],
+          [
+            "forensic_score",
+            0.95
+          ]
+        ]
+      },
+      "h": "4907b089b6720e2ac58e9cfedd3bc2a5d58d26857eafe82c50a95da1649871e9"
+    },
+    {
+      "seq": 32,
+      "kind": "read",
+      "key": "sandbox.cleaned",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "1c36d76679c016f73c4ff0974f8e504488ae7022da8fd347dbaf7af7012b2634"
+    },
+    {
+      "seq": 33,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "6e097aacf5b53e3ef00ab31de00f81cbd065e2c34284b78d19c171812d4a03d5"
+    }
+  ]
+}

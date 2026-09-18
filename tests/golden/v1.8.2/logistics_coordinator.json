@@ -1,0 +1,323 @@
+{
+  "meta": {
+    "agent": "logistics_coordinator",
+    "source": "/home/ubuntu/AGENT-L/examples/logistics_coordinator.agent",
+    "source_sha256": "24af0e0bb1fb52d26c2e41d84ac97d2fe08c2da03dce9ba78d9a77839ddcb9bb",
+    "ticks": 4,
+    "trace_sha256": "8e5afa5b61a40f8320585f60f47a38d86599a4d3fe3cb5431d116fa582f5fb65",
+    "chain_sha256": "fa86f2c52aff7f4f1faa1282d7be3947de38b4912694ba1aa703da31ed7d274f",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "source.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "fcfa92c782537220598a217174ef486df517306b3b61c0d7cf076515d5cd9b71"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "truck.id",
+      "value": "TRK-042",
+      "h": "317b16826eef5a6a066ad6631d26a8dca19c1ca33485a4ccf2912e2759b2416e"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "truck.status",
+      "value": {
+        "$sym": "broken"
+      },
+      "h": "d3d0ac229fafc411f25820fdc21e6234f124a190aa612ccdef71b97a979b8833"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "a4166be54e3f92e06db10dc74e3cb894d8b8726e562837dc8ab7bc1044a13e05"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "report.text",
+      "value": "The engine exploded on the highway.",
+      "h": "ce5a79d52ab3b7e2b698a33565c1b37b7205d43ad4d506805557b4d2a3c16160"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "truck.cancelled",
+      "value": null,
+      "h": "ccdb965e4dc8387d759007859a5310d5ef75dd2d054b509519a9e01171037335"
+    },
+    {
+      "seq": 6,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "a48f5e30b2b9a69c2b3956b89bcfe8cb6b03fe9b710243f48712daa0203cc48d"
+    },
+    {
+      "seq": 7,
+      "kind": "reason",
+      "key": "Extraire le type d'incident logistique depuis le message du chauffeur.",
+      "value": {
+        "$dict": [
+          [
+            "issue_type",
+            {
+              "$sym": "unknown"
+            }
+          ]
+        ]
+      },
+      "h": "af1646d27deacf0d1cbe58296aef63e5bf911fd7b548b0bf555bdb43562452b2"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "source.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "5de6fbc29280d0bd3caca9b2aac70411e096bab4c31430ad723208dbfaec681d"
+    },
+    {
+      "seq": 9,
+      "kind": "read",
+      "key": "truck.id",
+      "value": "TRK-042",
+      "h": "40ff4155d4156220993e27f832e9b1e1ef6004a1f23bc037fe7b58683cc475b3"
+    },
+    {
+      "seq": 10,
+      "kind": "read",
+      "key": "truck.status",
+      "value": {
+        "$sym": "broken"
+      },
+      "h": "b62b620405857afb4cf4a4f0b80d33be5e93ab478bef09a91a66faa3b191f4a8"
+    },
+    {
+      "seq": 11,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "ef99f106e5d47d354ee6e84fd51876a2f2dedfa1a8ca5045c276f2c7faba9731"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "report.text",
+      "value": "The engine exploded on the highway.",
+      "h": "ae44a07435af12d86408b2121d06503076cc154156c38ed9a3ada4d96de08620"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "truck.cancelled",
+      "value": null,
+      "h": "adee50c19985440e6916f8b01e70aebcdee78b10977ab6c73ad4529ffa966b11"
+    },
+    {
+      "seq": 14,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "6513e2a9049167454a2da34ab5c79622ad667e0ddf61542469e93e7cfbc975c8"
+    },
+    {
+      "seq": 15,
+      "kind": "invoke",
+      "key": "escalate_incident",
+      "args": {
+        "$dict": []
+      },
+      "error": [
+        "KeyError",
+        "\"outil `escalate_incident` non implémenté par l'hôte\""
+      ],
+      "h": "59338629e57b44bea03f9bc64d1c68a2d19fa605b9c9d8c054dfc81ae6c9b25d"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "0b57310049dffefc9705d83c79ace5bdf2cc855804978f799ba7203055ff1088"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "source.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "ea20a839117823643a5094968d638ca5a07c7cce2505d894ea8ebb39457e27c3"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "truck.id",
+      "value": "TRK-042",
+      "h": "67b7609a5df6f6b9915f4746f5306b4abcee090aa4f27e4a85cc4a80d1a0f4ec"
+    },
+    {
+      "seq": 19,
+      "kind": "read",
+      "key": "truck.status",
+      "value": {
+        "$sym": "broken"
+      },
+      "h": "8fe40feb4544dec8aa4b09d9d52821e2f54a4f234d21964604945e8f54640ac9"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "367ce90e1d4f14a0a4ea2a6ac17a910831ac8d4a1ea98d75bc7b81ac4562bad3"
+    },
+    {
+      "seq": 21,
+      "kind": "read",
+      "key": "report.text",
+      "value": "The engine exploded on the highway.",
+      "h": "a95b50165c18e837c0aabd20ddf04bbd85189717fc5d8f630576550af4e2ce93"
+    },
+    {
+      "seq": 22,
+      "kind": "read",
+      "key": "truck.cancelled",
+      "value": null,
+      "h": "090ffafa1023e09c1f0a900a3529dc169a433e11296847c7cbcdcd629e7352e3"
+    },
+    {
+      "seq": 23,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "caf1a52f06059c99219cd6ed76f386d9d9e6c8696a79f080b7334f888460a6d8"
+    },
+    {
+      "seq": 24,
+      "kind": "invoke",
+      "key": "escalate_incident",
+      "args": {
+        "$dict": []
+      },
+      "error": [
+        "KeyError",
+        "\"outil `escalate_incident` non implémenté par l'hôte\""
+      ],
+      "h": "32846851dadf62ec7f731d438401c34581e2d1a3db869424a7aa1b2d4f0fd6fd"
+    },
+    {
+      "seq": 25,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "81d0c7e1add9e0bf9f3f2e740895138931c1154d54a17d9ed712c02cee1241ef"
+    },
+    {
+      "seq": 26,
+      "kind": "read",
+      "key": "source.read_ok",
+      "value": {
+        "$sym": "yes"
+      },
+      "h": "95cf74361fedd6da21b1cdc4763b703be29dbe219577dc2d07269d2b58be35ed"
+    },
+    {
+      "seq": 27,
+      "kind": "read",
+      "key": "truck.id",
+      "value": "TRK-042",
+      "h": "9939254d034dd6f4e8e39d19e29ba6e109ad6bc22cc72127614e8ffded1168f6"
+    },
+    {
+      "seq": 28,
+      "kind": "read",
+      "key": "truck.status",
+      "value": {
+        "$sym": "broken"
+      },
+      "h": "559d2235f87992025a63bb274df98dfb2b9951f3e2ecdb452acfddd6c86e5dd5"
+    },
+    {
+      "seq": 29,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "b8c63a45fabe317cd7be5fbe3f5c155be86301ffc3127690b37efe5ebb5c7067"
+    },
+    {
+      "seq": 30,
+      "kind": "read",
+      "key": "report.text",
+      "value": "The engine exploded on the highway.",
+      "h": "aa9839a59e0cab57690f6f993f0034847247c78dee6b0eaa8c79a9842b900edb"
+    },
+    {
+      "seq": 31,
+      "kind": "read",
+      "key": "truck.cancelled",
+      "value": null,
+      "h": "1ba12d87b2808632b6fd7f809fb7fba40311f82c6ea97d7eaac3d4a989326180"
+    },
+    {
+      "seq": 32,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "f5359ce9ed9695bbef7b30298727d4caca599e52b56b3440525a28016238d910"
+    },
+    {
+      "seq": 33,
+      "kind": "invoke",
+      "key": "escalate_incident",
+      "args": {
+        "$dict": []
+      },
+      "error": [
+        "KeyError",
+        "\"outil `escalate_incident` non implémenté par l'hôte\""
+      ],
+      "h": "32820aa0c6d71cea97800f0a70ee7babd054d4514182cc8a761e0e1493020384"
+    },
+    {
+      "seq": 34,
+      "kind": "read",
+      "key": "delivery.handled",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "fa86f2c52aff7f4f1faa1282d7be3947de38b4912694ba1aa703da31ed7d274f"
+    }
+  ]
+}

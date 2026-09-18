@@ -1,0 +1,364 @@
+{
+  "meta": {
+    "agent": "disk_sentinel",
+    "source": "/home/ubuntu/AGENT-L/examples/disk_sentinel.agent",
+    "source_sha256": "a1ef82db6d73af8a12c0b7a8feb50437e73f55f1a62dcec9578523f27f0a4e78",
+    "ticks": 4,
+    "trace_sha256": "35b4d71fca778e94e447c2605c7c93d3ae905a56265b360edce9233cd4623315",
+    "chain_sha256": "65741b98e60c2043bf30dda1a9c53cd48e7e24a4aed0ae911f11959022dbf168",
+    "format": 2
+  },
+  "entries": [
+    {
+      "seq": 0,
+      "kind": "read",
+      "key": "disk.usage_percent",
+      "value": 39.2,
+      "h": "128fd6f8a38a6ca5e86eaad253cb2344f6e7dc109a9b73206b4c7169aae5ec9c"
+    },
+    {
+      "seq": 1,
+      "kind": "read",
+      "key": "sandbox.file_count",
+      "value": 33,
+      "h": "b2ae5eebf486ad6f61c465b61355bfaea3aa40c957b8b7db082bd0ae12119fad"
+    },
+    {
+      "seq": 2,
+      "kind": "read",
+      "key": "sandbox.stale_count",
+      "value": 24,
+      "h": "b58e478fa136aed68bfa6d252b287a3c5909cd2e9041f6e4d84e58dd75a74fd9"
+    },
+    {
+      "seq": 3,
+      "kind": "read",
+      "key": "sandbox.size_kb",
+      "value": 498.0,
+      "h": "b5c4aaea3919e3cc845a435d9b29dd7a795ef403c9ad8f042d9928d4ea4751c5"
+    },
+    {
+      "seq": 4,
+      "kind": "read",
+      "key": "sandbox.oldest_age_days",
+      "value": 40.0,
+      "h": "2dac62b9ad2a5e7c178e8ff0ae478bfbdbbdeb8129e55c2b60e3b3a518db6676"
+    },
+    {
+      "seq": 5,
+      "kind": "read",
+      "key": "sandbox.listing",
+      "value": "cache: 6 fichiers, 12 Ko, 0 périmés, plus ancien 0 j | data: 3 fichiers, 6 Ko, 0 périmés, plus ancien 0 j | logs: 24 fichiers, 480 Ko, 24 périmés, plus ancien 40 j",
+      "h": "e16f6e3b99f67e56b64c3b5741e4c7ae6feba2a1f5e7c5353c4596378b6be0f4"
+    },
+    {
+      "seq": 6,
+      "kind": "read",
+      "key": "sandbox.stale_threshold_days",
+      "value": 30.0,
+      "h": "a517bcd579d54c732651641293c0bc2246295a06ee38013395724dd409d88d62"
+    },
+    {
+      "seq": 7,
+      "kind": "read",
+      "key": "sandbox.protected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "65fcfacb5fc172a38bce1db0c975316ec6da0f9d2b786cf11eaa36014c85e780"
+    },
+    {
+      "seq": 8,
+      "kind": "read",
+      "key": "escalation.message",
+      "value": "Purge automatique impossible — nettoyage manuel requis (33 fichiers dans le bac à sable).",
+      "h": "838efba87b4f4802508574952772dd0ca4979bec0e6d28fa5517042c724abf22"
+    },
+    {
+      "seq": 9,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "332ec6794d3565a3dba9e145cd56a24b992fc1cf1d6a2c48743334962f20a34c"
+    },
+    {
+      "seq": 10,
+      "kind": "invoke",
+      "key": "scan_sandbox",
+      "args": {
+        "$dict": []
+      },
+      "value": {
+        "$dict": [
+          [
+            "files",
+            33
+          ],
+          [
+            "size_kb",
+            498.0
+          ]
+        ]
+      },
+      "h": "a6e24c7abc686090b2920c0608cdac2bf037baad56a993e3578c4d7468bfe4e9"
+    },
+    {
+      "seq": 11,
+      "kind": "reason",
+      "key": "désigner le sous-répertoire du bac à sable à purger (réponds par son NOM seul, tel qu'il apparaît dans le listing) et la nature des fichiers qui s'y accumulent",
+      "error": [
+        "HTTPError",
+        "HTTP Error 403: Forbidden"
+      ],
+      "h": "0a6f41fc1533329169e174ffee29e0831337e45dc75b5ac4baaa65b495dce762"
+    },
+    {
+      "seq": 12,
+      "kind": "read",
+      "key": "disk.usage_percent",
+      "value": 39.2,
+      "h": "d939d4e2ec9b8273e541a8f132b1ba433c54f0d097bc5efcb397e08d966bc82b"
+    },
+    {
+      "seq": 13,
+      "kind": "read",
+      "key": "sandbox.file_count",
+      "value": 33,
+      "h": "965c5abc28a99b737cf68456a32fa651d7dab714f95b72f08ff3dd224b1de8cc"
+    },
+    {
+      "seq": 14,
+      "kind": "read",
+      "key": "sandbox.stale_count",
+      "value": 24,
+      "h": "fca8e3870cbe8e0bf7a448f8e14399945648f0a345def46da5fb0140b43376b0"
+    },
+    {
+      "seq": 15,
+      "kind": "read",
+      "key": "sandbox.size_kb",
+      "value": 498.0,
+      "h": "a328c3d0f725a89c3e30a40b8cd7ea1a763f9045cfdf3e705329a3c72302335a"
+    },
+    {
+      "seq": 16,
+      "kind": "read",
+      "key": "sandbox.oldest_age_days",
+      "value": 40.0,
+      "h": "cec6ebf578bcbce8be107eab732cbeb28f51072e52173dfa15671ef3f1a84052"
+    },
+    {
+      "seq": 17,
+      "kind": "read",
+      "key": "sandbox.listing",
+      "value": "cache: 6 fichiers, 12 Ko, 0 périmés, plus ancien 0 j | data: 3 fichiers, 6 Ko, 0 périmés, plus ancien 0 j | logs: 24 fichiers, 480 Ko, 24 périmés, plus ancien 40 j",
+      "h": "4dc8e73fb46bb4222f75b9551dd0b7ff4cb0e7190a1f2d4cc9678aa847c8d912"
+    },
+    {
+      "seq": 18,
+      "kind": "read",
+      "key": "sandbox.stale_threshold_days",
+      "value": 30.0,
+      "h": "5aae0aeed0b1ab8e120576432c09a86ad2bcb7b4daefa96ebe52e4708ebf7fca"
+    },
+    {
+      "seq": 19,
+      "kind": "read",
+      "key": "sandbox.protected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "a01caaeae72931bb4a5b713c30ef5ecf1d6ecdf1acf2c5ba24be36281d98f89f"
+    },
+    {
+      "seq": 20,
+      "kind": "read",
+      "key": "escalation.message",
+      "value": "Purge automatique impossible — nettoyage manuel requis (33 fichiers dans le bac à sable).",
+      "h": "c5c6dcd01477e8850a484cf22f699ceac77823c5b1ae071dd7e3b50f3bdaa01d"
+    },
+    {
+      "seq": 21,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "89bd78e71e0fc5b8380779ca4a8d01e8e5513eb9d03542760e7ff1c1fec33608"
+    },
+    {
+      "seq": 22,
+      "kind": "invoke",
+      "key": "notify_operator",
+      "args": {
+        "$dict": [
+          [
+            "message",
+            "Purge automatique impossible — nettoyage manuel requis (33 fichiers dans le bac à sable)."
+          ]
+        ]
+      },
+      "value": {
+        "$dict": [
+          [
+            "delivered",
+            {
+              "$sym": "yes"
+            }
+          ]
+        ]
+      },
+      "h": "ed09d5e0fa3fd65e88bdbe56616241b3b7aa96dfae44a3fce352769b7445637f"
+    },
+    {
+      "seq": 23,
+      "kind": "read",
+      "key": "disk.usage_percent",
+      "value": 39.2,
+      "h": "2518e858b70839f3e4e41559f86a899eaac19ede0259ce3255b3b2eef7ff0bf0"
+    },
+    {
+      "seq": 24,
+      "kind": "read",
+      "key": "sandbox.file_count",
+      "value": 33,
+      "h": "82fb545359eda8f621b9bf1d62008730580b088945dab4128e7017adac2461a1"
+    },
+    {
+      "seq": 25,
+      "kind": "read",
+      "key": "sandbox.stale_count",
+      "value": 24,
+      "h": "115c578ef0bae6937b4708f62ee5144310ad339634566f2b1b5dbffc9db0c859"
+    },
+    {
+      "seq": 26,
+      "kind": "read",
+      "key": "sandbox.size_kb",
+      "value": 498.0,
+      "h": "302ad3baa3ea59a0d7b8fb7c824eba2c42f7be43d77943e3e76d092062768ae2"
+    },
+    {
+      "seq": 27,
+      "kind": "read",
+      "key": "sandbox.oldest_age_days",
+      "value": 40.0,
+      "h": "741885cc9ab3d54860eafc636627bdb592872a20b55a8fa51a7e529abe07621c"
+    },
+    {
+      "seq": 28,
+      "kind": "read",
+      "key": "sandbox.listing",
+      "value": "cache: 6 fichiers, 12 Ko, 0 périmés, plus ancien 0 j | data: 3 fichiers, 6 Ko, 0 périmés, plus ancien 0 j | logs: 24 fichiers, 480 Ko, 24 périmés, plus ancien 40 j",
+      "h": "348aef7cba041b27db5f0dcf618ba49c0ad990bd053dc759345824f46b0f72d2"
+    },
+    {
+      "seq": 29,
+      "kind": "read",
+      "key": "sandbox.stale_threshold_days",
+      "value": 30.0,
+      "h": "f92178d0ef85b9197c73c42c2f9d21216ee57e4b74637863e79cb039ddb10a91"
+    },
+    {
+      "seq": 30,
+      "kind": "read",
+      "key": "sandbox.protected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "47e5f74f7462f6d6c0928385b248301cdb7ce4561dc94027228de89ba1362874"
+    },
+    {
+      "seq": 31,
+      "kind": "read",
+      "key": "escalation.message",
+      "value": "Purge automatique impossible — nettoyage manuel requis (33 fichiers dans le bac à sable).",
+      "h": "9ac1954822f25543dfaa09b64c71fb35c4189842db7a3c48436ca696a87cf83d"
+    },
+    {
+      "seq": 32,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "13852a7c5bf0e57ca22ebfed800877f072ba49ae86692ab743885bd022b7146f"
+    },
+    {
+      "seq": 33,
+      "kind": "read",
+      "key": "disk.usage_percent",
+      "value": 39.2,
+      "h": "79c9f63b7527b908a2890fd59d37b50f08fd872a048e6930adf3057c9912e284"
+    },
+    {
+      "seq": 34,
+      "kind": "read",
+      "key": "sandbox.file_count",
+      "value": 33,
+      "h": "cc7c36a80200d8cd152f0b7c58d63cf805d5824d89e5ab2ec3facd285accb243"
+    },
+    {
+      "seq": 35,
+      "kind": "read",
+      "key": "sandbox.stale_count",
+      "value": 24,
+      "h": "b7e70321a28de26df282a839536de1e83c5b453170d9fe7a9ad9b494d4da1998"
+    },
+    {
+      "seq": 36,
+      "kind": "read",
+      "key": "sandbox.size_kb",
+      "value": 498.0,
+      "h": "b25de0185777a6a4c2d55277cea8e36bb825a8c619ee0458fe392471b695eb5b"
+    },
+    {
+      "seq": 37,
+      "kind": "read",
+      "key": "sandbox.oldest_age_days",
+      "value": 40.0,
+      "h": "3358502350204a132a61e8d788b6993bf5ce617f7d4bf376602538579f972414"
+    },
+    {
+      "seq": 38,
+      "kind": "read",
+      "key": "sandbox.listing",
+      "value": "cache: 6 fichiers, 12 Ko, 0 périmés, plus ancien 0 j | data: 3 fichiers, 6 Ko, 0 périmés, plus ancien 0 j | logs: 24 fichiers, 480 Ko, 24 périmés, plus ancien 40 j",
+      "h": "2271b513bba3d32216398dfe58dc8e62c61f2fb4ec147480b1f32c647c1b8e59"
+    },
+    {
+      "seq": 39,
+      "kind": "read",
+      "key": "sandbox.stale_threshold_days",
+      "value": 30.0,
+      "h": "c6c47c6c9e2fd76a2fed8efe52a69459c32bfd50f8a691f6e7ec2859721da6de"
+    },
+    {
+      "seq": 40,
+      "kind": "read",
+      "key": "sandbox.protected",
+      "value": {
+        "$sym": "no"
+      },
+      "h": "2de2a8ca6d7a8dd80d8f64d7d4bb5bf78a1c739ab6e0fa4cd55283f4d1e5ba6e"
+    },
+    {
+      "seq": 41,
+      "kind": "read",
+      "key": "escalation.message",
+      "value": "Purge automatique impossible — nettoyage manuel requis (33 fichiers dans le bac à sable).",
+      "h": "c7f54488f84f631447dce02e675e9ac5956da47f9ed7c3c2b814a6ed68f61088"
+    },
+    {
+      "seq": 42,
+      "kind": "drain",
+      "key": "",
+      "value": {
+        "$list": []
+      },
+      "h": "65741b98e60c2043bf30dda1a9c53cd48e7e24a4aed0ae911f11959022dbf168"
+    }
+  ]
+}

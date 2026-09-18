@@ -1,0 +1,99 @@
+// ---------------------------------------------------------------------------
+// MAIL_FORENSIC — agent SPÉCIALISTE, cible d'un DELEGATE du superviseur.
+//
+// C'est un agent AGENT-L complet et autonome : sa propre perception, sa propre
+// inférence calibrée, sa propre politique, sa propre preuve `agentl verify`.
+// Le superviseur l'appelle comme un sous-agent (DELEGATE) et ne reçoit qu'un
+// verdict BORNÉ par le contrat EXPECT. Chaque étage reste auditable seul.
+//
+// Aucun LLM : le verdict est un postérieur calculé, pas une opinion.
+// ---------------------------------------------------------------------------
+
+AGENT MAIL_FORENSIC {
+
+    VERSION "1.2"
+    DESCRIPTION "Spécialiste e-mail : juge par inférence calibrée si un message signalé est du phishing."
+
+    GOAL verdict {
+        MAINTAIN forensic.status == judged
+        WEIGHT   2
+    }
+
+    OBSERVE {
+        mail.spf_result
+        mail.url_reputation
+        mail.attachment_risk
+    }
+
+    BELIEF {
+        forensic.status = pending  CONFIDENCE 0.10 SOURCE prior
+        threat_class    = unknown  CONFIDENCE 0.10 SOURCE prior
+    }
+
+    // -- Capacités : coûteuses, donc planifiables et gardées -----------------
+
+    TOOL deep_scan {
+        DESCRIPTION "Détonation des URLs et pièces jointes en bac à sable. Coûteux."
+        OUTPUT   { verdict_ready: Symbol }
+        RISK     { operational = MEDIUM }
+        REQUIRES { mail.attachment_risk != unknown }
+        EFFECT   { scan.done = yes INTERNAL }
+        COST     3
+    }
+
+    TOOL record_verdict {
+        DESCRIPTION "Fige le verdict d'analyse."
+        INPUT    { class: Symbol BIND threat_class }
+        OUTPUT   { ok: Symbol }
+        RISK     LOW
+        REQUIRES { scan.done == yes }
+        EFFECT   { forensic.status = judged INTERNAL }
+        COST     1
+    }
+
+    // -- Politique propre au spécialiste -------------------------------------
+    POLICY {
+        DEFAULT DENY
+        ALLOW deep_scan
+        ALLOW record_verdict
+    }
+
+    // -- Inférence : le cœur du spécialiste ----------------------------------
+    HYPOTHESIS phishing {
+        DESCRIPTION "Message hostile usurpant un expéditeur pour piéger le destinataire."
+        PRIOR 0.12
+
+        EVIDENCE {
+            // Échec d'authentification et mauvaise réputation d'URL décrivent
+            // la même campagne → groupés pour ne pas double-compter.
+            GROUP reputation {
+                mail.spf_result    == fail   LIKELIHOOD 0.80 GIVEN_NOT 0.15
+                mail.url_reputation == bad    LIKELIHOOD 0.88 GIVEN_NOT 0.10
+            }
+            mail.attachment_risk == high      LIKELIHOOD 0.85 GIVEN_NOT 0.12
+        }
+
+        MAX_EVIDENCE 8
+        THRESHOLD 0.80
+        EXPLAINS  threat_class
+    }
+
+    // -- Planification : deep_scan → record_verdict, synthétisé --------------
+    PLANNER {
+        ENABLE
+        ACHIEVE   forensic.status == judged
+        MAX_DEPTH 3
+        MAX_NODES 300
+    }
+
+    LOOP UNTIL goal.satisfied MAX 4 {
+        OBSERVE
+        UPDATE_BELIEFS
+        UPDATE_HYPOTHESES
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}

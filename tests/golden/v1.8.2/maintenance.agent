@@ -1,0 +1,156 @@
+// ---------------------------------------------------------------------------
+// MAINTENANCE_AGENT — reprise directe de l'exemple §2 de l'étude,
+// exprimé dans la grammaire formelle d'AGENT-L v0.3.
+// Illustre : littéraux de pourcentage, délégation, approbation humaine.
+// ---------------------------------------------------------------------------
+
+AGENT MAINTENANCE_AGENT {
+
+    VERSION "1.1"
+
+    GOAL availability {
+        MAINTAIN service.availability > 99.9%
+        WEIGHT   3
+    }
+
+    GOAL latency {
+        MAINTAIN service.latency < 250
+    }
+
+    OBSERVE {
+        service.status
+        service.availability
+        service.latency
+        service.environment
+        server.cpu
+        incident.severity
+    }
+
+    BELIEF {
+        service.status    = unknown CONFIDENCE 0.20 SOURCE prior
+        incident.severity = NONE    CONFIDENCE 0.90 SOURCE prior
+    }
+
+    MEMORY {
+        SHORT_TERM { current_incident, recent_observations }
+        LONG_TERM  { incidents, repairs, known_failures }
+        KNOWLEDGE  { architecture, procedures }
+
+        WRITE {
+            WHEN  service.status == healthy AND incident.severity != NONE
+            STORE { root_cause, service.status, service.latency }
+            INTO  LONG_TERM
+        }
+    }
+
+    TOOL inspect_logs {
+        OUTPUT { errors: Number, pattern: Symbol }
+        RISK   LOW
+    }
+
+    TOOL query_metrics {
+        INPUT  { service: String }
+        OUTPUT { cpu: Number, latency: Number }
+        RISK   LOW
+    }
+
+    TOOL restart_service {
+        DESCRIPTION "Redémarre un service. Coupure brève garantie."
+        INPUT       { service: String }
+        OUTPUT      { status: Symbol }
+        SIDE_EFFECT { service.state }
+        RISK        { operational = HIGH }
+    }
+
+    TOOL create_ticket {
+        INPUT  { title: String, description: String }
+        OUTPUT { ticket_id: String }
+        RISK   LOW
+    }
+
+    // Le sous-agent délégué est une capacité comme une autre : depuis la
+    // v1.6, `DELEGATE` traverse le moteur de politiques. Lui donner un
+    // contrat homonyme, c'est déclarer ce qu'il touche et ce qu'il risque —
+    // sans quoi le runtime lui prête `CRITICAL` (W127), faute de mieux.
+    TOOL db_agent {
+        INPUT  { }
+        OUTPUT { db_healthy: Symbol, evidence: String }
+        RISK   { operational = LOW }
+    }
+
+    POLICY {
+        DEFAULT DENY
+
+        ALLOW inspect_logs
+        ALLOW query_metrics
+        ALLOW create_ticket
+
+        // Sans cette ligne, `DEFAULT DENY` bloque la délégation — et c'est
+        // bien ce qu'il doit faire. Jusqu'en v1.6 le sous-agent s'exécutait
+        // malgré l'interdiction par défaut : le moteur de politiques n'était
+        // pas sur son chemin.
+        ALLOW db_agent
+
+        ALLOW restart_service
+            IF service.environment == staging
+
+        ALLOW restart_service
+            IF service.environment == production AND incident.severity >= HIGH
+
+        REQUIRE APPROVAL FOR restart_service
+            WHEN service.environment == production
+    }
+
+    PLAN diagnose_incident WHEN service.status != healthy {
+
+        STEP inspect {
+            inspect_logs()
+            query_metrics("api")
+        }
+
+        STEP diagnose {
+            REASON {
+                TASK    "identifier la cause racine à partir des logs et métriques"
+                USING   { service.latency, server.cpu, incidents }
+                PRODUCE { root_cause: Symbol IN [connection_pool_exhausted,
+                                                 disk_full, memory_leak,
+                                                 unknown],
+                          confidence: Number IN [0, 1] }
+            }
+        }
+
+        STEP consult_db {
+            DELEGATE db_agent {
+                TASK   "vérifier la santé de la base et les verrous longs"
+                INPUT  { service.latency, root_cause }
+                EXPECT { db_healthy, evidence }
+            }
+        }
+
+        STEP repair {
+            IF confidence >= 0.80 AND db_healthy == yes
+                THEN restart_service("api")
+                ELSE create_ticket("Cause racine incertaine", "Analyse humaine requise")
+        }
+
+        STEP verify {
+            VERIFY "service rétabli" {
+                CONDITION service.status == healthy
+                ON FAIL {
+                    RETRY 1
+                    create_ticket("Redémarrage sans effet", "Escalade niveau 2")
+                }
+            }
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 6 {
+        OBSERVE
+        UPDATE_BELIEFS
+        EVALUATE_GOALS
+        SELECT_PLAN
+        EXECUTE
+        VERIFY
+        UPDATE_MEMORY
+    }
+}
