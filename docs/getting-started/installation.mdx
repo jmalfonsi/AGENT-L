@@ -1,0 +1,78 @@
+---
+title: "Installation"
+description: "Installez le Core AGENT-L et les dépendances optionnelles dont vous avez besoin."
+icon: "package"
+---
+
+## Prérequis
+
+- Python 3.10 ou supérieur
+- Git pour installer depuis le dépôt
+- Node.js et npm uniquement si vous utilisez Studio
+
+## Installer le Core
+
+<CodeGroup>
+
+```bash Développement local
+git clone https://github.com/jmalfonsi/AGENT-L.git
+cd AGENT-L
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e .
+```
+
+```bash Avec Studio
+git clone https://github.com/jmalfonsi/AGENT-L.git
+cd AGENT-L
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ".[studio]"
+```
+
+</CodeGroup>
+
+Vérifiez immédiatement l’installation :
+
+```bash
+agentl --help
+python3 -c "import agentl; print(agentl.__version__)"
+```
+
+## Options disponibles
+
+| Option | Ajoute | À choisir si… |
+| --- | --- | --- |
+| `studio` | FastAPI, Uvicorn, WebSockets | vous utilisez le petit éditeur embarqué du Core |
+| `anthropic` | SDK Anthropic | un hôte utilise `AnthropicLLM` |
+| `sign` | cryptography | vous signez les journaux en Ed25519 |
+| `mcp` | client MCP | vous importez depuis un serveur MCP vivant |
+
+Les options se combinent :
+
+```bash
+python3 -m pip install -e ".[studio,sign,mcp]"
+```
+
+<Info>
+  Le paquet Core n’a aucune dépendance d’exécution. Ce n’est pas une installation minimale dégradée : le parseur, l’analyseur, le runtime, le planificateur, le vérificateur et le rejeu sont inclus.
+</Info>
+
+## Utiliser l’environnement source
+
+Le dépôt contient des examples exécutables. Les commandes documentées supposent que vous vous trouvez à sa racine :
+
+```bash
+agentl check examples/service_medic.agent
+agentl verify examples/service_medic.agent
+```
+
+<Tip>
+  Commencez avec `MockLLM` dans votre hôte. Les tests, la vérification et le rejeu restent ainsi déterministes et sans clé externe.
+</Tip>
+
+## Étape suivante
+
+<Card title="Écrire votre premier agent" icon="arrow-right" href="/getting-started/quickstart">
+  Créez le couple `service_guard.agent` / `service_guard.py`, puis passez ses portes de qualité.
+</Card>

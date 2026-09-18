@@ -1,0 +1,140 @@
+---
+title: "API Studio"
+description: "Routes HTTP locales pour piloter projets, skills, runs et artefacts."
+icon: "braces"
+---
+
+L’API FastAPI écoute par défaut sur :
+
+```text
+http://127.0.0.1:8765/api
+```
+
+La documentation OpenAPI interactive locale est disponible sur [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs) lorsque Studio est démarré.
+
+## Authentification locale
+
+Si `AGENTL_STUDIO_TOKEN` est défini, ajoutez le jeton aux requêtes d’écriture :
+
+```bash
+curl -X PATCH http://127.0.0.1:8765/api/projects/PROJECT_ID \
+  -H 'Content-Type: application/json' \
+  -H 'X-Studio-Token: votre-jeton' \
+  -d '{"status":"archived"}'
+```
+
+Les en-têtes `Host` non locaux sont refusés indépendamment du jeton.
+
+## Système
+
+| Méthode | Route | Usage |
+| --- | --- | --- |
+| GET | `/health` | version, contrat, auteurs disponibles, jeton |
+| GET | `/dashboard` | statistiques et activité récente |
+| GET | `/settings` | fournisseurs, chemins et garanties actives |
+
+## Projets et fichiers
+
+| Méthode | Route | Usage |
+| --- | --- | --- |
+| GET | `/projects` | lister les projets |
+| POST | `/projects` | créer, scaffolder et éventuellement générer |
+| GET | `/projects/{id}` | détail, fichiers et runs récents |
+| PATCH | `/projects/{id}` | nom, statut, configuration ou skills |
+| DELETE | `/projects/{id}` | supprimer le projet contrôlé |
+| GET | `/projects/{id}/files` | lister les fichiers accessibles |
+| GET | `/projects/{id}/file?path=…` | lire un fichier |
+| PUT | `/projects/{id}/file?path=…` | historiser puis écrire un fichier |
+
+### Créer un projet
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/projects \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Service Guard",
+    "description": "Restaure un service sous politique de maintenance.",
+    "skills": ["system-agentl-author", "system-policy-guard"],
+    "config": {
+      "architecture": "single",
+      "runtimeProvider": "mock",
+      "runtimeModel": "mock-deterministic",
+      "generateOnCreate": false
+    }
+  }'
+```
+
+## Historique
+
+| Méthode | Route | Usage |
+| --- | --- | --- |
+| GET | `/projects/{id}/history` | lister les versions archivées |
+| GET | `/projects/{id}/history/file` | lire `stamp` + `path` |
+| POST | `/projects/{id}/history/restore` | restaurer un fichier |
+
+## Skills
+
+| Méthode | Route | Usage |
+| --- | --- | --- |
+| GET | `/skills` | lister la bibliothèque |
+| POST | `/skills` | créer un skill personnalisé |
+| PUT | `/skills/{id}` | modifier un skill, système compris |
+| DELETE | `/skills/{id}` | supprimer un skill personnalisé |
+| GET | `/skills/{id}/origin` | lire la version livrée |
+| POST | `/skills/{id}/reset` | restaurer la version livrée |
+| POST | `/skills/draft` | demander un brouillon à un auteur |
+
+## Exécutions
+
+| Méthode | Route | Usage |
+| --- | --- | --- |
+| GET | `/runs?project_id=…` | lister les runs |
+| GET | `/runs/{id}` | lire un run |
+| POST | `/projects/{id}/runs` | lancer une commande |
+| GET | `/runs/{id}/stream` | suivre le flux SSE |
+| DELETE | `/runs/{id}` | demander l’arrêt |
+
+Commandes acceptées : `check`, `test`, `verify`, `boundary`, `quality-suite`, `run`, `autoloop`, `viz` et `replay`. Pour `replay`, fournissez aussi l’identifiant du run d’origine.
+
+```json
+{
+  "command": "quality-suite",
+  "wait": false
+}
+```
+
+`wait: false` rend immédiatement l’objet run. Abonnez-vous ensuite au flux SSE ou interrogez `GET /runs/{id}`.
+
+## Artefacts
+
+| Méthode | Route | Réponse |
+| --- | --- | --- |
+| GET | `/runs/{id}/trace-html` | trace HTML |
+| GET | `/runs/{id}/graph-html` | graphe HTML |
+| GET | `/runs/{id}/record` | journal JSON |
+| GET | `/runs/{id}/corrected` | source proposée par autoloop |
+
+Une route d’artefact rend `404` lorsque le run n’a pas produit le fichier demandé.
+
+## Auteur et drafts
+
+| Méthode | Route | Usage |
+| --- | --- | --- |
+| POST | `/projects/{id}/assistant` | produire, et éventuellement appliquer, un draft |
+| POST | `/projects/{id}/draft/validate` | passer les quatre portes sans appliquer |
+| POST | `/projects/{id}/draft/apply` | valider puis appliquer |
+| POST | `/projects/{id}/runtime-test` | tester le fournisseur runtime |
+
+### Valider un draft
+
+```json
+{
+  "summary": "Ajoute une escalade sous planner.exhausted",
+  "agent_source": "AGENT ...",
+  "host_source": "from agentl import Host ..."
+}
+```
+
+<Warning>
+  L’API est locale et orientée opérateur unique. Ne l’exposez pas directement comme une API multi-tenant publique.
+</Warning>

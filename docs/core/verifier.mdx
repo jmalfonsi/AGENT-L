@@ -1,0 +1,77 @@
+---
+title: "Vérificateur de sûreté"
+description: "Interprétez les théorèmes, expositions, branches mortes et routes de repli."
+icon: "badge-check"
+---
+
+`agentl verify` raisonne sur l’AST avant toute exécution réelle. La commande refuse d’émettre un verdict si `check` trouve une erreur.
+
+```bash
+agentl verify agent.agent
+agentl verify agent.agent --depth 6
+```
+
+`--depth` borne la recherche de route utilisée par les théorèmes concernés. La recherche peut s’arrêter plus tôt lorsqu’elle atteint son point fixe.
+
+## Ce que cherche le vérificateur
+
+Le rapport couvre notamment :
+
+- les appels qui aboutiraient sous un interdit ;
+- les branches écrites mais toujours bloquées ;
+- les états où le but n’a plus de route ni d’escalade ;
+- la surface d’actions à risque exposée au LLM ;
+- les sorties structurées qui pilotent une cible sensible ;
+- les effets déclarés qui ne peuvent pas être démentis par une observation ;
+- les seuils probabilistes inatteignables.
+
+## Lire les verdicts
+
+| Verdict | Sens |
+| --- | --- |
+| démontré | la propriété tient dans le modèle analysé |
+| réfuté | un contre-exemple ou une exposition a été trouvé |
+| borné | l’exploration a atteint sa limite sans preuve complète |
+
+Une branche sûre ne produit pas nécessairement une ligne de rapport. Le vérificateur cherche à rester silencieux sur les sites qu’il peut établir sans ambiguïté.
+
+## Exemple de problème structurel
+
+```text
+NEVER isolate_endpoint WHEN asset.criticality == CRITICAL
+
+PLAN emergency {
+    STEP act { isolate_endpoint(suspected_host) }
+}
+```
+
+Le plan est bien formé, mais il peut tenter l’action dans un état interdit. Selon le reste du programme, le rapport peut signaler une exposition et l’absence de repli.
+
+## Corriger sans affaiblir
+
+<Steps>
+  <Step title="Reproduisez le contre-exemple">
+    Transformez l’état signalé en `SCENARIO` pour éviter la régression.
+  </Step>
+  <Step title="Corrigez la route">
+    Ajoutez une garde prouvable, une capacité alternative ou une escalade explicite.
+  </Step>
+  <Step title="Relancez toute la chaîne">
+    `check`, `test` puis `verify`. Une correction de sûreté peut rendre un plan inatteignable ou casser un scénario.
+  </Step>
+</Steps>
+
+<Info>
+  La preuve porte sur le programme `.agent` et son modèle déclaré. Elle ne certifie ni l’implémentation d’un outil externe, ni la sûreté générale du Python hôte.
+</Info>
+
+## Limites à garder visibles
+
+- le solveur n’est pas déclaré complet pour tous les programmes ;
+- un `EFFECT` mensonger reste un contrat mensonger ;
+- l’analyse de frontière Python est syntaxique ;
+- un journal signé n’obtient pas pour autant un horodatage tiers.
+
+<Card title="Contrôler aussi l’hôte" icon="scan-line" href="/core/boundary">
+  Complétez la preuve du programme par l’analyse de la frontière Python.
+</Card>

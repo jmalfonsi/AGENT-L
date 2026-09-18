@@ -1,0 +1,59 @@
+---
+title: "Skills"
+description: "Créez, personnalisez et versionnez les consignes transmises à l’agent auteur."
+icon: "sparkles"
+---
+
+Un skill est un fichier `SKILL.md` spécialisé. Studio le transmet à l’agent auteur et le copie dans les projets qui le sélectionnent.
+
+## Bibliothèque
+
+La bibliothèque contient deux origines :
+
+- **système** : skills livrés avec AGENT-L ;
+- **personnalisée** : skills créés dans Studio.
+
+Tous sont éditables. Un skill système personnalisé conserve son slug et son nom afin que les projets existants continuent à le résoudre.
+
+## Créer un skill
+
+Depuis **Skills**, cliquez sur **Créer un skill** puis renseignez : nom, domaine, description et contenu. Le document doit être un `SKILL.md` valide et suffisamment explicite pour guider un agent de code sans contexte implicite.
+
+Studio peut aussi demander à Codex ou Claude Code de produire un brouillon. Cette tentative est journalisée, mais le contenu n’entre dans la bibliothèque qu’après votre relecture et votre enregistrement.
+
+## Personnaliser un skill système
+
+Lorsque vous modifiez un skill livré :
+
+1. Studio marque la version comme `customized` ;
+2. le semis au démarrage ne l’écrase plus ;
+3. l’origine livrée reste disponible pour comparaison ;
+4. les projets sélectionnés reçoivent le contenu personnalisé.
+
+Le bouton **Version livrée** restaure la référence du dépôt.
+
+<Info>
+  Un skill système ne se supprime pas : il serait réinstallé au redémarrage. La restauration est l’opération cohérente.
+</Info>
+
+## Propagation vers un projet
+
+Les skills actifs sont listés dans **Configuration**. Après enregistrement, Studio les copie sous :
+
+```text
+.agentl/skills/<slug>/SKILL.md
+```
+
+Ils sont ensuite inclus intégralement dans le contexte de l’auteur lors d’une génération ou d’une modification.
+
+## Bonnes pratiques
+
+- une responsabilité claire par skill ;
+- des instructions observables et testables ;
+- les pièges de grammaire ou de domaine explicitement nommés ;
+- aucune clé, donnée sensible ou dépendance à une machine particulière ;
+- une évolution relue comme du code, car elle influence le code généré.
+
+<Warning>
+  Modifier un skill change les futures propositions de l’auteur, pas automatiquement les sources déjà produites. Demandez ensuite une mise à jour explicite du projet et relancez ses portes.
+</Warning>

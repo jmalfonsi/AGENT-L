@@ -1,0 +1,80 @@
+---
+title: "Enregistrement et rejeu"
+description: "Capturez les frontières d’une exécution, vérifiez son intégrité et rejouez-la hors ligne."
+icon: "history"
+---
+
+Le journal de rejeu enregistre ce qui franchit la frontière de l’hôte et du modèle. Il permet de reproduire une exécution sans rappeler les outils réels ni le fournisseur LLM.
+
+<Note>
+  Le rejeu re-dérive une exécution **terminée**. Pour reprendre une exécution **interrompue** sans doubler un effet, utilisez l’[exécution durable](/core/durable-execution) (`agentl run --durable`). Son journal s’exporte au format de rejeu : `agentl durable export DIR`.
+</Note>
+
+## Enregistrer
+
+```bash
+agentl run agent.agent \
+  --record runs/incident.json \
+  --html runs/incident.html
+```
+
+Le journal JSON est chaîné même sans signature. La trace HTML est un artefact visuel autonome.
+
+## Rejouer
+
+```bash
+agentl replay runs/incident.json
+```
+
+Par défaut, le rejeu utilise le chemin source consigné dans le journal et refuse si son empreinte a changé.
+
+```bash
+agentl replay runs/incident.json --source archived.agent --force
+```
+
+`--force` est une décision d’audit explicite : il permet la comparaison malgré une source différente, mais ne restaure pas la fidélité historique.
+
+## Signer les journaux
+
+Générez une paire Ed25519 :
+
+```bash
+agentl seal --keygen .keys --name production-journal
+```
+
+Enregistrez avec la clé privée :
+
+```bash
+agentl run agent.agent \
+  --record run.json \
+  --sign-key .keys/production-journal.key
+```
+
+Puis vérifiez avant rejeu :
+
+```bash
+agentl seal run.json --key .keys/production-journal.pub
+agentl replay run.json \
+  --key .keys/production-journal.pub \
+  --require-seal
+```
+
+<Info>
+  `AGENTL_JOURNAL_KEY` peut fournir la clé par défaut. Le mode Ed25519 nécessite l’option d’installation `sign`; le chaînage et HMAC restent disponibles sans elle.
+</Info>
+
+## Trois états à distinguer
+
+| État | Interprétation |
+| --- | --- |
+| chaîne intacte, sceau valide | contenu intact et rattaché à la clé |
+| chaîne intacte, sans sceau | contenu cohérent mais non attribué |
+| chaîne ou sceau invalide | pièce altérée ; le rejeu s’arrête |
+
+## Journaux lacunaires
+
+Une valeur non sérialisable ne fait pas disparaître toute l’exécution : le journal est marqué lacunaire et annonce les valeurs qui ne pourront pas être rejouées fidèlement.
+
+<Warning>
+  Une signature démontre l’intégrité et la possession de la clé, pas l’exactitude des capteurs, l’honnêteté d’un outil ni l’existence d’un horodatage tiers.
+</Warning>

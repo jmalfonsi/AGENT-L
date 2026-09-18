@@ -1,0 +1,73 @@
+---
+title: "Configuration d’un projet"
+description: "Référence des auteurs, runtimes, budgets, bornes et réglages d’architecture."
+icon: "settings-2"
+---
+
+Studio persiste la configuration dans `project.agentl.json` et dans sa base locale. L’onglet **Configuration** garde les deux représentations alignées.
+
+## Construction
+
+| Clé | Défaut | Rôle |
+| --- | --- | --- |
+| `authoringAgent` | auteur détecté | `codex` ou `claude-code` |
+| `authoringModel` | vide | modèle du CLI ; vide utilise son défaut |
+| `authoringEffort` | `high` | effort demandé à l’auteur |
+| `authoringBudgetUsd` | `2.5` | budget cumulé du projet |
+| `authoringTimeoutSeconds` | `300` | timeout d’un appel auteur |
+| `generateOnCreate` | `true` | génération initiale automatique |
+
+## Runtime
+
+| Clé | Défaut | Rôle |
+| --- | --- | --- |
+| `runtimeProvider` | Gemini si clé, sinon Mock | fournisseur d’exécution |
+| `runtimeModel` | selon fournisseur | identifiant exact du modèle |
+| `runtimeApiKeyEnv` | selon fournisseur | nom de variable, jamais sa valeur |
+| `runtimeBaseUrl` | vide | API compatible OpenAI uniquement |
+| `runtimeMaxCostUsd` | `1.0` | plafond si les tarifs sont connus |
+| `runtimeMaxOutputTokens` | `4096` | sortie maximum par appel |
+| `runtimePricePerMTokIn` | `0.0` | tarif d’entrée déclaré |
+| `runtimePricePerMTokOut` | `0.0` | tarif de sortie déclaré |
+
+## Bornes et vérification
+
+| Clé | Défaut | Plage |
+| --- | --- | --- |
+| `maxTicks` | `6` | 1 à 100 |
+| `timeoutSeconds` | `90` | 5 à 300 |
+| `verifyDepth` | `4` | 1 à 12 |
+| `maxAttempts` | `4` | 1 à 10 |
+| `maxCases` | `200` | 10 à 2 000 |
+| `autoloopModel` | vide | `gemini-*`, `claude-*` ou héritage |
+
+## Architecture
+
+`architecture` vaut `single` ou `multi`. En mode multi-agent, `roles` contient les noms et missions utilisés pour générer les blocs `AGENT` et les hôtes correspondants.
+
+## Variables d’environnement
+
+| Variable | Effet |
+| --- | --- |
+| `AGENTL_STUDIO_DATA_DIR` | déplace la base, les workspaces et les runs |
+| `AGENTL_STUDIO_TOKEN` | exige un jeton sur les écritures API |
+| `AGENTL_STUDIO_EXTRA_KEY_ENVS` | ajoute des noms de secrets autorisés |
+| `GEMINI_API_KEY` | active Gemini pour les nouveaux projets |
+| `ANTHROPIC_API_KEY` | rend Anthropic disponible |
+| `OPENAI_API_KEY` | rend OpenAI disponible |
+
+## Noms de clés autorisés
+
+Studio accepte les noms connus et, plus largement, les variables majuscules finissant par `_API_KEY`. Étendez explicitement la liste pour un secret au nom différent :
+
+```bash
+export AGENTL_STUDIO_EXTRA_KEY_ENVS="MY_VENDOR_TOKEN,INTERNAL_LLM_SECRET"
+```
+
+<Warning>
+  L’URL de base personnalisée n’est acceptée que pour le fournisseur compatible OpenAI. Associez-la à une variable dédiée, jamais à un secret général de la machine.
+</Warning>
+
+<Card title="Modèle de sécurité" icon="shield-check" href="/studio/security">
+  Voyez pourquoi Studio contraint les chemins, commandes, hôtes et noms de clés.
+</Card>

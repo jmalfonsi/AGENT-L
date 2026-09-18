@@ -1,0 +1,14 @@
+{
+  "name": "agent-l-docs",
+  "private": true,
+  "scripts": {
+    "login": "mint login",
+    "status": "mint status",
+    "dev": "mint dev",
+    "validate": "mint validate"
+  },
+  "devDependencies": {
+    "keytar": "^7.9.0",
+    "mint": "4.2.850"
+  }
+}

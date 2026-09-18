@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="156" height="32" viewBox="0 0 156 32" fill="none" role="img" aria-label="AGENT-L">
+  <rect x="1" y="1" width="30" height="30" rx="9" fill="#6757E8"/>
+  <path d="M9 21.5 16 8l7 13.5M11.7 17h8.6" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24.5" cy="8.5" r="2.5" fill="#33C6B2"/>
+  <text x="40" y="22" fill="#17151F" font-family="Inter, ui-sans-serif, system-ui" font-size="18" font-weight="750" letter-spacing="0.3">AGENT-L</text>
+</svg>

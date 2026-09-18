@@ -203,3 +203,30 @@ jobs:
 
       - name: Build de l'interface
         run: npm --prefix STUDIO/frontend run build
+
+  documentation:
+    name: Documentation Mintlify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Installation verrouillée
+        working-directory: docs
+        run: npm ci
+
+      - name: Build et configuration
+        working-directory: docs
+        run: npm run validate
+
+      - name: Liens internes
+        working-directory: docs
+        run: npx mint broken-links
+
+      - name: Accessibilité
+        working-directory: docs
+        run: npx mint a11y

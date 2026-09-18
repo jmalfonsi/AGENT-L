@@ -1,0 +1,128 @@
+---
+title: "Anatomie d’un programme"
+description: "Les primitives qui composent un agent AGENT-L."
+icon: "file-code-2"
+---
+
+Un fichier peut contenir un ou plusieurs blocs `AGENT`. Chaque agent rassemble un état déclaré, des capacités et une politique de décision.
+
+## Identité
+
+```text
+AGENT SERVICE_MEDIC {
+    VERSION "1.0"
+    DESCRIPTION "Diagnostique et restaure un service sous politique."
+}
+```
+
+`VERSION` et `DESCRIPTION` documentent l’agent. Le nom du bloc l’identifie dans les traces et les sociétés multi-agents.
+
+## Objectifs
+
+Un `GOAL` décrit une condition à maintenir ou à atteindre, jamais une action à exécuter.
+
+```text
+GOAL availability {
+    MAINTAIN service.http_status == 200
+    WEIGHT 2
+}
+```
+
+Le runtime publie `goal.score` et `goal.satisfied`. Plusieurs objectifs sont agrégés selon leur poids.
+
+## Observations et croyances
+
+```text
+OBSERVE {
+    service.http_status
+    maintenance.window
+}
+
+BELIEF {
+    service.status = unknown CONFIDENCE 0.10 SOURCE prior
+}
+```
+
+`OBSERVE` est le contrat de perception attendu de l’hôte. `BELIEF` distingue ce que l’agent croit du fait brut qu’il vient de lire. Chaque révision est tracée.
+
+## Mémoire
+
+```text
+MEMORY {
+    SHORT_TERM { current_incident }
+    LONG_TERM  { incidents }
+
+    WRITE {
+        WHEN incident.closed == yes
+        STORE { incident.id, root_cause }
+        INTO LONG_TERM.incidents
+    }
+}
+```
+
+Une écriture mémoire est déclarative et conditionnelle. Elle n’ajoute pas une capacité d’action sur le monde.
+
+## Plans et décision
+
+Un `PLAN` organise des étapes nommées. Un `DECIDE` exprime les routes conditionnelles, et `PLANNER` peut synthétiser une chaîne d’outils à partir de `REQUIRES`, `EFFECT` et `COST`.
+
+```text
+PLAN diagnose WHEN incident.open == yes {
+    STEP inspect { read_logs() }
+    STEP explain {
+        REASON {
+            TASK "identifier la cause racine"
+            USING { service.log_tail }
+            PRODUCE { root_cause: Symbol IN [oom, crash_loop, unknown] }
+        }
+    }
+}
+```
+
+La clause `PRODUCE` borne la forme et, ici, les valeurs possibles de la sortie LLM.
+
+## Événements et sociétés
+
+`EVENT` réveille un plan sur une charge utile. `SEND`, `RECEIVE` et `DELEGATE` permettent la coordination, toujours sous les contrats et la politique de chaque agent.
+
+## Scénarios
+
+```text
+SCENARIO maintenance_blocks_restart {
+    GIVEN {
+        service.http_status = 0
+        maintenance.window = open
+    }
+    EXPECT { service.http_status != 200 } WITHIN 3
+}
+```
+
+Les scénarios sont des critères d’acceptation exécutables par `agentl test`. Écrivez au moins un cas nominal et un contre-factuel où chaque règle de sûreté doit mordre.
+
+## Boucle bornée
+
+```text
+LOOP UNTIL goal.satisfied MAX 6 {
+    OBSERVE
+    UPDATE_BELIEFS
+    UPDATE_HYPOTHESES
+    EVALUATE_GOALS
+    SELECT_PLAN
+    EXECUTE
+    VERIFY
+    UPDATE_MEMORY
+}
+```
+
+<Warning>
+  `MAX` est obligatoire et fini. Une boucle sans borne n’est pas un programme AGENT-L valide.
+</Warning>
+
+<Columns cols={2}>
+  <Card title="Brancher les outils" icon="plug-zap" href="/core/tools-and-host">
+    Passez des contrats déclarés à leurs implémentations Python.
+  </Card>
+  <Card title="Gouverner les actions" icon="shield" href="/core/policies">
+    Comprenez l’ordre exact du moteur de politiques.
+  </Card>
+</Columns>

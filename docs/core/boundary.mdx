@@ -1,0 +1,67 @@
+---
+title: "Frontière hôte / agent"
+description: "Empêchez le Python hôte de décider avant que la politique ne puisse agir."
+icon: "scan-line"
+---
+
+Les théorèmes portent sur le `.agent`. Si l’hôte filtre déjà les données selon une règle métier, le programme peut rester sûr mais ne plus rien gouverner.
+
+```python
+# La décision « Urgent » a déjà été prise hors du programme.
+tickets = [ticket for ticket in all_tickets if ticket.priority == "Urgent"]
+```
+
+## Lancer l’analyse
+
+```bash
+agentl boundary support_router.agent
+```
+
+La commande trouve automatiquement `support_router.py` et inspecte son AST.
+
+## Signaux recherchés
+
+| Code | Forme suspecte |
+| --- | --- |
+| `B001` | comparaison métier |
+| `B002` | filtrage d’une collection |
+| `B003` | sortie anticipée de boucle |
+| `B004` | tri ou extremum |
+| `B005` | seuil chiffré |
+| `B006` | nom de fonction qui décide |
+| `B007` | hôte riche servi à un agent sans garde |
+
+Ces signaux sont heuristiques. Filtrer des entrées vides et filtrer des tickets bloqués ont parfois la même forme Python ; l’outil vous demande donc d’expliquer, pas de lui abandonner le jugement.
+
+## Documenter une dérogation
+
+```python
+# BOUNDARY-OK: appariement par identifiant, plomberie, aucun critère métier
+row = next(item for item in rows if item.id == requested_id)
+```
+
+La justification doit être présente. Elle couvre l’instruction AST entière et apparaît dans le rapport comme une levée assumée.
+
+<Warning>
+  Une dérogation sans motif ne lève rien. Une justification décrit pourquoi la ligne relève de la plomberie ; elle ne sert pas à masquer une décision connue.
+</Warning>
+
+## Règles pratiques
+
+<Columns cols={2}>
+  <Card title="Dans l’hôte" icon="database">
+    Décodage de formats, appels I/O, mesures brutes, adaptation de protocoles et effets réels.
+  </Card>
+  <Card title="Dans le programme" icon="scale">
+    Seuils, priorités, filtres métier, critères de succès, choix de route et interdits.
+  </Card>
+</Columns>
+
+Les gardes d’absence comme `if value is None` ne sont pas signalées : vérifier qu’une donnée existe n’est pas décider ce qu’elle vaut.
+
+## Boucle de correction
+
+1. déplacez la règle métier dans une expression, une politique ou un plan du `.agent` ;
+2. faites rendre à l’hôte la donnée brute nécessaire ;
+3. ajoutez un scénario nominal et un contre-factuel ;
+4. relancez `boundary`, puis `test` et `verify`.

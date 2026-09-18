@@ -1,0 +1,78 @@
+---
+title: "Qualité, runs et traces"
+description: "Lancez les portes, suivez une exécution et inspectez ses artefacts."
+icon: "activity"
+---
+
+Toutes les commandes longues s’exécutent en tâche de fond. Studio persiste leur état, diffuse la sortie en SSE et permet de les arrêter depuis l’interface.
+
+## Tests
+
+Le bouton **Vérifier** lance la suite :
+
+```text
+check → test → verify → boundary
+```
+
+L’onglet **Tests** montre le statut de chaque porte et la sortie terminal brute. Vous pouvez aussi relancer une porte isolément pour raccourcir une boucle de correction.
+
+## Exécuter
+
+Le bouton **Exécuter** lance le couple `.agent` / `.py` avec les bornes du projet. Une exécution réussie produit, selon le flux :
+
+- une sortie en direct ;
+- des événements structurés par tick et par agent ;
+- une trace HTML autonome ;
+- un journal JSON rejouable.
+
+## Trace
+
+La timeline peut être filtrée par agent, tick et type d’événement. Pour une société, sélectionnez un agent afin de suivre sa perception, ses décisions et ses appels sans perdre l’origine des messages.
+
+Le bouton **Rejouer** utilise le journal de l’exécution sélectionnée. Le rejeu ne rappelle ni l’hôte réel ni le fournisseur LLM.
+
+## Graphe
+
+L’onglet **Graphe** lance `agentl viz` et représente les capteurs, croyances, objectifs, plans, outils et vérifications. Utilisez-le pour repérer une capacité orpheline ou une chaîne de décision difficile à lire dans la source.
+
+## Optimiser
+
+`autoloop` dérive des cas, conserve un lot hors correction et cherche une amélioration jusqu’aux bornes du projet.
+
+<Tabs>
+  <Tab title="Sans modèle rédacteur">
+    La boucle diagnostique et produit un rapport. Elle ne réécrit rien.
+  </Tab>
+  <Tab title="Avec modèle rédacteur">
+    Un modèle `gemini-*` ou `claude-*` propose un fichier corrigé. Studio le montre en diff ; l’adoption reste explicite.
+  </Tab>
+</Tabs>
+
+Le programme d’origine n’est jamais modifié par `autoloop`. Même après adoption dans Studio, les portes s’appliquent et l’ancienne version reste historisée.
+
+## Historique
+
+Chaque écriture archive la version précédente sous un horodatage. Dans **Historique**, choisissez une version, inspectez le contenu puis restaurez le fichier voulu.
+
+<Warning>
+  Restaurer un fichier peut désynchroniser le couple `.agent` / `.py`. Relancez toujours les quatre portes après une restauration.
+</Warning>
+
+## Stockage des artefacts
+
+```text
+STUDIO/.data/
+├── studio.sqlite3
+├── projects/<slug>/
+│   ├── .history/<horodatage>/
+│   └── runtime_usage.json
+└── runs/<run-id>/
+    ├── trace.html
+    ├── graph.html
+    ├── record.json
+    └── corrected.agent
+```
+
+<Card title="Sécuriser Studio" icon="shield-check" href="/studio/security">
+  Comprenez l’isolation des workspaces, les clés, le jeton et la validation de l’en-tête Host.
+</Card>

@@ -1,0 +1,193 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "AGENT-L",
+  "description": "Documentation officielle du langage agentique vérifiable AGENT-L et de son Studio.",
+  "colors": {
+    "primary": "#6757E8",
+    "light": "#9B8CFF",
+    "dark": "#7465E8"
+  },
+  "logo": {
+    "light": "/assets/logo-light.svg",
+    "dark": "/assets/logo-dark.svg",
+    "href": "https://github.com/jmalfonsi/AGENT-L"
+  },
+  "favicon": "/assets/favicon.svg",
+  "appearance": {
+    "default": "system"
+  },
+  "fonts": {
+    "family": "Inter"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "background": {
+    "decoration": "gradient",
+    "color": {
+      "light": "#FBFAFF",
+      "dark": "#0B0A12"
+    }
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": {
+      "theme": {
+        "light": "github-light",
+        "dark": "vesper"
+      }
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Site web",
+        "href": "https://agent-l.integria.app",
+        "icon": "globe-2"
+      },
+      {
+        "type": "github",
+        "href": "https://github.com/jmalfonsi/AGENT-L"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Installer AGENT-L",
+      "href": "https://github.com/jmalfonsi/AGENT-L#d%C3%A9marrer"
+    }
+  },
+  "navigation": {
+    "global": {
+      "versions": [
+        {
+          "version": "v1.9 (dév.)",
+          "default": true,
+          "href": "/"
+        }
+      ]
+    },
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Commencer",
+            "pages": [
+              "index",
+              "getting-started/installation",
+              "getting-started/quickstart",
+              "getting-started/model"
+            ]
+          },
+          {
+            "group": "Construire avec le Core",
+            "pages": [
+              "core/agent-program",
+              "core/tools-and-host",
+              "core/policies",
+              "core/provenance",
+              "core/inference-and-planning",
+              "core/multi-agent"
+            ]
+          },
+          {
+            "group": "Exécuter en production",
+            "pages": [
+              "core/kernel",
+              "core/durable-execution",
+              "core/async"
+            ]
+          },
+          {
+            "group": "Vérifier et exploiter",
+            "pages": [
+              "core/quality-gates",
+              "core/verifier",
+              "core/boundary",
+              "core/record-and-replay",
+              "core/benchmarks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Studio",
+        "icon": "panels-top-left",
+        "groups": [
+          {
+            "group": "Prise en main",
+            "pages": [
+              "studio/overview",
+              "studio/installation",
+              "studio/first-project"
+            ]
+          },
+          {
+            "group": "Flux de travail",
+            "pages": [
+              "studio/authoring-and-runtime",
+              "studio/quality-and-runs",
+              "studio/skills",
+              "studio/configuration",
+              "studio/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Référence",
+        "icon": "braces",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "reference/cli",
+              "reference/python"
+            ]
+          },
+          {
+            "group": "Studio",
+            "pages": [
+              "reference/studio-api"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/jmalfonsi/AGENT-L"
+    },
+    "links": [
+      {
+        "header": "Découvrir",
+        "items": [
+          {
+            "label": "Démarrage rapide",
+            "href": "/getting-started/quickstart"
+          },
+          {
+            "label": "AGENT-L Studio",
+            "href": "/studio/overview"
+          }
+        ]
+      },
+      {
+        "header": "Référence",
+        "items": [
+          {
+            "label": "CLI",
+            "href": "/reference/cli"
+          },
+          {
+            "label": "API Python",
+            "href": "/reference/python"
+          }
+        ]
+      }
+    ]
+  }
+}

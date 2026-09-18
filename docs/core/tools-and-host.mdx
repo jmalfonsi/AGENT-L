@@ -1,0 +1,151 @@
+---
+title: "Outils et hôte Python"
+description: "Reliez les contrats du programme aux capteurs et effets du monde réel."
+icon: "plug-zap"
+---
+
+Le couple `X.agent` / `X.py` est normatif. Le programme déclare les capacités ; l’hôte homonyme les implémente.
+
+## Déclarer un outil
+
+```text
+TOOL isolate_endpoint {
+    DESCRIPTION "Isole un poste du réseau."
+    INPUT       { host: String BIND suspected_host }
+    OUTPUT      { isolated: Symbol }
+    SIDE_EFFECT { network.acl, endpoint.connectivity }
+    RISK        { operational = HIGH }
+    REQUIRES    { endpoint.inspected == yes }
+    EFFECT      { threat.status = contained }
+    COST        8
+}
+```
+
+| Champ | Sert à |
+| --- | --- |
+| `INPUT` / `OUTPUT` | vérifier les arguments et borner le résultat attendu |
+| `BIND` | lier un argument à un chemin d’état |
+| `SIDE_EFFECT` | exposer la surface modifiée |
+| `RISK` | alimenter politiques et diagnostics |
+| `REQUIRES` | rendre l’opérateur applicable au planificateur |
+| `EFFECT` | décrire l’état produit pour la planification |
+| `COST` | comparer les routes possibles |
+
+Un outil non déclaré n’existe pas. Un argument absent, inconnu ou mal typé est refusé avant le moteur de politiques.
+
+## Implémenter l’hôte
+
+```python endpoint_guard.py
+from agentl import Host, MockLLM, Symbol
+
+
+def build():
+    host = Host()
+
+    host.sensors["suspected_host"] = lambda: "PC-042"
+    host.sensors["endpoint.inspected"] = lambda: Symbol("yes")
+
+    @host.tool("isolate_endpoint")
+    def isolate_endpoint(host: str):
+        # appel réel vers votre EDR
+        return {"isolated": Symbol("yes")}
+
+    return host, MockLLM()
+```
+
+La fonction `build()` peut renvoyer `(host, llm)`. Pour une société, elle peut renvoyer des dictionnaires indexés par nom d’agent.
+
+## API de l’hôte
+
+<AccordionGroup>
+  <Accordion title="Capteurs">
+    Enregistrez une fonction sans argument sous le chemin déclaré dans `OBSERVE`.
+
+```python
+host.sensors["service.http_status"] = probe_status
+```
+  </Accordion>
+  <Accordion title="Outils">
+    Enregistrez une fonction dont les arguments correspondent au contrat `INPUT`.
+
+```python
+host.tools["restart_service"] = restart_service
+```
+  </Accordion>
+  <Accordion title="Approbateur">
+    Affectez `host.approver`. Seuls `True` ou un mot d’accord explicite sont acceptés. Toute valeur ambiguë, y compris la chaîne `"no"`, refuse.
+
+```python
+host.approver = lambda request: ask_operator(request)
+```
+  </Accordion>
+  <Accordion title="Événements">
+    Injectez une charge utile avec `emit`; le runtime la récupère via `drain`.
+
+```python
+host.emit("watchdog.alert", severity=Symbol("HIGH"))
+```
+  </Accordion>
+  <Accordion title="Sous-agents">
+    Enregistrez un callable sous le nom du contrat utilisé par `DELEGATE`.
+
+```python
+host.subagents["prober"] = probe_subagent
+```
+  </Accordion>
+  <Accordion title="Idempotence et réconciliation (v1.9)">
+    Pour l’[exécution durable](/core/durable-execution) : déclarez qu’un outil honore la clé d’idempotence, ou dites après une panne si l’action a eu lieu.
+
+```python
+from agentl.durable import NOT_EXECUTED
+from agentl.kernel import current_action
+
+@host.tool("transfer", idempotent=True)
+def transfer(amount, to):
+    return bank.transfer(amount, to,
+                         idempotency_key=current_action().idempotency_key)
+
+@host.reconciler("notify")
+def notify_done(args, context):
+    return {"sent": Symbol("yes")} if mailer.exists(context.idempotency_key) \
+        else NOT_EXECUTED
+```
+  </Accordion>
+  <Accordion title="Données non fiables (v1.9)">
+    Un capteur qui lit un texte écrit par un tiers le déclare. La valeur reçoit la source `EXTERNAL` ; l’hôte ne peut jamais rendre une valeur fiable.
+
+```python
+from agentl.kernel.provenance import untrusted
+host.sensors["mail.subject"] = lambda: untrusted(read_subject())
+```
+  </Accordion>
+</AccordionGroup>
+
+## Le permis du noyau
+
+Depuis la v1.9, `host.invoke` et `host.subagents` exigent un permis émis par le [noyau](/core/kernel) après la politique et l’approbation. Un appel direct lève `PermitError`. Pour tester un outil, appelez la fonction enregistrée (`host.tools["x"](**args)`) ou `agentl.kernel.testing.dispatch(host, "x", args)`.
+
+<Warning>
+  Un validateur doit **lever** pour refuser une cible. Tout appel d’outil réussi atteste ses arguments pour `ATTESTED(x, outil)`, même s’il répond « non ».
+</Warning>
+
+## Garder la frontière honnête
+
+Le test pratique est simple : **si une politique de l’entreprise changeait demain, cette ligne Python devrait-elle changer ?** Si oui, la décision appartient probablement au `.agent`.
+
+<Tip>
+  Rendez des mesures brutes : un code HTTP, un nombre de tentatives, un identifiant. Laissez le programme décider si ces valeurs signifient « sain », « urgent » ou « autorisé ».
+</Tip>
+
+## Échec fermé
+
+- capteur absent : la valeur reste indéterminée ;
+- outil absent : l’invocation lève une erreur ;
+- appel sans permis du noyau : `PermitError` ;
+- outil interrompu par une panne ou un délai : action **indéterminée**, jamais présumée réussie ;
+- approbateur absent : la demande est refusée ;
+- LLM absent : `MockLLM` permet de conserver un flux déterministe lorsqu’il convient.
+
+<Card title="Analyser la frontière" icon="scan-line" href="/core/boundary">
+  Détectez les comparaisons, filtres et seuils métier cachés dans l’hôte.
+</Card>

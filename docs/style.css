@@ -1,0 +1,21 @@
+:root {
+  --agentl-violet: #6757e8;
+  --agentl-cyan: #33c6b2;
+}
+
+card {
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--agentl-violet) 46%, transparent);
+}
+
+code-block {
+  --tw-ring-color: color-mix(in srgb, var(--agentl-violet) 22%, transparent);
+}
+
+callout {
+  border-radius: 0.8rem;
+}

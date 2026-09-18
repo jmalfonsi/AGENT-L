@@ -1,0 +1,168 @@
+---
+title: "Référence CLI"
+description: "Commandes du Core AGENT-L, options essentielles et codes de sortie."
+icon: "terminal"
+---
+
+```bash
+agentl <commande> [options]
+python3 -m agentl <commande> [options]
+```
+
+## Analyse et inspection
+
+| Commande | Usage |
+| --- | --- |
+| `check <file>` | analyse statique et bonne formation |
+| `ast <file>` | affiche l’arbre syntaxique |
+| `verify <file>` | vérifie les théorèmes de sûreté |
+| `boundary <file>` | inspecte l’hôte Python homonyme |
+| `test <file>` | exécute les scénarios |
+| `infer <file>` | calcule les hypothèses sur un état observé |
+| `plan <file>` | inspecte la synthèse du planificateur |
+| `viz <file>` | produit un graphe HTML autonome |
+
+### `verify`
+
+```bash
+agentl verify agent.agent --depth 6
+```
+
+`--depth` borne la recherche de route. La valeur par défaut vient du vérificateur.
+
+### `test`
+
+```bash
+agentl test agent.agent --trace
+```
+
+`--trace` affiche la trace de chaque scénario.
+
+### `infer` et `plan`
+
+```bash
+agentl infer agent.agent --ticks 0
+agentl plan agent.agent --ticks 1
+```
+
+`--ticks 0` perçoit sans agir. Ces commandes restent utilisables sans hôte, en monde vide, et l’annoncent.
+
+### `viz`
+
+```bash
+agentl viz agent.agent -o graph.html --open
+```
+
+Sans `-o`, la sortie porte le nom du fichier source avec l’extension HTML.
+
+## Exécuter
+
+```bash
+agentl run agent.agent [options]
+```
+
+| Option | Effet |
+| --- | --- |
+| `--ticks N` | limite le nombre de ticks |
+| `--quiet` | n’affiche la trace qu’à la fin |
+| `--html FILE` | écrit la trace visuelle autonome |
+| `--record FILE` | enregistre les frontières dans un journal JSON |
+| `--sign-key KEY` | signe le journal avec une clé ou un secret |
+| `--durable DIR` | exécution durable : démarre, ou reprend si `DIR` contient un journal (exclusif avec `--record`) |
+| `--run-id ID` | identifiant de l’exécution durable |
+
+L’hôte est toujours `agent.py` pour `agent.agent`. Une exécution sans ce fichier est refusée.
+
+## Exécution durable
+
+```bash
+agentl run agent.agent --durable runs/agent      # démarrer ou reprendre
+agentl durable status runs/agent                 # état, sans reprendre
+agentl durable export runs/agent -o journal.json # pour agentl replay
+```
+
+`durable status` affiche la chaîne, les intentions sans résultat et la façon dont chaque action interrompue a été tranchée. `durable export` refuse une exécution non terminée. Voir [Exécution durable](/core/durable-execution).
+
+## Autoloop
+
+```bash
+agentl autoloop agent.agent [options]
+```
+
+| Option | Défaut | Effet |
+| --- | --- | --- |
+| `--model` | aucun | rédacteur `gemini-*` ou `claude-*` |
+| `--max-attempts` | 6 | plafond de corrections |
+| `--max-cases` | 200 | plafond de cas dérivés |
+| `--holdout` | 0.3 | part jamais montrée à la correction |
+| `--seed` | 7 | graine du tirage |
+| `--patience` | 2 | tentatives sans progrès |
+| `--budget` | aucun | temps maximal en secondes |
+| `--host-pass` | désactivé | passe en lecture seule contre l’hôte réel |
+| `--host-ticks` | 3 | ticks de la passe hôte |
+| `-o, --out` | aucun | écrit le programme corrigé |
+
+Sans `--out`, la source originale reste intacte. Sans `--model`, la boucle diagnostique sans réécrire.
+
+## Rejeu et scellement
+
+### `replay`
+
+```bash
+agentl replay journal.json [options]
+```
+
+| Option | Effet |
+| --- | --- |
+| `--source FILE` | remplace le chemin source consigné |
+| `--ticks N` | limite le rejeu |
+| `--quiet` | réduit la sortie |
+| `--force` | continue malgré une source modifiée |
+| `--key KEY` | vérifie le sceau |
+| `--require-seal` | refuse un journal non signé |
+
+### `seal`
+
+```bash
+agentl seal journal.json --key public.key
+agentl seal --keygen .keys --name journal
+```
+
+La seconde forme génère une paire Ed25519. La clé privée est créée avec des permissions restrictives.
+
+## MCP
+
+```bash
+agentl mcp list config.json [--server NAME]
+agentl mcp import config.json --server NAME -o tools.agent
+```
+
+| Option | Effet |
+| --- | --- |
+| `--server` | sélectionne un serveur |
+| `-o, --out` | choisit le fichier `.agent` produit |
+| `--unsafe-import-descriptions` | importe le texte tiers des descriptions |
+| `--force` | écrase une sortie existante |
+
+Les descriptions distantes sont retirées par défaut, car elles atteindraient le contexte du modèle. `--strip-descriptions` reste accepté pour compatibilité mais correspond déjà au défaut.
+
+## Éditeur web du Core
+
+```bash
+agentl studio [file] --port 8765 --host 127.0.0.1 --open
+```
+
+| Option | Effet |
+| --- | --- |
+| `--no-save` | interdit les écritures disque |
+| `--root PATH` | limite la racine accessible |
+| `--host HOST` | change l’interface d’écoute |
+| `--port PORT` | change le port |
+
+<Note>
+  Pour la gestion complète de projets, skills, auteurs, exécutions et historique, utilisez le module Studio documenté dans l’onglet dédié.
+</Note>
+
+## Codes de sortie
+
+Les commandes rendent `0` en cas de succès et une valeur non nulle en cas d’erreur ou de verdict bloquant. Une interruption clavier d’`autoloop` rend `130`.

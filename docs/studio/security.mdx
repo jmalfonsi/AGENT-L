@@ -1,0 +1,66 @@
+---
+title: "Sécurité de Studio"
+description: "Comprendre les frontières et garanties d’un service de développement local."
+icon: "shield-check"
+---
+
+Studio est un service local capable d’écrire des fichiers et de lancer des commandes AGENT-L. Son modèle de sécurité réduit cette surface sans prétendre transformer les outils exécutés en sandbox générale.
+
+## Écoute locale et rebinding DNS
+
+Le serveur écoute sur `127.0.0.1`. Il valide aussi l’en-tête `Host`, car l’écoute locale seule ne suffit pas contre un rebinding DNS depuis une page malveillante.
+
+Les hôtes acceptés sont limités aux formes locales (`localhost`, loopback IPv4/IPv6 et hôte de test).
+
+## Jeton d’écriture
+
+Définissez `AGENTL_STUDIO_TOKEN` pour exiger `X-Studio-Token` sur les méthodes qui modifient l’état. Les lectures et pré-vol CORS restent disponibles selon leur méthode.
+
+```bash
+AGENTL_STUDIO_TOKEN="..." npm start
+```
+
+## Isolation des workspaces
+
+- chaque projet possède un répertoire dédié ;
+- les chemins sont résolus avant lecture ou écriture ;
+- toute sortie du workspace est refusée ;
+- les commandes sont choisies dans une liste blanche et lancées sans shell ;
+- une suppression vérifie le slug et le parent stockés avant d’effacer le projet.
+
+## Secrets runtime
+
+Le navigateur et la base ne reçoivent jamais la valeur d’une clé. Le projet stocke uniquement le nom de la variable d’environnement. Ces noms sont eux-mêmes contraints pour empêcher qu’un projet désigne arbitrairement un secret de la machine et l’envoie à une URL choisie.
+
+## Agent auteur
+
+Les auteurs reçoivent le contrat et les sources nécessaires dans leur contexte. Ils sont lancés avec des outils désactivés ou une sandbox de lecture et ne sont pas autorisés à appliquer eux-mêmes une proposition.
+
+## Historique et audit
+
+Chaque écriture archive la version précédente. Les exécutions sont persistées avec leur commande, statut, sortie, durée et métadonnées. Les journaux de runtime sont chaînés et peuvent être rejoués.
+
+## Non-garanties
+
+<Warning>
+  Studio ne rend pas sûr un outil Python arbitraire. Une commande `run` autorisée peut invoquer les effets que l’hôte du projet implémente. Les politiques AGENT-L, la revue du code et l’isolation du compte système restent nécessaires.
+</Warning>
+
+- un hôte Python peut effectuer tout ce que son processus système peut effectuer ;
+- une clé présente dans l’environnement reste accessible au backend ;
+- un fournisseur LLM externe reçoit le contexte que l’adaptateur lui envoie ;
+- la signature d’un journal ne valide pas la vérité de son contenu ;
+- l’application est conçue pour un opérateur local, pas comme un service multi-tenant exposé à Internet.
+
+## Durcissement recommandé
+
+1. utilisez un compte système et un environnement dédiés ;
+2. activez le jeton de session ;
+3. ne liez pas le serveur à une interface publique ;
+4. utilisez des clés fournisseur limitées et dédiées ;
+5. examinez l’hôte avant le premier `run` réel ;
+6. sauvegardez le répertoire de données selon votre politique d’audit.
+
+<Card title="API Studio" icon="braces" href="/reference/studio-api">
+  Consultez les routes, le jeton et les conventions de réponse.
+</Card>

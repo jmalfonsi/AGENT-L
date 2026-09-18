@@ -1,0 +1,106 @@
+---
+title: "Inférence et planification"
+description: "Calibrez les hypothèses et synthétisez des routes compatibles avec la politique."
+icon: "brain-circuit"
+---
+
+AGENT-L sépare deux problèmes souvent confondus : **estimer ce qui est vrai** et **choisir une suite d’actions permise**.
+
+## Hypothèses bayésiennes
+
+```text
+HYPOTHESIS credential_attack {
+    PRIOR 0.05
+
+    EVIDENCE {
+        GROUP endpoint_signal {
+            wazuh.alert_count > 20
+                LIKELIHOOD 0.92 GIVEN_NOT 0.06
+            network.anomaly_score > 0.75
+                LIKELIHOOD 0.85 GIVEN_NOT 0.20
+        }
+        endpoint.integrity == compromised
+            LIKELIHOOD 0.75 GIVEN_NOT 0.08
+    }
+
+    MAX_EVIDENCE 8
+    THRESHOLD 0.90
+    EXPLAINS threat.kind
+}
+```
+
+Chaque indice déclare sa vraisemblance sous l’hypothèse et sous son contraire. Le runtime calcule le postérieur `P(credential_attack)` et trace la contribution de chaque indice.
+
+## Corrélation et plafonds
+
+`GROUP` évite de compter plusieurs capteurs corrélés comme autant de témoins indépendants. `MAX_EVIDENCE` borne l’amplitude cumulée lorsque la dépendance exacte est inconnue.
+
+<Info>
+  Comme les vraisemblances sont déclarées, AGENT-L peut calculer la plage de probabilité atteignable et signaler un seuil de politique impossible à satisfaire.
+</Info>
+
+Inspectez l’inférence sans exécuter une action réelle :
+
+```bash
+agentl infer incident.agent --ticks 0
+```
+
+## Outils comme opérateurs
+
+Un outil devient un opérateur de planification lorsqu’il déclare `REQUIRES`, `EFFECT` et éventuellement `COST`.
+
+```text
+TOOL restart_service {
+    REQUIRES { diagnosis.done == yes }
+    EFFECT   { service.http_status = 200 }
+    COST     5
+}
+
+PLANNER {
+    ENABLE
+    ACHIEVE service.http_status == 200
+    MAX_DEPTH 3
+    MAX_NODES 500
+    APPROVAL_COST 10
+}
+```
+
+Le planificateur cherche une route jusqu’au but, élimine les opérateurs interdits et additionne le coût d’approbation aux routes qui exigent un humain.
+
+```bash
+agentl plan incident.agent --ticks 1
+```
+
+La commande explique les opérateurs retenus et ceux écartés par la politique ou une échéance.
+
+## Plans écrits et plans synthétisés
+
+| Mécanisme | À utiliser pour |
+| --- | --- |
+| `PLAN` | une procédure connue, lisible et ordonnée |
+| `DECIDE RULES` | des branches explicites et des escalades |
+| `PLANNER` | composer dynamiquement des opérateurs à effets déclarés |
+| `REASON` | produire une sortie structurée à partir d’un contexte |
+
+Ces mécanismes se combinent. Un plan écrit peut préparer un diagnostic ; le planificateur choisit ensuite la route d’action la moins coûteuse qui reste autorisée.
+
+## Quand aucune route n’existe
+
+Renoncer peut être correct. Caler en silence ne l’est pas. Déclarez une escalade lorsque `planner.exhausted` devient vrai :
+
+```text
+DECIDE {
+    RULES {
+        IF planner.exhausted AND goal.satisfied != yes
+            THEN escalate_to_operator
+    }
+}
+```
+
+<Warning>
+  Un `EFFECT` est une déclaration du contrat, pas une observation indépendante. Pour les effets importants, exposez aussi un capteur capable de confirmer ou de démentir le résultat réel.
+</Warning>
+
+<Card title="Vérifier les routes de repli" icon="route" href="/core/verifier">
+  Le vérificateur cherche notamment les états interdits dans lesquels le but n’a plus de route ni d’escalade.
+</Card>

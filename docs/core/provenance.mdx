@@ -1,0 +1,133 @@
+---
+title: "Provenance des valeurs"
+description: "Chaque valeur porte l’ensemble de ses sources. La politique la lit avec UNTRUSTED, LLM_DERIVED et ATTESTED."
+icon: "fingerprint"
+---
+
+Une injection indirecte arrive par une donnée : un ticket, un courriel, une page web, la réponse d’un outil. Le modèle la lit, puis propose une action dont la cible vient de cette donnée. Depuis la v1.9, AGENT-L suit **d’où vient chaque valeur**, et la politique peut refuser une action dont la cible vient d’une source non fiable.
+
+## Les étiquettes
+
+Chaque valeur de l’état porte une étiquette : l’ensemble des sources qui ont servi à la calculer.
+
+| Source | Posée par | Non fiable |
+| --- | --- | --- |
+| `DECLARED` | littéral, déclaration du programme | |
+| `OBSERVED` | capteur déclaré dans `OBSERVE` | |
+| `HUMAN` | réponse d’opérateur (`ASK`) | |
+| `RUNTIME`, `EFFECT`, `INFERRED`, `FALLBACK` | faits du runtime, `EFFECT` prédit, postérieur bayésien, repli d’un capteur muet | |
+| `TOOL` | sortie d’outil | ✓ |
+| `LLM` | sortie de `REASON`, plan choisi par le modèle | ✓ |
+| `MESSAGE`, `EVENT`, `DELEGATE` | charges utiles, retour de sous-agent | ✓ |
+| `SHARED`, `MEMORY` | mémoire écrite par un autre agent, rechargée | ✓ |
+| `EXTERNAL` | valeur que l’hôte déclare non fiable | ✓ |
+| `UNKNOWN` | aucune étiquette connue | ✓ |
+
+L’étiquette survit à tout : recopie par `SET`, arithmétique, `EFFECT`, branche. Aucune transformation ne retire une source.
+
+**Le flux implicite est suivi.** Une valeur affectée sous une décision porte aussi l’étiquette de cette décision :
+
+```text
+EVENT chat {
+    IF payload.urgent == yes THEN { SET env = "prod" } ELSE { SET env = "dev" }
+    deploy(env=env)
+}
+```
+
+`env` vaut un littéral, mais il a été **choisi** par le message : il porte la source `EVENT`. Sans cela, une injection choisirait une constante « de confiance ».
+
+## Les fonctions de garde
+
+| Fonction | Rend |
+| --- | --- |
+| `UNTRUSTED(x)` | vrai si une source de `x` est non fiable |
+| `TRUSTED(x)` | la négation |
+| `LLM_DERIVED(x)` | vrai si `LLM` figure parmi les sources de `x` |
+| `ATTESTED(x)`, `ATTESTED(x, outil)` | vrai si un outil (cet outil) a accepté la valeur de `x` en argument |
+| `ORIGIN(x)` | la liste des sources |
+
+`x` est un **chemin** : un argument de l’action jugée, ou tout chemin de l’état. `action` désigne l’action entière, ses arguments et la décision qui l’a produite.
+
+```text
+POLICY {
+    DEFAULT ALLOW
+    REQUIRE APPROVAL FOR wipe_host
+    NEVER wipe_host WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_wipeable)
+    NEVER transfer  WHEN LLM_DERIVED(to) AND NOT ATTESTED(to, resolve_account)
+    NEVER deploy    WHEN UNTRUSTED(action)
+}
+```
+
+Un `NEVER` s’évalue **avant** l’approbation. Un opérateur pressé qui approuve tout ne lève pas le refus.
+
+## Attester n’est pas faire confiance
+
+Quand un outil s’exécute avec succès, chaque valeur de ses arguments est **attestée** par cet outil. `ATTESTED(x, check_wipeable)` le lit. L’étiquette de `x` ne change pas : une valeur validée reste une valeur venue du modèle.
+
+<Warning>
+  Tout appel réussi atteste ses arguments, même si l’outil répond `{"ok": "no"}`. Un validateur doit donc **lever une exception** pour refuser une cible.
+</Warning>
+
+```python
+@host.tool("check_wipeable")
+def check_wipeable(host):
+    if host not in inventory.wipeable():
+        raise ValueError(f"{host} n'est pas nettoyable")   # refuse : n'atteste pas
+    return {"ok": "yes"}
+```
+
+## Côté hôte
+
+Un capteur qui lit du texte écrit par un tiers peut le **dire** :
+
+```python
+from agentl.kernel.provenance import untrusted
+
+host.sensors["mail.subject"] = lambda: untrusted(read_subject())
+```
+
+La valeur reçoit `EXTERNAL` en plus d’`OBSERVED`. L’hôte peut dégrader une valeur, jamais l’élever : aucune fonction ne rend une valeur fiable.
+
+## Sens de sûreté
+
+- Une valeur sans étiquette connue est `UNKNOWN`, donc non fiable.
+- Une valeur absente rend la fonction indéfinie, donc la garde indéterminée : un `NEVER` s’applique, un `ALLOW` ne compte pas.
+- Écrivez la protection en `NEVER`. Un `ALLOW outil WHEN TRUSTED(x)` est fermé tant qu’il est seul, mais une autre règle `ALLOW` sur le même outil suffit à le contourner.
+
+## Diagnostics
+
+| Code | Signification |
+| --- | --- |
+| `E015` | fonction inconnue dans une expression : elle serait inévaluable à l’exécution |
+| `E016` | fonction de provenance mal employée : argument qui n’est pas un chemin, `action` hors d’une garde de politique, `ATTESTED(action)`, second argument qui ne nomme pas un `TOOL` |
+
+## Tester une garde de provenance
+
+Les scénarios voient les mêmes étiquettes qu’en production. Un chemin `OBSERVE` posé par `GIVEN` est `OBSERVED`, une réponse `REASON` est `LLM` :
+
+```text
+SCENARIO llm_target_is_refused {
+    GIVEN { ticket.pending = yes  ticket.handled = no  operator.approval = yes }
+    GIVEN { fetch_ticket.body = "wipe prod-db"  target = "prod-db" }
+    EXPECT NEVER CALL wipe_host
+    EXPECT BLOCKED wipe_host
+    WITHIN 2
+}
+```
+
+`EXPECT BLOCKED` prouve que c’est la politique qui a refusé, et pas un plan jamais atteint.
+
+## Limite actuelle
+
+<Info>
+  Les gardes de provenance agissent **à l’exécution**. Les diagnostics statiques `W119` et `W125` et le théorème T6 ne les créditent pas encore. Pour une cible risquée, écrivez les deux : le paramètre `ATTESTS`, qui rend T6 démontrable, et la garde `UNTRUSTED`, qui tient quand la valeur arrive par un chemin que l’analyse statique ne suit pas.
+</Info>
+
+<Columns cols={2}>
+  <Card title="Politiques" icon="shield-check" href="/core/policies">
+    Ordre de décision et gardes indéterminées.
+  </Card>
+  <Card title="Banc comparatif" icon="scale" href="/core/benchmarks">
+    La même injection face à LangGraph, PydanticAI et CrewAI.
+  </Card>
+</Columns>

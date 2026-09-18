@@ -1,0 +1,71 @@
+---
+title: "Premier projet"
+description: "Passez d’une mission métier à un workspace vérifié dans Studio."
+icon: "folder-plus"
+---
+
+Depuis **Projets**, cliquez sur **Nouveau projet**. L’assistant sépare les décisions d’architecture, les capacités d’auteur et le modèle d’exécution.
+
+<Steps>
+  <Step title="Décrivez la mission">
+    Donnez un nom précis et décrivez le résultat, les sources de faits, les actions possibles et les interdits. Une bonne description nomme ce qui doit arriver et ce qui ne doit jamais arriver.
+  </Step>
+
+  <Step title="Choisissez les skills">
+    Sélectionnez les consignes spécialisées transmises à l’agent auteur. Elles sont aussi copiées dans `.agentl/skills` du workspace pour rester inspectables avec le projet.
+  </Step>
+
+  <Step title="Définissez l’architecture">
+    Choisissez **Agent unique** pour un objectif et une boucle gouvernée, ou **Société multi-agents** lorsque les rôles ont réellement des capacités ou politiques distinctes. Dans ce cas, nommez chaque rôle et sa mission.
+  </Step>
+
+  <Step title="Séparez auteur et runtime">
+    Choisissez Codex CLI ou Claude Code pour écrire les fichiers. Configurez séparément le fournisseur et le modèle que les agents utiliseront pendant leur exécution.
+  </Step>
+
+  <Step title="Fixez les bornes">
+    Définissez les ticks maximum, le timeout et les budgets. Gardez `MockLLM` pour un premier projet reproductible si aucun raisonnement réel n’est nécessaire.
+  </Step>
+</Steps>
+
+## Ce que Studio crée
+
+```text
+<slug>/
+├── project.agentl.json
+├── agents.json
+├── <slug>.agent
+├── <slug>.py
+├── runtime_llm.py
+└── .agentl/
+    └── skills/
+```
+
+Le squelette sûr existe avant l’appel à l’auteur. Si la génération échoue ou si sa proposition ne passe pas les quatre portes, Studio conserve ce squelette.
+
+## Relire la proposition
+
+Dans **Construire**, le panneau central montre la conversation avec l’auteur et le panneau de droite les sources. Demandez une modification en décrivant le comportement attendu et l’interdit à préserver.
+
+Par défaut, la proposition reste un diff à relire. L’option **Appliquer directement si les 4 portes passent** n’écrase les sources qu’après validation de `check`, `test`, `verify` et `boundary`.
+
+<Warning>
+  Une proposition qui passe `check` seul n’est pas suffisante. Elle peut casser un scénario, supprimer une route de repli ou déplacer une décision dans le Python hôte.
+</Warning>
+
+## Première boucle de validation
+
+1. cliquez sur **Vérifier** dans l’en-tête du projet ;
+2. ouvrez **Tests** pour voir les quatre résultats et la sortie brute ;
+3. corrigez les erreurs dans **Construire** ;
+4. cliquez sur **Exécuter** lorsque les quatre portes sont vertes ;
+5. ouvrez **Trace** pour lire la timeline, puis lancez un rejeu.
+
+<Columns cols={2}>
+  <Card title="Comprendre les deux modèles" icon="split" href="/studio/authoring-and-runtime">
+    Configurez l’auteur, le runtime, leurs budgets et leurs responsabilités.
+  </Card>
+  <Card title="Lire les exécutions" icon="activity" href="/studio/quality-and-runs">
+    Suivez les portes, les traces, le graphe et l’autoloop.
+  </Card>
+</Columns>

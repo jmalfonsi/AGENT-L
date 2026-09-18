@@ -1,0 +1,67 @@
+---
+title: "Auteur et runtime"
+description: "Configurez séparément le modèle qui écrit et celui qui raisonne à l’exécution."
+icon: "split"
+---
+
+Studio traite l’écriture de code et l’exécution agentique comme deux plans de contrôle indépendants.
+
+| Responsabilité | Agent auteur | LLM runtime |
+| --- | --- | --- |
+| produit les `.agent` et `.py` | oui | non |
+| reçoit la grammaire et les skills | oui | non |
+| répond aux blocs `REASON` | non | oui |
+| agit directement sur le workspace | non | non |
+| budget suivi | par projet | par exécution |
+
+## Agent auteur
+
+Studio prend en charge **Codex CLI** et **Claude Code**. Ils sont lancés en mode non interactif, avec une sortie structurée et des permissions minimales.
+
+- Codex utilise `codex exec`, une sandbox en lecture seule et un fichier de message final ;
+- Claude Code utilise `--print`, les outils désactivés et le mode de permission `plan` ;
+- tous deux reçoivent le contrat de grammaire complet et les skills sélectionnés ;
+- leur proposition est validée dans une copie du projet avant application.
+
+La génération initiale compte dans `authoringBudgetUsd`. Lorsqu’un moteur ne fournit pas un coût mesurable, Studio l’affiche comme **non mesuré**, jamais comme zéro.
+
+## LLM runtime
+
+| Fournisseur | Configuration |
+| --- | --- |
+| Mock | `mock-deterministic`, aucune clé |
+| Google Gemini | modèle + `GEMINI_API_KEY` ou `GOOGLE_API_KEY` |
+| Anthropic | modèle + `ANTHROPIC_API_KEY` |
+| OpenAI | modèle + `OPENAI_API_KEY` |
+| compatible OpenAI | modèle, variable de clé et URL de base |
+
+Utilisez **Tester la connexion** dans Configuration avant de compter sur un fournisseur. Studio effectue un aller-retour structuré et affiche latence, résultat et usage.
+
+## Mesure et plafond
+
+`runtimeMaxCostUsd` n’est appliqué que lorsque les prix d’entrée et de sortie sont déclarés. Sans tarif, les appels et tokens restent mesurés mais le coût est `null`.
+
+<Info>
+  `null` signifie « inconnu ». Zéro signifierait « gratuit » et donnerait une fausse assurance sur le plafond.
+</Info>
+
+## Adaptateur versionné
+
+Chaque workspace contient `runtime_llm.py`, généré depuis la configuration. Sa première ligne porte une version. Lorsqu’un correctif de gabarit arrive, Studio archive l’ancien adaptateur dans `.history/` puis le remplace au démarrage.
+
+Cela évite qu’un correctif présent dans le dépôt reste absent des projets déjà créés.
+
+## Choix recommandé pour démarrer
+
+```text
+Auteur  : le CLI déjà installé
+Runtime : mock-deterministic
+Ticks   : 6
+Timeout : 90 s
+```
+
+Passez à un fournisseur réel seulement lorsque vos scénarios et vos politiques tiennent hors ligne.
+
+<Card title="Configurer toutes les bornes" icon="settings-2" href="/studio/configuration">
+  Consultez les clés persistées dans `project.agentl.json`.
+</Card>

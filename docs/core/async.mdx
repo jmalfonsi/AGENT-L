@@ -1,0 +1,117 @@
+---
+title: "Exécution asynchrone"
+description: "Hôtes et modèles async, concurrence bornée, délais, annulation et sociétés réellement concurrentes."
+icon: "workflow"
+---
+
+`agentl.aio` exécute des agents depuis une boucle `asyncio`, sans changer la sémantique du langage. Trois agents qui attendent chacun une API de deux secondes ne prennent plus six secondes.
+
+## Un agent reste séquentiel
+
+Chaque action est jugée sur l’état laissé par la précédente. Rendre concurrentes deux actions d’un même agent reviendrait à juger la seconde sur un état que la première est en train de changer : une faille TOCTOU créée par le runtime lui-même.
+
+La concurrence est donc :
+
+- **entre agents** : une société fait tiquer ses agents en même temps ;
+- **aux frontières** : attendre un outil, un capteur ou le modèle ne bloque que l’agent qui attend.
+
+Le cœur reste déterministe. La trace d’un agent ne dépend que de ce que ses frontières ont rendu, pas de l’ordre dans lequel les coroutines se sont terminées. Les journaux publiés avec la v1.8.2 se rejouent à l’octet en asynchrone.
+
+## Un hôte asynchrone
+
+```python
+from agentl.aio import AsyncHost, AsyncRuntime, Limits
+
+host = AsyncHost()
+
+@host.sensor("service.status")
+async def status():
+    async with session.get(STATUS_URL) as resp:
+        return resp.status
+
+@host.tool("restart", idempotent=True)
+async def restart(service):
+    async with session.post(f"{API}/restart/{service}") as resp:
+        return {"status": resp.status}
+
+host.approver = ask_operator            # sync ou async
+```
+
+`AsyncHost` a le même contrat que `Host` : décorateurs `sensor`, `tool`, `subagent`, `reconciler`, approbateur. Les fonctions synchrones restent acceptées. `invoke` exige le même [permis du noyau](/core/kernel).
+
+## Un agent
+
+```python
+rt = AsyncRuntime(agent, host, llm, limits=Limits(tool_timeout=10))
+await rt.run(max_ticks=8)
+print(rt.runtime.trace.render())
+```
+
+`store=FileStore(...)` rend l’exécution [durable](/core/durable-execution) : une exécution annulée ou tuée reprend sans doubler un effet.
+
+## Les bornes
+
+```python
+Limits(
+    max_concurrent_tools=8,     # au-delà, l’appel attend son tour : contre-pression
+    max_concurrent_llm=4,
+    max_concurrent_reads=None,  # None = pas de borne
+    tool_timeout=10,
+    llm_timeout=30,
+    read_timeout=5,
+    human_timeout=None,
+    inbox_capacity=100,         # messages en attente par agent
+)
+```
+
+Un délai dépassé n’a pas le même sens selon la frontière :
+
+| Frontière | Délai dépassé |
+| --- | --- |
+| capteur | il ne perçoit rien : la valeur est indéterminée |
+| modèle | oracle muet : les `DEFAULT` s’appliquent, `reason.degraded` le dit |
+| **outil** | **action indéterminée** (`ActionInDoubt`) : la requête est partie, l’effet a pu avoir lieu |
+
+<Warning>
+  Un outil trop lent n’est jamais présumé réussi ni relancé à l’aveugle. En exécution durable, il est tranché à la reprise comme toute action interrompue.
+</Warning>
+
+Un message refusé par une boîte de réception pleine est tracé et compté, jamais perdu en silence.
+
+## Annulation
+
+```python
+task = asyncio.create_task(rt.run(max_ticks=100))
+...
+rt.cancel()          # ou task.cancel()
+```
+
+L’annulation est coopérative : l’agent s’arrête au prochain franchissement de frontière (`Cancelled`, que rien n’avale), et les appels en vol sont annulés.
+
+## Une société réellement concurrente
+
+```python
+from agentl.aio import AsyncSociety
+
+society = AsyncSociety(program.agents,
+                       hosts={"analyst": analyst_host, "responder": responder_host},
+                       limits=Limits(max_concurrent_tools=4, inbox_capacity=50))
+await society.run(max_ticks=6)
+print(society.render_traces())
+```
+
+`AsyncSociety` avance par **tours synchronisés** :
+
+1. au début d’un tour, chaque agent reçoit un instantané de la mémoire partagée ;
+2. tous les agents tiquent en parallèle, dans les bornes de `Limits`, partagées par toute la société ;
+3. à la barrière, les messages sont remis et les écritures `SHARED` fusionnées, dans l’ordre déclaré des agents.
+
+Un message envoyé au tour *t* est lu au tour *t+1*. C’est une sémantique différente du tour de rôle de `Society`, mais elle ne dépend pas de l’ordonnanceur : même programme, mêmes hôtes, même résultat.
+
+## MCP asynchrone
+
+`AsyncMCPHost` et `connect_async` branchent un serveur MCP sur la boucle de l’agent au lieu d’ouvrir une boucle privée. Voir l’[API Python](/reference/python).
+
+<Card title="Exécution durable" icon="database-backup" href="/core/durable-execution">
+  Survivre à une annulation ou à un crash sans doubler un effet.
+</Card>

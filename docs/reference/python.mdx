@@ -1,0 +1,170 @@
+---
+title: "API Python"
+description: "Imports publics du Core pour intégrer AGENT-L dans un hôte ou un service Python."
+icon: "file-code-2"
+---
+
+Le paquet expose ses primitives stables depuis `agentl`.
+
+```python
+from agentl import (
+    Analyzer,
+    Host,
+    MockLLM,
+    Runtime,
+    parse_file,
+    verify,
+)
+```
+
+## Parser et analyser
+
+```python
+from agentl import Analyzer, parse_file, parse_source
+
+program = parse_file("agent.agent")
+agent = program.agents[0]
+diagnostics = Analyzer(agent).run()
+
+inline = parse_source("AGENT EMPTY { GOAL done { ACHIEVE ok == yes } }")
+```
+
+Pour un programme multi-agents, `check_program(program)` complète les diagnostics propres à chaque agent par les contrôles transverses.
+
+## Exécuter
+
+```python
+from agentl import Host, MockLLM, Runtime, Symbol, parse_file
+
+agent = parse_file("service_guard.agent").agents[0]
+host = Host()
+
+host.sensors["service.status"] = lambda: Symbol("healthy")
+
+runtime = Runtime(agent, host, MockLLM())
+runtime.run(max_ticks=4)
+trace = runtime.trace
+```
+
+`Runtime` conserve son `state`, son moteur `policy` et sa trace. Les phases sont aussi disponibles séparément pour les inspections contrôlées.
+
+## Vérifier
+
+```python
+from agentl import parse_file, verify
+
+agent = parse_file("agent.agent").agents[0]
+report = verify(agent)
+
+for theorem in report.theorems:
+    print(theorem)
+```
+
+La bibliothèque accepte un agent construit en mémoire. Contrairement à la CLI, elle ne force pas automatiquement `check` avant `verify`; l’appelant doit conserver cet ordre lorsqu’il publie un verdict utilisateur.
+
+## Politiques
+
+```python
+from agentl import ActionRequest, PolicyEngine
+```
+
+`PolicyEngine` évalue les requêtes contre l’état. `ActionRequest` porte notamment le nom de l’outil, les arguments, l’origine et la confiance.
+
+## Inférence et planification
+
+```python
+from agentl import Inference, Planner, infer, reachable_range
+```
+
+- `infer` calcule le postérieur d’une hypothèse sur un état ;
+- `reachable_range` calcule l’intervalle atteignable ;
+- `Planner.synthesize(state)` cherche une route compatible avec les opérateurs et la politique.
+
+## Sociétés
+
+```python
+from agentl import MockLLM, Society
+
+society = Society(
+    program.agents,
+    hosts={"analyst": analyst_host, "responder": responder_host},
+    llms={"analyst": MockLLM(), "responder": MockLLM()},
+)
+society.run(max_ticks=6)
+```
+
+## Exécution durable
+
+```python
+from agentl.durable import DurableRun, FileStore, SQLiteStore, NOT_EXECUTED
+
+run = DurableRun(agent, host, llm, store=FileStore("runs/agent"))
+runtime = run.run(max_ticks=8)            # neuve, ou reprise
+run.resumed, run.status, run.journal.resolutions
+journal = run.export()                    # journal de rejeu standard
+```
+
+## Noyau et provenance
+
+```python
+from agentl.kernel import current_action, PermitError, TCB_FILES
+from agentl.kernel.testing import dispatch
+from agentl.kernel.provenance import untrusted
+
+ctx = current_action()                    # dans un outil : action_id, idempotency_key, attempt
+dispatch(host, "transfer", {"amount": 100, "to": "acct-1"})   # tester sous permis
+host.sensors["mail.subject"] = lambda: untrusted(read_subject())
+```
+
+## Asynchrone
+
+```python
+from agentl.aio import AsyncHost, AsyncRuntime, AsyncSociety, Limits
+
+rt = AsyncRuntime(agent, AsyncHost(), llm, limits=Limits(tool_timeout=10))
+await rt.run(max_ticks=8)
+
+society = AsyncSociety(program.agents, hosts={...}, limits=Limits(inbox_capacity=50))
+await society.run(max_ticks=6)
+```
+
+`agentl.mcp.AsyncMCPHost` et `connect_async` branchent un serveur MCP sur la boucle de l’agent.
+
+## Enregistrer et rejouer
+
+```python
+from agentl import (
+    Journal,
+    RecordingHost,
+    RecordingLLM,
+    ReplayHost,
+    ReplayLLM,
+    verify_trace,
+)
+```
+
+Les wrappers enregistrent ou rejouent les lectures, outils, approbations et réponses LLM. `ReplayDivergence` signale un appel qui ne correspond plus au journal.
+
+## Objets publics
+
+<AccordionGroup>
+  <Accordion title="Programme et état">
+    `Agent`, `Program`, `State`, `Belief`, `Evaluator`, `Symbol`, `UNDEFINED`.
+  </Accordion>
+  <Accordion title="Analyse et preuve">
+    `Analyzer`, `Diagnostic`, `Verifier`, `Report`, `Theorem`, `entails`, `satisfiable`.
+  </Accordion>
+  <Accordion title="Runtime">
+    `Host`, `LLM`, `MockLLM`, `AnthropicLLM`, `Runtime`, `Trace`, `Society`.
+  </Accordion>
+  <Accordion title="Noyau, reprise, asynchrone (v1.9)">
+    `agentl.kernel` : `Kernel`, `ExecutionPermit`, `ActionRequest`, `current_action`, `require_permit`, `TCB_FILES`. `agentl.durable` : `DurableRun`, `FileStore`, `SQLiteStore`, `MemoryStore`, `NOT_EXECUTED`. `agentl.aio` : `AsyncHost`, `AsyncRuntime`, `AsyncSociety`, `Limits`.
+  </Accordion>
+  <Accordion title="Erreurs">
+    `AgentLError`, `ParseError`, `ReplayError`, `ReplayDivergence`. Depuis la v1.9 : `PermitError` (appel à l’hôte sans permis), `ActionInDoubt` (action indéterminée), `Cancelled`, `DurableError`.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  `AnthropicLLM` nécessite l’option `anthropic`. Le Core et `MockLLM` n’ont aucune dépendance externe.
+</Warning>

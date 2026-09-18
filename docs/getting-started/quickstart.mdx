@@ -1,0 +1,248 @@
+---
+title: "Démarrage rapide"
+description: "Faites écrire, vérifier et exécuter un agent AGENT-L gouverné."
+icon: "rocket"
+---
+
+Ce parcours fait écrire à un agent de codage un `SERVICE_GUARD` qui redémarre un service dégradé, sauf pendant une fenêtre de maintenance. Le skill `agentl-author` lui fournit la grammaire versionnée, le couple canonique et la chaîne de validation.
+
+<Steps>
+  <Step title="Vérifiez le skill d’écriture">
+    Placez-vous à la racine du dépôt, puis contrôlez que le skill correspond bien au parseur installé :
+
+```bash
+python3 SKILLS/agentl-author/scripts/sync_grammar.py --check
+```
+
+La commande doit annoncer que `agentl-author` est synchronisé. Si elle échoue, ne demandez pas au modèle d’improviser la grammaire : réalignez d’abord le contrat versionné.
+  </Step>
+
+  <Step title="Ouvrez votre agent de codage">
+    Le skill reste dans le dépôt. Le brief demandera explicitement à l’agent de lire et d’appliquer `SKILLS/agentl-author/SKILL.md`.
+
+<Tabs>
+  <Tab title="Codex" icon="terminal">
+
+```bash
+codex -C .
+```
+
+Pour une exécution non interactive, utilisez `codex exec --sandbox workspace-write -C .` suivi du même brief.
+  </Tab>
+  <Tab title="Claude Code" icon="terminal">
+
+```bash
+claude
+```
+
+Lancez Claude Code depuis la racine afin qu’il puisse lire le skill, écrire le couple et exécuter les portes locales.
+  </Tab>
+</Tabs>
+  </Step>
+
+  <Step title="Donnez le brief">
+    Copiez ce prompt dans Codex ou Claude Code :
+
+```text
+Utilise et applique le skill SKILLS/agentl-author/SKILL.md.
+
+Crée à la racine du dépôt un couple service_guard.agent / service_guard.py.
+L’agent SERVICE_GUARD doit :
+- maintenir service.status à healthy ;
+- observer le statut brut du service et maintenance.window ;
+- pouvoir appeler restart_service("api"), outil de risque HIGH ;
+- autoriser le redémarrage uniquement quand maintenance.window == closed ;
+- interdire irrévocablement le redémarrage quand maintenance.window == open ;
+- demander une approbation pour l’action HIGH ;
+- escalader explicitement si aucune route autorisée ne restaure le service ;
+- inclure un scénario nominal et un scénario où la maintenance bloque le redémarrage.
+
+L’hôte Python doit fournir les faits bruts, implémenter restart_service et
+notify_operator, utiliser MockLLM et garder toute décision métier dans le
+.agent. Passe le préflight du skill, puis check, test, verify et boundary.
+Ne lance aucun effet réel extérieur à ce monde simulé.
+```
+  </Step>
+
+  <Step title="Relisez le résultat attendu">
+    L’agent de codage peut varier les commentaires ou les noms internes, mais le résultat doit conserver ce contrat. Voici une implémentation de référence complète.
+
+<Tabs>
+  <Tab title="service_guard.agent">
+
+```text service_guard.agent
+AGENT SERVICE_GUARD {
+    GOAL restore { ACHIEVE service.status == healthy }
+
+    OBSERVE {
+        service.status
+        maintenance.window ON UNKNOWN ESCALATE
+    }
+
+    BELIEF {
+        service.status = unknown CONFIDENCE 0.10 SOURCE prior
+        escalation.sent = no CONFIDENCE 1.00 SOURCE prior
+    }
+
+    TOOL restart_service {
+        INPUT  { service: String }
+        OUTPUT { status: Symbol }
+        RISK   { operational = HIGH }
+        EFFECT { service.status = healthy }
+        COST   5
+    }
+
+    TOOL notify_operator {
+        INPUT  { message: String }
+        OUTPUT { delivered: Symbol }
+        RISK   LOW
+    }
+
+    POLICY {
+        DEFAULT DENY
+        ALLOW restart_service IF maintenance.window == closed
+        ALLOW notify_operator
+        NEVER restart_service WHEN maintenance.window == open
+        REQUIRE APPROVAL FOR restart_service WHEN action.risk >= HIGH
+    }
+
+    PLAN recover
+        WHEN service.status != healthy
+         AND maintenance.window == closed
+    {
+        STEP restart {
+            restart_service("api")
+            VERIFY service.status == healthy
+        }
+    }
+
+    PLANNER {
+        ENABLE
+        ACHIEVE service.status == healthy
+        MAX_DEPTH 2
+        MAX_NODES 50
+        APPROVAL_COST 10
+    }
+
+    PLAN escalate_to_operator {
+        STEP notify {
+            SET escalation.sent = yes
+            notify_operator("Redémarrage interdit pendant la maintenance")
+        }
+    }
+
+    DECIDE {
+        RULES {
+            IF planner.exhausted
+                AND service.status != healthy
+                AND escalation.sent != yes
+                THEN escalate_to_operator
+        }
+    }
+
+    SCENARIO nominal {
+        GIVEN {
+            service.status = degraded
+            maintenance.window = closed
+            operator.approval = yes
+        }
+        EXPECT { service.status == healthy } WITHIN 2
+    }
+
+    SCENARIO maintenance_blocks_restart {
+        GIVEN {
+            service.status = degraded
+            maintenance.window = open
+            operator.approval = yes
+        }
+        EXPECT { service.status != healthy } WITHIN 3
+    }
+
+    LOOP UNTIL goal.satisfied MAX 3 {
+        OBSERVE UPDATE_BELIEFS EVALUATE_GOALS
+        SELECT_PLAN EXECUTE VERIFY
+    }
+}
+```
+  </Tab>
+  <Tab title="service_guard.py">
+
+```python service_guard.py
+from agentl import Host, MockLLM, Symbol
+
+
+def build():
+    host = Host()
+    world = {"status": Symbol("degraded")}
+
+    host.sensors["service.status"] = lambda: world["status"]
+    host.sensors["maintenance.window"] = lambda: Symbol("closed")
+
+    def restart_service(service: str):
+        world["status"] = Symbol("healthy")
+        return {"status": world["status"]}
+
+    def notify_operator(message: str):
+        print(f"OPÉRATEUR ← {message}")
+        return {"delivered": Symbol("yes")}
+
+    host.tools["restart_service"] = restart_service
+    host.tools["notify_operator"] = notify_operator
+    host.approver = lambda request: True
+    return host, MockLLM()
+```
+  </Tab>
+</Tabs>
+  </Step>
+
+  <Step title="Vérifiez ce que l’agent a produit">
+    Même si l’agent de codage les a déjà lancées, reproduisez les portes depuis votre terminal :
+
+```bash
+python3 SKILLS/agentl-author/scripts/sync_grammar.py --check
+agentl check service_guard.agent
+agentl test service_guard.agent
+agentl verify service_guard.agent
+agentl boundary service_guard.agent
+```
+
+`check` valide la forme, `test` joue les deux scénarios, `verify` examine les propriétés de sûreté et `boundary` cherche les décisions métier cachées dans l’hôte.
+  </Step>
+
+  <Step title="Exécutez et rejouez">
+
+```bash
+agentl run service_guard.agent --record service_guard-run.json
+agentl replay service_guard-run.json
+```
+
+Le runtime charge automatiquement `service_guard.py`. Le rejeu re-dérive ensuite la décision sans rappeler l’hôte ni le modèle.
+  </Step>
+</Steps>
+
+## Faites mordre la politique
+
+Remplacez la valeur du capteur `maintenance.window` par `open`, puis relancez. Le plan peut toujours proposer `restart_service`, mais le `NEVER` reste irrévocable : ni le LLM, ni un `ALLOW`, ni une approbation ne peuvent le lever. `SERVICE_GUARD` garde alors le service dégradé et notifie l’opérateur au lieu de caler en silence.
+
+<Warning>
+  Un test nominal ne démontre pas une politique. Le scénario `maintenance_blocks_restart` est le contre-factuel qui fait réellement mordre l’interdit.
+</Warning>
+
+## Ce que le skill a fait respecter
+
+| Élément | Vit dans | Rôle |
+| --- | --- | --- |
+| `service.status == healthy` | `.agent` | définition métier du succès |
+| fenêtre de maintenance | `.agent` | règle de décision |
+| lecture du statut | `.py` | perception brute du monde |
+| redémarrage du processus | `.py` | effet réel de l’outil |
+| sélection et escalade | runtime + `.agent` | décision sous politique |
+
+<Columns cols={2}>
+  <Card title="Approfondir le modèle" icon="orbit" href="/getting-started/model">
+    Comprenez le cycle Observe → Believe → Plan → Act.
+  </Card>
+  <Card title="Maîtriser les politiques" icon="shield" href="/core/policies">
+    Découvrez la priorité des règles et la logique trivalente.
+  </Card>
+</Columns>

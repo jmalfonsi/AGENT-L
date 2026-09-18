@@ -1,0 +1,113 @@
+---
+title: "Sociétés multi-agents"
+description: "Coordonnez plusieurs agents sans diluer leurs contrats ni leurs politiques."
+icon: "network"
+---
+
+Un programme peut regrouper plusieurs blocs `AGENT`. `Society` les ordonnance, distribue les messages et conserve une trace par agent.
+
+## Un hôte par agent
+
+La fonction `build()` de l’hôte renvoie des dictionnaires indexés par les noms déclarés :
+
+```python society.py
+from agentl import Host, MockLLM
+
+
+def build():
+    analyst = Host()
+    responder = Host()
+
+    # Enregistrez ici les capteurs et outils de chaque rôle.
+
+    hosts = {
+        "soc_analyst": analyst,
+        "incident_responder": responder,
+    }
+    llms = {
+        "soc_analyst": MockLLM(),
+        "incident_responder": MockLLM(),
+    }
+    return hosts, llms
+```
+
+Un hôte fourni pour un nom absent du programme est refusé. Un agent sans hôte déclaré reste visible comme tel lors des inspections hors ligne.
+
+## Communiquer
+
+Les messages suivent les contrats du langage. Le runtime conserve l’émetteur, le destinataire et la charge utile dans la trace.
+
+```text
+MESSAGE incident_report {
+    TO incident_responder
+    PAYLOAD { host = suspected_host  confidence = P(credential_attack) }
+}
+```
+
+Le destinataire le traite dans un gestionnaire :
+
+```text
+ON MESSAGE incident_report {
+    THEN { lookup_asset(host=payload.host)  isolate(host=payload.host) }
+}
+```
+
+`RECEIVE` remet les messages en attente pendant le cycle de l’agent destinataire.
+
+## Ce qu’un autre agent envoie n’est pas fiable
+
+Depuis la v1.9, une charge utile `MESSAGE`, un retour `DELEGATE` et une lecture `SHARED` portent des [sources non fiables](/core/provenance). Un agent compromis ou trompé ne doit pas pouvoir choisir la cible de l’action d’un autre. Le destinataire re-valide la cible avec un outil à lui :
+
+```text
+POLICY {
+    NEVER isolate WHEN UNTRUSTED(host) AND NOT ATTESTED(host, lookup_asset)
+}
+```
+
+## Déléguer une capacité
+
+`DELEGATE` n’est pas un raccourci autour des règles. Le sous-agent doit être déclaré comme un `TOOL`, autorisé par la politique et implémenté dans `host.subagents`.
+
+```text
+TOOL prober {
+    INPUT  { }
+    OUTPUT { probe_code: Number, evidence: String }
+    RISK   LOW
+}
+
+POLICY {
+    DEFAULT DENY
+    ALLOW prober
+}
+
+DELEGATE prober {
+    TASK "sonder l’endpoint de santé"
+    EXPECT { probe_code, evidence }
+}
+```
+
+## Exécuter une société
+
+```bash
+agentl check society.agent
+agentl verify society.agent
+agentl run society.agent
+```
+
+Le runtime affiche ensuite les traces, les messages et l’état partagé.
+
+- `agentl run society.agent --durable runs/society` place toute la société sous un seul journal [durable](/core/durable-execution).
+- `agentl.aio.AsyncSociety` fait tiquer les agents **en même temps**, par tours synchronisés. Le résultat ne dépend pas de l’ordonnanceur. Voir [Exécution asynchrone](/core/async).
+
+## Principes de conception
+
+- donnez à chaque agent un objectif et une politique complets ;
+- échangez des faits ou des demandes structurés, pas un prompt global partagé ;
+- bornez les sorties de délégation par `EXPECT` ;
+- testez l’absence, le retard et la contradiction des messages, et un expéditeur hostile (`GIVEN MESSAGE … FROM attacker`) ;
+- re-validez toute cible reçue d’un autre agent ;
+- gardez les actions à risque sous la politique de l’agent qui les exécute.
+
+<Tip>
+  Le multi-agent ne remplace pas un plan. Créez plusieurs agents lorsque les rôles, capacités ou politiques diffèrent réellement, pas pour découper artificiellement une procédure linéaire.
+</Tip>

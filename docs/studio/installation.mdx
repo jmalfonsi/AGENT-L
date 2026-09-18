@@ -1,0 +1,95 @@
+---
+title: "Installer Studio"
+description: "Démarrez AGENT-L Studio en mode construit ou avec rechargement automatique."
+icon: "download"
+---
+
+Studio utilise un backend FastAPI et une interface React/Vite. Les commandes suivantes partent du dépôt AGENT-L.
+
+## Installation standard
+
+```bash
+cd STUDIO
+python3 -m pip install -r requirements.txt
+npm run install:ui
+npm run build
+npm start
+```
+
+Ouvrez ensuite [http://127.0.0.1:8765](http://127.0.0.1:8765). Le backend sert directement le build React.
+
+## Développement
+
+```bash
+cd STUDIO
+npm run dev
+```
+
+Le backend écoute sur `127.0.0.1:8765` et Vite sur `127.0.0.1:5173`, avec rechargement automatique des deux côtés.
+
+## Préparer un agent auteur
+
+Studio détecte les CLI installés et choisit l’auteur disponible par défaut.
+
+<CodeGroup>
+
+```bash Codex CLI
+codex login
+codex --version
+```
+
+```bash Claude Code
+claude
+claude --version
+```
+
+</CodeGroup>
+
+Sans auteur disponible, vous pouvez toujours explorer les projets existants et exécuter les commandes Core, mais la génération assistée échouera proprement.
+
+## Configurer un LLM runtime
+
+Placez les clés dans l’environnement du processus Studio :
+
+```bash
+export GEMINI_API_KEY="..."
+export ANTHROPIC_API_KEY="..."
+export OPENAI_API_KEY="..."
+npm start
+```
+
+Studio lit aussi `STUDIO/.env` puis `.env` à la racine du dépôt. Une variable déjà exportée garde la priorité.
+
+<Info>
+  Si `GEMINI_API_KEY` est disponible, les nouveaux projets utilisent Google Gemini par défaut. Sinon ils utilisent `MockLLM`, déterministe et hors ligne.
+</Info>
+
+## Déplacer les données
+
+```bash
+export AGENTL_STUDIO_DATA_DIR="/chemin/vers/agentl-studio-data"
+npm start
+```
+
+Par défaut, les données vivent dans `STUDIO/.data/`.
+
+## Protéger les écritures par un jeton
+
+```bash
+export AGENTL_STUDIO_TOKEN="un-secret-de-session"
+npm start
+```
+
+Lorsque ce jeton est défini, toute requête d’écriture vers l’API doit porter l’en-tête `X-Studio-Token`.
+
+## Vérifier l’installation
+
+```bash
+curl http://127.0.0.1:8765/api/health
+```
+
+La réponse indique la version AGENT-L, la version du contrat auteur, les CLI disponibles et l’état du jeton.
+
+<Card title="Créer le premier projet" icon="arrow-right" href="/studio/first-project">
+  Utilisez l’assistant, choisissez les skills et vérifiez la proposition initiale.
+</Card>

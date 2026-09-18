@@ -1,0 +1,9 @@
+# Engineering source documents are not public pages of the web documentation.
+SPEC.md
+QUALITY.md
+BOUNDARY.md
+audit-followup.md
+boundary-example-debt.json
+agentl.ebnf
+agents/
+formal/

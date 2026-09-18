@@ -1,0 +1,128 @@
+---
+title: "AGENT-L"
+description: "Construisez des agents dont les objectifs, capacités et interdits sont analysables avant l’exécution."
+icon: "sparkles"
+---
+
+AGENT-L est un langage agentique déclaratif, analysé statiquement et interprété. Un programme ne décrit pas une suite d’appels : il déclare **ce que l’agent poursuit**, **ce qu’il perçoit**, **ce qu’il peut faire** et **ce qu’il ne doit jamais faire**.
+
+Le LLM propose. Le runtime décide.
+
+<Columns cols={3}>
+  <Card title="Écrire un agent" icon="braces" href="/getting-started/quickstart">
+    Passez d’un objectif à un agent exécutable, avec son hôte Python.
+  </Card>
+  <Card title="Prouver ses garde-fous" icon="shield-check" href="/core/quality-gates">
+    Analysez la forme, les politiques, les routes de repli et la frontière hôte/agent.
+  </Card>
+  <Card title="Travailler dans Studio" icon="panels-top-left" href="/studio/overview">
+    Créez, testez et tracez vos projets depuis une interface locale.
+  </Card>
+</Columns>
+
+## Pourquoi AGENT-L
+
+Dans un agent conversationnel classique, objectifs, règles et outils finissent souvent dans le même prompt. Ils deviennent difficiles à inspecter et encore plus difficiles à tester. AGENT-L les transforme en primitives explicites.
+
+```text soc_analyst.agent
+AGENT SOC_ANALYST {
+    GOAL containment { MAINTAIN threat.status == contained }
+
+    OBSERVE { threat.status asset.criticality suspected_host }
+
+    TOOL isolate_endpoint {
+        INPUT  { host: String BIND suspected_host }
+        RISK   { operational = HIGH }
+        EFFECT { threat.status = contained }
+        COST   8
+    }
+
+    POLICY {
+        DEFAULT DENY
+        ALLOW isolate_endpoint IF threat.confirmed == yes
+        NEVER isolate_endpoint WHEN asset.criticality == CRITICAL
+    }
+}
+```
+
+<Columns cols={2}>
+  <Card title="Déclaratif, pas conversationnel" icon="file-code-2">
+    Les objectifs, outils, risques, effets et règles vivent dans l’AST, pas dans une consigne libre.
+  </Card>
+  <Card title="Fermé par défaut" icon="lock-keyhole">
+    Un outil absent du contrat n’existe pas. Une approbation absente est un refus.
+  </Card>
+  <Card title="Vérifiable hors ligne" icon="scan-search">
+    Les portes de qualité ne nécessitent ni clé de modèle, ni réseau, ni exécution réelle.
+  </Card>
+  <Card title="Rejouable" icon="history">
+    Les franchissements de frontière peuvent être enregistrés, scellés et rejoués sans toucher au monde.
+  </Card>
+</Columns>
+
+## Nouveautés de la v1.9
+
+<Columns cols={2}>
+  <Card title="Noyau et permis" icon="key-round" href="/core/kernel">
+    Aucun outil n’est appelé sans un permis du noyau, lié aux arguments exacts approuvés.
+  </Card>
+  <Card title="Exécution durable" icon="database-backup" href="/core/durable-execution">
+    Reprendre après un crash sans doubler un virement.
+  </Card>
+  <Card title="Provenance des valeurs" icon="fingerprint" href="/core/provenance">
+    `NEVER wipe WHEN UNTRUSTED(host)` : la politique lit d’où vient une cible.
+  </Card>
+  <Card title="Exécution asynchrone" icon="workflow" href="/core/async">
+    Hôtes async, concurrence bornée, délais, sociétés réellement concurrentes.
+  </Card>
+</Columns>
+
+<Note>
+  La v1.9 est dans la branche principale et n’est pas encore publiée : le paquet reste numéroté 1.8.2. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
+</Note>
+
+## Deux façons de travailler
+
+<Tabs>
+  <Tab title="Core / CLI" icon="terminal">
+    Écrivez les couples normatifs `X.agent` / `X.py`, puis passez-les dans la chaîne de qualité et le runtime Python.
+
+    ```bash
+    agentl check agent.agent
+    agentl test agent.agent
+    agentl verify agent.agent
+    agentl boundary agent.agent
+    agentl run agent.agent
+    ```
+  </Tab>
+  <Tab title="Studio" icon="panels-top-left">
+    Gérez les projets, les skills, les propositions de l’agent auteur, les exécutions et leurs traces depuis une application locale.
+
+    ```bash
+    cd STUDIO
+    python3 -m pip install -r requirements.txt
+    npm run install:ui && npm run build && npm start
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Le Core fonctionne avec Python 3.10+ et la bibliothèque standard uniquement. Studio ajoute FastAPI, Uvicorn et l’interface React.
+</Note>
+
+## Choisissez votre prochain pas
+
+<Columns cols={2}>
+  <Card title="Installer AGENT-L" icon="package-plus" href="/getting-started/installation">
+    Installez le Core seul ou avec les options utiles.
+  </Card>
+  <Card title="Construire le premier agent" icon="rocket" href="/getting-started/quickstart">
+    Suivez un parcours complet en moins de dix minutes.
+  </Card>
+  <Card title="Comprendre le modèle" icon="orbit" href="/getting-started/model">
+    Voyez où vivent les décisions, les faits et le LLM.
+  </Card>
+  <Card title="Ouvrir Studio" icon="monitor-play" href="/studio/installation">
+    Lancez l’atelier local en production ou en développement.
+  </Card>
+</Columns>
