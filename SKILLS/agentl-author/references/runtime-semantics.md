@@ -5,7 +5,7 @@ sur une exécution : « pourquoi N ticks ? », « pourquoi cette action a-t-elle
 été bloquée / approuvée / autorisée ? », « que dit cette ligne bayésienne ? »,
 « que signifie ce code E/W/V/B ? ». Toutes les affirmations ci-dessous sont
 vérifiables dans
-`~/AGENT-L/agentl/{runtime,policy,bayes,verifier,analyzer,boundary,replay}.py`
+`~/AGENT-L/agentl/{runtime,policy,bayes,verifier,analyzer,boundary,replay,durable,aio}.py`, `agentl/kernel/`
 et `docs/SPEC.md`.
 
 ---
@@ -155,6 +155,8 @@ Erreurs `E` (refus d'exécuter) :
 | `E012` | nom d'AGENT dupliqué, sans distinction de casse |
 | `E013` | signature d'appel TOOL invalide : manquant, inconnu, excès ou double liaison |
 | `E014` | assertion de scénario portant sur un outil ou événement inconnu |
+| `E015` | **fonction inconnue** dans une expression : elle serait inévaluable à l'exécution, et une garde `NEVER` qui la contient interdirait l'outil pour toujours sans que rien ne le dise (v1.9 ; avant, `CONFIDENCE(x)` ou `len(xs)` étaient signalés E009 à tort) |
+| `E016` | **fonction de provenance mal employée** (v1.9) : premier argument qui n'est pas un chemin, `action` hors d'une garde de politique, `ATTESTED(action)`, second argument d'`ATTESTED` qui ne nomme pas un `TOOL` déclaré |
 | `W127` | `DELEGATE` vers un sous-agent qu'aucun `TOOL` ne décrit — risque supposé `CRITICAL` |
 | `W128` | garde `NEVER`/`DENY`/`APPROVAL` portant sur un identifiant **nu** que rien ne renseigne : lu comme constante symbolique, la règle ne s'appliquerait pas — préférer un chemin pointé |
 | `V150` | `EFFECT` sur le monde qu'aucune `OBSERVE` ne recouvre : la postcondition ne peut **jamais** être démentie (T9). Ajouter l'observation, ou marquer l'effet `INTERNAL` s'il porte sur la comptabilité de l'agent |
@@ -329,6 +331,11 @@ réseau**. Ce qu'il faut savoir pour l'expliquer :
   `RecordingLLM`, `ReplayHost`, `ReplayLLM`, `verify_trace`
   (`agentl/replay.py`, SPEC §26).
 
+**Rejeu ≠ reprise.** `replay` re-dérive une exécution **terminée**. Reprendre
+une exécution **interrompue** (crash, redémarrage) est le rôle de
+l'exécution durable (§10). Les deux partagent le même journal et la même
+propriété : le cœur n'a aucune source de non-déterminisme propre.
+
 ## 8. Théorèmes de sécurité v1.5
 
 - **T6 — provenance corrélée** : réfute toute sortie LLM pilotant une cible
@@ -354,3 +361,127 @@ inconditionnelle pour se taire. Les contrats TEST (oracles explicites,
 UNKNOWN, bornes, stimuli, assertions, suite vide) sont détaillés dans
 [scenarios.md](scenarios.md). Les avertissements CHECK restent non bloquants ;
 W117/W118 rendent en revanche un scénario invalide pour TEST.
+
+---
+
+## 9. Le noyau à permis — pourquoi une action passe ou non (v1.9)
+
+L'autorisation et l'exécution ne vivent plus dans l'interpréteur. Elles vivent
+dans un **noyau** de quelques fichiers (`agentl/kernel/`, liste dans
+`agentl.kernel.TCB_FILES`). L'interpréteur **propose** une action ; le noyau
+la juge et, si elle passe, émet un **permis** :
+
+1. la proposition est figée (copie isolée). Si elle ne se laisse pas copier →
+   `BLOCKED … proposition non isolable — refus (fail-closed)` ;
+2. la politique est évaluée (§2). Si elle lève → `politique inévaluable —
+   repli fermé (DENY)` ;
+3. si une approbation est requise, l'approbateur reçoit **une autre copie**.
+   S'il lève, la trace dit `non approuvé` : une exception de l'approbateur
+   vaut refus, jamais accord ;
+4. le permis est émis **en dernier** : il est à usage unique et lié au
+   condensat canonique de l'action (outil ou sous-agent, arguments).
+
+`Host.invoke` et le registre `host.subagents` **exigent** ce permis. Un appel
+direct lève `PermitError`, et un permis présenté pour d'autres arguments aussi.
+Ce qui a été approuvé est donc exactement ce qui s'exécute. Un défaut dans le
+planificateur, l'inférence, le Studio ou un hôte peut produire une mauvaise
+**proposition** ; il ne peut plus produire une exécution que la politique n'a
+pas autorisée.
+
+Conséquences pour l'auteur :
+
+- **Tester un outil de l'hôte** : appeler la fonction enregistrée
+  (`host.tools["x"](**args)`). Pour tester le passage gouverné, utiliser
+  `agentl.kernel.testing.dispatch(host, "x", args)`. Ne pas appeler
+  `host.invoke` directement dans un test : il lève `PermitError`.
+- **Dans un outil**, `agentl.kernel.current_action()` rend le contexte de
+  l'action en cours : `action_id`, `idempotency_key`, `attempt`. C'est la
+  clé à transmettre au service tiers (§10).
+- La trace est inchangée : les journaux dorés de la v1.8.2
+  (`tests/golden/v1.8.2`) se rejouent à l'octet.
+
+## 10. Exécution durable — reprendre sans doubler un effet (v1.9)
+
+```
+python3 -m agentl run    examples/xxx.agent --durable runs/xxx     # neuve, ou reprise
+python3 -m agentl durable status runs/xxx                            # sans reprendre
+python3 -m agentl durable export runs/xxx                            # → journal de rejeu
+```
+
+La même commande démarre et reprend : c'est le journal du répertoire qui dit
+laquelle des deux on fait. `--durable` et `--record` s'excluent (un journal
+durable s'exporte). `--run-id` fixe l'identifiant. API :
+`agentl.durable.DurableRun(agent, host, llm, store=FileStore(dir)).run(max_ticks)`
+(aussi `SQLiteStore`, `MemoryStore`).
+
+**Le protocole d'une action.** Permis émis → **intention** écrite et
+synchronisée sur disque (fsync) → appel à l'hôte → **résultat** écrit → point
+de contrôle en fin de tick (empreintes d'état et de trace).
+
+**À la reprise**, le programme est ré-exécuté depuis le tick 0, chaque
+franchissement servi par le journal : aucun effet, aucun appel au modèle,
+aucune question. Un point de contrôle qui ne correspond pas à l'état
+re-dérivé arrête tout, de même qu'un programme modifié. Une intention
+restée **sans résultat** est tranchée, et la sortie le dit :
+
+| Ligne de sortie | Quand |
+|---|---|
+| `relancée avec la même clé d'idempotence` | l'outil est déclaré `idempotent=True` : l'hôte promet que son service ignore une seconde requête de même clé |
+| `réconciliée : l'effet avait eu lieu` | un `@host.reconciler("outil")` a retrouvé l'effet et rendu son résultat |
+| `réconciliée : l'effet n'avait pas eu lieu, exécutée` | le réconciliateur a rendu `agentl.durable.NOT_EXECUTED` |
+| `INDÉTERMINÉE — non relancée, à trancher par un humain` | aucun des deux : l'action n'est **pas** relancée (au plus une fois) |
+
+Une action indéterminée pose trois faits : une trace `ERROR … effet
+indéterminé`, `<side_effect>.dirty = true` pour chaque `SIDE_EFFECT` déclaré
+(aucun `EFFECT` n'est présumé), et **`tools.<outil>.in_doubt = true`**,
+lisible par la politique :
+
+```agentl
+NEVER transfer WHEN tools.transfer.in_doubt == true
+```
+
+`tools.<outil>.in_doubt` vaut `false` au démarrage : la garde n'est pas
+indéterminée sur un run neuf.
+
+Ce qui est garanti, et rien de plus :
+
+- une action dont le résultat est journalisé ne se ré-exécute jamais ;
+- une action interrompue s'exécute **exactement une fois** si l'hôte honore
+  la clé ou réconcilie, **au plus une fois** sinon ;
+- lectures, questions et approbations en vol sont refaites (sans effet) ;
+  les événements d'un `drain` en vol sont perdus ;
+- la clé est générée par le runtime, stable d'une reprise à l'autre. Elle ne
+  se **fait respecter** que par le service de l'hôte.
+
+Refus à connaître : `le programme a changé depuis le début de cette
+exécution` (le `.agent` a été modifié), `journal durable altéré`, `reprise
+impossible au franchissement #n` (`ReplayDivergence` : ce qui est re-dérivé
+ne correspond pas au journal, par exemple une approbation journalisée pour
+d'autres arguments). La chaîne du journal est un SHA-256 **sans clé** : elle
+détecte une corruption ou une réécriture naïve, pas un faussaire qui
+recalcule tout.
+
+## 11. Exécution asynchrone (v1.9)
+
+`agentl.aio` : `AsyncHost` (capteurs, outils, approbateur en `async def`),
+`AsyncRuntime` (un agent), `AsyncSociety` (plusieurs, réellement
+concurrents), `Limits` (bornes).
+
+- **Un agent reste séquentiel.** Chaque action est jugée sur l'état laissé
+  par la précédente. La concurrence est **entre** agents et **aux
+  frontières** : attendre un outil ne bloque que l'agent qui attend.
+- **Contre-pression** : `Limits(max_concurrent_tools=8,
+  max_concurrent_llm=4, …)`. Au-delà, l'appel attend son tour.
+  `inbox_capacity` borne les messages en attente ; un message refusé est
+  tracé et compté.
+- **Délais**, et leur sens :
+  - capteur trop lent → il ne perçoit rien (`UNKNOWN`) ;
+  - modèle trop lent → oracle muet (`DEFAULT`, `reason.degraded`) ;
+  - **outil** trop lent → action **indéterminée** (`ActionInDoubt`), jamais
+    un succès présumé ni une relance aveugle.
+- **Annulation** coopérative : l'agent s'arrête au prochain franchissement.
+  En exécution durable, l'action interrompue est tranchée à la reprise.
+- `AsyncSociety` avance par tours synchronisés : chaque agent tique sur un
+  instantané de la mémoire partagée, et messages et écritures `SHARED` sont
+  fusionnés à la barrière, dans l'ordre déclaré. Même programme, mêmes hôtes :
+  même résultat, quel que soit l'ordonnanceur.

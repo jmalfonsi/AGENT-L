@@ -56,6 +56,40 @@ jobs:
           ! agentl verify examples/unsafe.agent
           ! agentl verify examples/gmail_butler_naif.agent
 
+      # v1.9 : la même commande démarre puis reprend une exécution durable ;
+      # l'export doit se rejouer à l'identique. Les pannes elles-mêmes sont
+      # injectées par tests/test_durable*_aaa.py.
+      - name: Exécution durable (CLI)
+        run: |
+          set -e
+          dir=$(mktemp -d)
+          cp SKILLS/agentl-author/references/generated/canonical.* "$dir/"
+          agentl run "$dir/canonical.agent" --durable "$dir/run" --quiet > /dev/null
+          agentl run "$dir/canonical.agent" --durable "$dir/run" --quiet > /dev/null
+          agentl durable status "$dir/run"
+          agentl durable export "$dir/run" -o "$dir/j.json"
+          agentl replay "$dir/j.json" --quiet > /dev/null
+
+  # Banc comparatif (v1.9) : environnement isolé et figé — le paquet agentl
+  # reste sans dépendance. Échoue si un verdict dérive d'expected.json : un
+  # framework qui corrige un défaut, ou AGENT-L qui en gagne un, se voit ici.
+  frameworks-bench:
+    name: Banc comparatif (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Environnement figé
+        working-directory: bench/frameworks
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.lock
+      - name: Verdicts (deux répétitions)
+        working-directory: bench/frameworks
+        run: .venv/bin/python run.py --check --repeat 2
+
   automationbench:
     name: AutomationBench / AITESTPLATFORM (Python 3.13)
     runs-on: ubuntu-latest

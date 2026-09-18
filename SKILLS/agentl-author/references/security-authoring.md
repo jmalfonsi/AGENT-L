@@ -1,4 +1,4 @@
-# Sécurité d’auteur AGENT-L (v1.5)
+# Sécurité d’auteur AGENT-L (v1.5, provenance v1.9)
 
 Lire cette référence pour tout agent qui consomme du texte non fiable, agit sur
 une cible externe, modifie un système ou peut clore un cycle de traitement.
@@ -51,6 +51,109 @@ une cible externe, modifie un système ou peut clore un cycle de traitement.
 
 `ATTESTS` rend la liaison vérifiable ; il ne remplace jamais la fraîcheur,
 l’usage unique et la revalidation d’identité dans l’hôte.
+
+
+## Provenance portée par les valeurs (v1.9)
+
+Jusqu'en v1.8, la provenance était une propriété **statique** : `W119`,
+`W125` et T6 reconnaissent des motifs de noms dans l'AST. Depuis la v1.9,
+chaque valeur de l'état porte aussi une **étiquette** : l'ensemble des
+sources qui ont servi à la calculer. La politique peut la lire au moment
+d'autoriser l'action, quel que soit le chemin suivi par la valeur (recopie,
+arithmétique, branche `IF`, plan choisi par le modèle).
+
+### Les sources
+
+| Source | Posée par | Non fiable ? |
+|---|---|---|
+| `DECLARED` | littéral ou déclaration du programme | non |
+| `OBSERVED` | capteur déclaré dans `OBSERVE` | non |
+| `HUMAN` | réponse d'opérateur (`ASK`) | non |
+| `RUNTIME`, `EFFECT`, `INFERRED`, `FALLBACK` | faits du runtime, `EFFECT` prédit, postérieur bayésien, repli d'un capteur muet | non |
+| `TOOL` | sortie d'outil (frontière externe) | **oui** |
+| `LLM` | sortie de `REASON`, plan choisi par le modèle | **oui** |
+| `MESSAGE`, `EVENT`, `DELEGATE` | charges utiles et retours de sous-agent | **oui** |
+| `SHARED`, `MEMORY` | mémoire écrite par un autre agent, mémoire rechargée | **oui** |
+| `EXTERNAL` | valeur que l'hôte déclare non fiable (`untrusted(...)`) | **oui** |
+| `UNKNOWN` | aucune étiquette connue | **oui** (fail-closed) |
+
+L'union ne retire jamais rien : aucune transformation ne blanchit une valeur.
+Le **flux implicite** est suivi : `IF payload.urgent == yes THEN { SET env =
+"prod" }` donne à `env` l'étiquette du message, même si `"prod"` est un
+littéral. Sans cela, une injection choisirait une constante « de confiance ».
+
+### Les fonctions de garde
+
+| Fonction | Rend |
+|---|---|
+| `UNTRUSTED(x)` | vrai si une source de `x` est non fiable |
+| `TRUSTED(x)` | la négation |
+| `LLM_DERIVED(x)` | vrai si `LLM` figure parmi les sources de `x` |
+| `ATTESTED(x)` · `ATTESTED(x, outil)` | vrai si un outil (cet outil) a **accepté** la valeur de `x` en argument |
+| `ORIGIN(x)` | la liste des sources, en symboles |
+
+`x` est un **chemin** : un argument de l'action jugée (`host`, `to`), ou tout
+chemin de l'état. `action` désigne l'action entière (ses arguments et la
+décision qui l'a produite) : `NEVER wipe WHEN UNTRUSTED(action)`. Il ne se lit
+que dans une garde de politique, et `ATTESTED(action)` n'existe pas.
+
+```agentl
+NEVER wipe_host WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_wipeable)
+NEVER transfer  WHEN LLM_DERIVED(to) AND NOT ATTESTED(to, resolve_account)
+NEVER transfer  WHEN tools.transfer.in_doubt == true
+```
+
+La dernière ligne n'est pas une garde de provenance. C'est le fait posé par
+l'exécution durable quand un virement est resté indéterminé après une panne
+(`runtime-semantics.md` §10). Elle a sa place dans la même politique.
+
+### Les règles à connaître
+
+1. **Une valeur absente rend la garde indéterminée.** Un `NEVER` s'applique
+   sous `UNKNOWN`, un `ALLOW` ne compte pas. Écrire la protection en `NEVER` :
+   `ALLOW outil WHEN TRUSTED(x)` est fermé tant qu'il est seul, mais une autre
+   règle `ALLOW` sur le même outil suffit à le contourner. Un `NEVER` ne se
+   rachète ni par un `ALLOW` ni par une approbation.
+2. **Attesté ≠ fiable.** `ATTESTED(x, v)` dit que l'outil `v` a été appelé
+   avec succès sur cette valeur. L'étiquette de `x` ne change pas.
+   **Tout appel réussi atteste ses arguments**, même si l'outil répond
+   `{"ok": "no"}`. Un validateur doit donc **lever une exception** pour
+   refuser une cible. Un validateur qui « répond non » atteste quand même.
+3. **L'hôte peut dégrader, jamais élever.** Un capteur qui lit du texte tiers
+   rend `untrusted(valeur)` (`agentl.kernel.provenance`) : la valeur reçoit
+   `EXTERNAL` en plus d'`OBSERVED`. Il n'existe aucun moyen de rendre fiable
+   une valeur depuis l'hôte.
+4. **`E016`** refuse une fonction de provenance mal employée : premier
+   argument qui n'est pas un chemin, `action` hors d'une garde de politique,
+   `ATTESTED(action)`, second argument qui ne nomme pas un `TOOL` déclaré.
+   **`E015`** refuse tout nom de fonction inconnu dans une expression :
+   l'expression serait inévaluable, la garde indéterminée pour toujours.
+5. **Les scénarios voient les mêmes étiquettes** : un chemin `OBSERVE` posé
+   par `GIVEN` est `OBSERVED`, une réponse `REASON` est `LLM`
+   (`scenarios.md` §2). Une garde de provenance se teste avec
+   `EXPECT NEVER CALL` + `EXPECT BLOCKED`.
+
+### Ce que `check` et `verify` ne voient pas encore
+
+Les gardes de provenance agissent **à l'exécution**. `W119`, `W125` et T6 ne
+les créditent pas : un agent protégé par `NEVER … WHEN UNTRUSTED(target)`
+reste signalé tant qu'il n'a pas le motif statique (`ATTESTS`, garde
+d'injection). Conséquence pratique :
+
+- pour une cible risquée, écrire **les deux** : le motif `ATTESTS` de la
+  v1.5, qui rend T6 démontrable, **et** la garde de provenance, qui tient
+  même quand la valeur arrive par un chemin que l'analyse statique ne suit
+  pas ;
+- ne jamais justifier un `W119` par « la garde UNTRUSTED couvre » : c'est
+  une défense en profondeur, pas une preuve.
+
+### Ce qu'une garde de provenance ne fait pas
+
+- Elle protège **à qui** et **sur quoi** on agit, pas **ce que contient** un
+  champ `String` sortant (principe 9 du SKILL).
+- Elle dépend de la politique écrite. Le banc comparatif
+  (`bench/frameworks/`) montre qu'un agent AGENT-L **sans** la ligne
+  `NEVER … UNTRUSTED(host)` exécute l'injection comme les autres frameworks.
 
 
 ## Périmètre de Boundary après l’audit

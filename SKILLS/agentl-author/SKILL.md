@@ -1,6 +1,6 @@
 ---
 name: agentl-author
-description: "Crée, modifie, débogue, vérifie et explique des agents AGENT-L et leurs hôtes Python. Utiliser pour tout fichier .agent, TOOL, POLICY, HYPOTHESIS, PLANNER, SCENARIO, FOREACH ou REASON ; pour automatiser des workflows métier vérifiables ; et pour analyser les ticks, refus, approbations, inférences, traces ou diagnostics E/W/V/B. Applique le contrat de grammaire versionné puis la chaîne check→test→verify→boundary→autoloop→run→replay."
+description: "Crée, modifie, débogue, vérifie et explique des agents AGENT-L et leurs hôtes Python. Utiliser pour tout fichier .agent, TOOL, POLICY, HYPOTHESIS, PLANNER, SCENARIO, FOREACH ou REASON ; pour les gardes de provenance (UNTRUSTED, LLM_DERIVED, ATTESTED), l'exécution durable (--durable, idempotence, réconciliation) et les hôtes asynchrones ; pour automatiser des workflows métier vérifiables ; et pour analyser les ticks, refus, approbations, reprises, inférences, traces ou diagnostics E/W/V/B. Applique le contrat de grammaire versionné puis la chaîne check→test→verify→boundary→autoloop→run→replay."
 ---
 
 # Écrire un agent AGENT-L
@@ -36,6 +36,30 @@ python3 ~/AGENT-L/SKILLS/agentl-author/scripts/sync_grammar.py --check
 
 Pour un agent à effets de bord ou alimenté par du texte non fiable, lire ensuite
 `references/security-authoring.md` : cette référence est obligatoire.
+
+## Ce qui change en v1.9 pour l'auteur
+
+- **Provenance dans les valeurs.** Chaque valeur porte l'ensemble de ses
+  sources (`OBSERVED`, `LLM`, `TOOL`, `MESSAGE`…). La politique la lit :
+  `NEVER wipe WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_wipeable)`.
+  Aucune transformation ne blanchit une valeur. `check` refuse une fonction
+  inconnue (`E015`) ou une fonction de provenance mal employée (`E016`).
+  `W119`/T6 ne créditent pas encore ces gardes : garder le motif `ATTESTS`
+  en plus. Détail : `references/security-authoring.md`.
+- **Noyau à permis.** `host.invoke` exige un permis émis par le noyau après
+  la politique et l'approbation, lié aux arguments exacts. Un test qui
+  appelait `host.invoke` directement lève désormais `PermitError` : appeler
+  `host.tools["x"](...)`, ou `agentl.kernel.testing.dispatch`.
+- **Exécution durable.** `agentl run xxx.agent --durable runs/xxx` survit à
+  un crash sans doubler un effet si l'outil est `idempotent=True` (clé
+  `current_action().idempotency_key`) ou réconciliable ; sinon l'action
+  devient indéterminée et `tools.<outil>.in_doubt` le dit à la politique.
+- **Asynchrone.** `agentl.aio` : `AsyncHost`, `AsyncRuntime`,
+  `AsyncSociety`, `Limits` (concurrence bornée, délais). Un outil qui dépasse
+  son délai est **indéterminé**, jamais réussi.
+- **`SCENARIO`** : les assertions de trace (`EXPECT NEVER CALL`, `EXPECT
+  BLOCKED`…) et les stimuli (`GIVEN EVENT`, `GIVEN MESSAGE … FROM`) sont
+  documentés dans `references/scenarios.md`.
 
 Le script ne se contente pas de comparer des hashes : il parse et analyse
 l'exemple canonique, joue ses scénarios, lance `verify` et `boundary`, exécute
@@ -196,6 +220,14 @@ Ce que chacune doit montrer :
   franchissement de frontière sur une empreinte SHA-256 ; `replay` re-dérive la
   décision sans capteur ni réseau, et le verdict est l'égalité caractère pour
   caractère. À joindre dès qu'un run doit être auditable ou rejouable.
+- **`--durable DIR`** — obligatoire pour un agent dont un effet ne doit
+  **jamais** se produire deux fois (paiement, envoi, suppression). Le run de
+  panne se fait alors aussi en **tuant le processus** en plein outil, puis en
+  relançant la même commande : `agentl durable status DIR` doit montrer
+  comment l'action a été tranchée (relancée, réconciliée ou indéterminée), et
+  le monde ne doit porter l'effet qu'une fois. Un outil à effet sans
+  `idempotent=True` ni réconciliateur finit **indéterminé** : c'est voulu,
+  mais la politique doit le lire (`tools.<outil>.in_doubt`).
 - **`--html`** — journal visuel autonome (`references/visual-trace.md`) : chaque
   tick, chaque paramètre d'outil, chaque décision. À joindre à toute revue.
 
@@ -235,14 +267,14 @@ vérifier un hôte ne doit pas exécuter de code arbitraire.
 |---|---|
 | `references/generated/grammar-contract.md` | **toujours avant d'écrire** : versions/hashes et champs extraits de l'AST du parseur. Généré, jamais édité à la main. |
 | `references/generated/canonical.agent` + `.py` | couple minimal exécutable, régénéré et soumis à toutes les portes plus un test de mutation. Le copier, ne pas le réinventer. |
-| `references/security-authoring.md` | **obligatoire pour effets de bord, cibles ou texte non fiable** : `DEFAULT`, `ATTESTS`, approbation, réobservation, rollback, T6/T7 et W119–W125/B008–B014. |
+| `references/security-authoring.md` | **obligatoire pour effets de bord, cibles ou texte non fiable** : `DEFAULT`, `ATTESTS`, approbation, réobservation, rollback, T6/T7 et W119–W125/B008–B014 ; **provenance v1.9** (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`, `ORIGIN`, E015/E016). |
 | [references/scenarios.md](references/scenarios.md) | **pour écrire ou corriger un test** : sorties et choix explicites, stimuli, assertions, portée de TEST/T5 et codes de sortie. |
 | `references/authoring.md` | **pour écrire** : procédure, formes fragiles et pièges appris en production. À lire en entier avant de coder. |
 | `references/business-workflows.md` | **données d'entreprise** (tickets, e-mails, feuilles, CRM) : règle de partage détaillée, `FOREACH`, `REASON` à domaine clos, motifs de `POLICY` qui portent, pièges des API réelles, liste de contrôle de livraison. |
-| `references/runtime-semantics.md` | **pour expliquer un run** : pourquoi N ticks, ordre d'évaluation de la politique, ligne bayésienne, séparation de canaux, **glossaire complet E/W/V/B**, métriques, rejeu. |
-| `references/composition.md` | **pour orchestrer** : `DELEGATE`, `MESSAGE` + `Society`, `MEMORY { SHARED }`, motif hiérarchique. |
+| `references/runtime-semantics.md` | **pour expliquer un run** : pourquoi N ticks, ordre d'évaluation de la politique, ligne bayésienne, séparation de canaux, **glossaire complet E/W/V/B**, métriques, rejeu ; **noyau à permis, exécution durable (`--durable`, reprise, indéterminé), asynchrone** (v1.9). |
+| `references/composition.md` | **pour orchestrer** : `DELEGATE`, `MESSAGE` + `Society`, `MEMORY { SHARED }`, motif hiérarchique ; confiance entre agents, `AsyncSociety`, société durable (v1.9). |
 | `references/visual-trace.md` | le journal visuel `--html`. |
-| `~/AGENT-L/docs/SPEC.md` | sémantique faisant autorité (§16 inférence, §17 planification, §21 vérification, §22 calibration, §26 rejeu, §27 `SCENARIO`). |
+| `~/AGENT-L/docs/SPEC.md` | sémantique faisant autorité (§16 inférence, §17 planification, §21 vérification, §22 calibration, §26 rejeu, §27 `SCENARIO`, §34–§38 noyau, provenance, exécution durable, asynchrone, validation externe). |
 | `~/AGENT-L/docs/agentl.ebnf` | grammaire formelle. |
 
 Exemples de référence : `soc_analyst.agent` (inférence calibrée + planification
@@ -256,7 +288,10 @@ DELEGATE, autonomie) · `disk_sentinel.agent` (approbation) · `supervisor.agent
 1. **Le LLM qualifie ; il ne choisit ni cible ni autorisation.** Les entités et
    cibles viennent de capteurs déterministes et portent une preuve distincte
    `ATTESTS`. Le LLM produit une classe bornée avec un `DEFAULT` inoffensif.
-   La confiance d’une menace vient d’une `HYPOTHESIS` calculée.
+   La confiance d’une menace vient d’une `HYPOTHESIS` calculée. Depuis la
+   v1.9, doubler `ATTESTS` d'une garde d'exécution qui suit la valeur :
+   `NEVER <action> WHEN UNTRUSTED(<cible>) AND NOT ATTESTED(<cible>, <validateur>)`.
+   Un validateur **lève** pour refuser : tout appel réussi atteste.
    « Inoffensif » a un sens précis et **vérifiable** : lié à son défaut, le
    champ doit *déclencher* l'interdit qu'il garde. Troncature, JSON invalide
    et oracle muet aboutissent tous au défaut — c'est le chemin que prend
@@ -301,10 +336,12 @@ DELEGATE, autonomie) · `disk_sentinel.agent` (approbation) · `supervisor.agent
     | `tools.<nom>.failures` | nombre de levées consécutives, remis à zéro au premier succès |
     | `reason.degraded` | `true` quand l'oracle n'a rendu **aucun** champ du `PRODUCE` |
     | `reason.missing` | la liste des champs qu'il n'a pas rendus |
+    | `tools.<nom>.in_doubt` | `true` quand une reprise durable n'a pas pu trancher si l'action a eu lieu (v1.9) |
 
     ```agentl
     NEVER close_batch  WHEN tools.update_row.available == false
     NEVER apply_change WHEN reason.degraded == true
+    NEVER transfer     WHEN tools.transfer.in_doubt == true
     ```
 
     Sans ces gardes, un oracle mort n'empêche **rien** : les plans dont la

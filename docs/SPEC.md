@@ -2171,3 +2171,263 @@ signale les GIVEN invalides (`V127`).
 Les détails, reproductions, adaptations des exemples et limites sont décrits
 dans [audit-followup.md](audit-followup.md). La grammaire EBNF fait foi pour
 les formes acceptées.
+
+---
+
+## 34. Le noyau de confiance et les permis (v1.9)
+
+Jusqu'en v1.8, l'autorisation et l'appel à l'hôte vivaient dans
+l'interpréteur (`runtime.py`) : toute ligne de l'interpréteur, du
+planificateur ou du Studio pouvait, par erreur, appeler `Host.invoke`. La
+garantie « aucune action interdite n'atteint le monde » dépendait donc de
+plusieurs milliers de lignes.
+
+Elle dépend désormais d'un **noyau** : `agentl/kernel/` (action canonique,
+permis, porte d'autorisation, provenance), plus `policy.py`, `trivalent.py`,
+`state.py` et `core.py`. La liste fait foi dans `agentl.kernel.TCB_FILES`, et
+un test échoue si elle dépasse son budget.
+
+### Le passage d'une action
+
+```
+proposition ──▶ copie figée ──▶ politique (§7) ──▶ approbation sur une autre copie
+            ──▶ permis (usage unique, lié au condensat) ──▶ Host.invoke
+```
+
+1. La proposition est **figée** : une copie isolée, que ni le planificateur
+   ni l'approbateur ne peuvent modifier. Une proposition non copiable est
+   refusée.
+2. La politique est évaluée sur la copie. Une exception vaut `DENY`.
+3. L'approbateur reçoit une **seconde** copie. Seul le booléen `True` ou un
+   mot d'accord reconnu (`APPROVAL_WORDS`) approuve. Une exception de
+   l'approbateur vaut refus.
+4. Le permis est émis **en dernier**. Il est lié au condensat canonique
+   `(genre, cible, arguments)`, à usage unique, et un nouveau permis annule
+   le précédent non présenté.
+
+`Host.invoke`, `AsyncHost.invoke` et le registre `host.subagents` appellent
+`require_permit(genre, cible, arguments)`. Sans permis actif, ou avec un
+permis émis pour d'autres arguments, ils lèvent `PermitError`. Un permis ne
+se duplique pas (sa copie est lui-même) et ne se sérialise pas. Un test d'architecture vérifie **sur le
+code source** que seul le noyau appelle l'hôte.
+
+### Les invariants
+
+`tests/test_kernel_invariants_aaa.py` énonce dix invariants et porte un test
+par invariant :
+
+| | Invariant |
+|---|---|
+| I1 | aucune action n'atteint l'hôte sans permis émis par le noyau |
+| I2 | `NEVER` ne se contourne jamais, ni par approbation, ni par `ALLOW` |
+| I3 | une garde indéterminée ne crée jamais une autorisation |
+| I4 | une donnée non fiable ne masque pas une donnée fiable |
+| I5 | le LLM ne peut désigner qu'un plan déclaré |
+| I6 | une action approuvée est exactement celle qui s'exécute |
+| I7 | le rejeu ne crée aucune action absente du journal d'origine |
+| I8 | la provenance d'une donnée survit à ses transformations |
+| I9 | un crash suivi d'une reprise ne double pas un effet |
+| I10 | une sortie du modèle n'est jamais une autorité |
+
+Le protocole (I1, I6, I9) est aussi modélisé en TLA+ et vérifié
+exhaustivement par TLC sur des bornes finies, avec des mutants qui doivent
+être attrapés (`docs/formal/README.md`, `tools/check_formal.py`).
+
+### Ce qui ne change pas
+
+La trace est identique à l'octet : les journaux dorés publiés avec la v1.8.2
+(`tests/golden/v1.8.2`) se rejouent sans changement, en synchrone comme en
+asynchrone.
+
+## 35. Provenance portée par les valeurs (v1.9)
+
+### Le problème
+
+W119, W125 et T6 (v1.5) reconnaissent la provenance par des **motifs** dans
+l'AST : un nom `REASON` qui atteint un paramètre de cible, un texte brut qui
+précède une action. Une valeur recopiée par `SET`, multipliée, choisie dans
+une branche ou venue d'un plan que le modèle a sélectionné échappe à ces
+motifs.
+
+### Les étiquettes
+
+Chaque valeur de l'état porte une **étiquette** : l'ensemble des sources qui
+ont servi à la calculer.
+
+| Source | Origine | Non fiable |
+|---|---|---|
+| `DECLARED` | littéral, déclaration du programme | |
+| `RUNTIME` | fait calculé par le runtime | |
+| `OBSERVED` | capteur déclaré (`OBSERVE`) | |
+| `HUMAN` | réponse d'opérateur (`ASK`) | |
+| `EFFECT` | postcondition prédite par un `EFFECT` | |
+| `INFERRED` | postérieur bayésien | |
+| `FALLBACK` | repli déclaré d'un capteur muet | |
+| `TOOL` | sortie d'outil | ✓ |
+| `LLM` | sortie de `REASON`, plan choisi par le modèle | ✓ |
+| `MESSAGE`, `EVENT`, `DELEGATE` | charges utiles, retour de sous-agent | ✓ |
+| `SHARED`, `MEMORY` | mémoire écrite par un autre agent, rechargée | ✓ |
+| `EXTERNAL` | valeur que l'hôte déclare non fiable | ✓ |
+| `UNKNOWN` | aucune étiquette connue | ✓ |
+
+Règles de propagation :
+
+- l'étiquette d'une expression est l'**union** de ce qu'elle lit (y compris
+  les deux côtés d'un `AND`, même quand le premier suffit) ;
+- une valeur affectée sous une décision porte aussi l'étiquette de cette
+  décision (**flux implicite**) : branche `IF` sur une donnée reçue, plan
+  choisi par le modèle, gestionnaire d'événement ;
+- aucune transformation ne retire une source. Une étiquette trop large
+  refuse davantage ; trop étroite, elle blanchirait ;
+- l'hôte peut **dégrader** une lecture (`agentl.kernel.provenance.untrusted`
+  ajoute `EXTERNAL`), jamais l'élever.
+
+### Les fonctions
+
+`UNTRUSTED(x)`, `TRUSTED(x)`, `LLM_DERIVED(x)`, `ATTESTED(x)`,
+`ATTESTED(x, outil)`, `ORIGIN(x)`. Leur argument est un **chemin**, lu avec la
+même précédence que partout ailleurs. Dans une garde de politique, un nom
+d'argument de l'action désigne cet argument, et `action` désigne l'action
+entière : ses arguments et la décision qui l'a produite.
+
+```
+NEVER wipe_host WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_wipeable)
+NEVER transfer  WHEN LLM_DERIVED(to) AND NOT ATTESTED(to, resolve_account)
+NEVER deploy    WHEN UNTRUSTED(action)
+```
+
+**Attestation.** Quand un outil s'exécute avec succès, chaque valeur de ses
+arguments est **attestée** par cet outil. `ATTESTED(x, v)` le lit. Une
+attestation n'est pas une origine : l'étiquette de `x` ne change pas
+(*validated ≠ trusted*). Un validateur refuse donc en **levant**. Un
+validateur qui rend `{"ok": "no"}` a accepté la valeur en argument, et l'a
+donc attestée.
+
+**Sens de sûreté.** Une valeur sans étiquette connue est `UNKNOWN`, rangée
+parmi les sources non fiables. Une valeur indéfinie rend la fonction
+indéfinie, donc la garde indéterminée : un `NEVER` s'applique, un `ALLOW` ne
+compte pas (§7.1).
+
+### Diagnostics
+
+| Code | Signification |
+|---|---|
+| `E015` | fonction inconnue dans une expression — l'expression serait inévaluable |
+| `E016` | fonction de provenance mal employée : argument qui n'est pas un chemin, `action` hors d'une garde de politique, `ATTESTED(action)`, second argument qui ne nomme pas un `TOOL` |
+
+Avant la v1.9, tout appel en position d'expression était signalé `E009`,
+fonctions pures comprises (`CONFIDENCE(x)`, `len(xs)`), et un nom inconnu dans
+une garde passait sans diagnostic.
+
+### Limite actuelle
+
+Les gardes de provenance sont évaluées **à l'exécution**. `W119`, `W125` et T6
+ne les créditent pas encore : un programme protégé par
+`NEVER … WHEN UNTRUSTED(target)` reste signalé tant qu'il n'a pas le motif
+statique (`ATTESTS`). Les deux formes se complètent.
+
+## 36. Exécution durable (v1.9)
+
+Le rejeu (§26) re-dérive une exécution **terminée**. L'exécution durable
+reprend une exécution **interrompue**. Elle repose sur la même propriété : le
+cœur n'a aucune source de non-déterminisme propre. Reprendre, c'est
+ré-exécuter le programme depuis le tick 0 en servant chaque franchissement de
+frontière depuis un journal écrit au fil de l'eau, puis continuer en direct.
+
+### Protocole
+
+```
+permis ──▶ intention écrite + fsync ──▶ Host.invoke ──▶ résultat écrit + fsync
+fin de tick ──▶ point de contrôle (empreintes d'état et de trace)
+```
+
+Chaque action porte un identifiant `run:agent:tTICK:aSEQ` et une **clé
+d'idempotence** dérivée de l'exécution, de l'agent, du rang et du condensat
+de l'action. La clé est stable d'une reprise à l'autre. Un outil la lit par
+`agentl.kernel.current_action().idempotency_key`.
+
+### Reprise
+
+1. Le journal est relu et sa chaîne vérifiée. Une dernière ligne à moitié
+   écrite (jamais synchronisée, donc jamais suivie d'un appel) est écartée.
+   Une ligne corrompue au milieu arrête tout.
+2. Le programme est ré-exécuté. Chaque franchissement est servi par le
+   journal : aucun effet, aucun appel au modèle. Une divergence (programme
+   modifié, approbation journalisée pour d'autres arguments) arrête la
+   reprise (`ReplayDivergence`).
+3. Chaque point de contrôle est comparé à l'état re-dérivé.
+4. Une intention sans résultat est **tranchée** :
+   - l'outil est déclaré `idempotent=True` → relancée avec la même clé ;
+   - un réconciliateur (`@host.reconciler`) dit ce qui s'est passé → son
+     résultat est journalisé, ou l'action est exécutée s'il rend
+     `NOT_EXECUTED` ;
+   - sinon → **indéterminée** : non relancée, `ActionInDoubt`, trace
+     `ERROR`, `SIDE_EFFECT` marqués `.dirty`, aucun `EFFECT` présumé, et
+     `tools.<outil>.in_doubt = true` (posé à `false` au démarrage, donc lisible
+     par une garde sans indétermination).
+5. Passé le journal, l'exécution continue en direct.
+
+### Garanties
+
+- une action dont le résultat est journalisé ne se ré-exécute jamais ;
+- une action interrompue s'exécute **exactement une fois** si l'hôte honore
+  la clé ou réconcilie, **au plus une fois** sinon ;
+- lectures, questions et approbations en vol sont refaites ; les événements
+  d'un `drain` en vol sont perdus (au plus une fois).
+
+La clé ne se fait respecter que par le service de l'hôte : le runtime la
+génère, il ne peut pas l'imposer à un tiers. La chaîne du journal est un
+SHA-256 sans clé : elle détecte la corruption, pas un faussaire qui recalcule
+tout.
+
+### Interface
+
+```
+agentl run FICHIER.agent --durable RÉPERTOIRE [--run-id ID]
+agentl durable status RÉPERTOIRE
+agentl durable export RÉPERTOIRE [-o journal.json]     # puis agentl replay
+```
+
+`DurableRun(agents, host, llm, store=FileStore(dir) | SQLiteStore(path, id)
+| MemoryStore())`, `.run(max_ticks)`, `.export()`. Une société s'exécute sous
+un seul journal.
+
+## 37. Exécution asynchrone (v1.9)
+
+`agentl.aio` ajoute des hôtes et des modèles `async` sans changer la
+sémantique du langage.
+
+- **Séquentiel par agent.** Deux actions concurrentes d'un même agent
+  seraient jugées sur un état que l'autre est en train de changer : un TOCTOU
+  créé par le runtime lui-même. La concurrence est donc entre agents et aux
+  frontières.
+- **Cœur déterministe.** Un tick s'exécute dans un fil de travail. Chaque
+  franchissement de frontière y devient une coroutine confiée à la boucle
+  d'événements. La trace ne dépend que de ce que les frontières ont rendu.
+- **Bornes** (`Limits`) : outils, appels au modèle et lectures concurrents
+  bornés par sémaphores (contre-pression), délais par genre d'appel,
+  capacité des boîtes de réception.
+- **Délais.** Capteur → ne perçoit rien. Modèle → oracle muet (`DEFAULT`).
+  **Outil → action indéterminée** (`ActionInDoubt`) : la requête est partie,
+  l'effet a pu avoir lieu.
+- **Annulation** coopérative : `Cancelled`, que rien n'avale, au prochain
+  franchissement. Les appels en vol sont annulés.
+- **`AsyncSociety`** : tous les agents tiquent en même temps sur un instantané
+  de la mémoire partagée. Messages et écritures `SHARED` sont fusionnés à la
+  barrière, dans l'ordre déclaré. Même programme, mêmes hôtes : même
+  résultat, quel que soit l'ordonnanceur.
+
+## 38. Validation externe (v1.9)
+
+- **Propriétés** (`tests/test_properties_aaa.py`) : sémantique de Kleene des
+  gardes, sens de sûreté de la politique, solveur, parseur (mutation de
+  sources), opérations sur les permis. Nombre de tirages réglable par
+  `AGENTL_PROPERTY_RUNS`.
+- **Compatibilité entre versions** (`tests/test_release_compat_aaa.py`) : les
+  journaux dorés d'une version publiée se rejouent à l'identique.
+- **Modèle formel** du protocole du noyau (§34).
+- **Banc comparatif** (`bench/frameworks/`) : le même modèle compromis
+  scripté contre AGENT-L, LangGraph, PydanticAI et CrewAI, chacun avec son
+  mécanisme de sûreté documenté ; oracle extérieur, un processus par phase,
+  versions figées, `run.py --check` pour la CI. Les résultats et leurs
+  limites sont dans `bench/frameworks/README.md`.

@@ -7,7 +7,9 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.8.2**
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.8.2** —
+la v1.9 (noyau à permis, exécution durable, provenance portée par les valeurs,
+exécution asynchrone) est dans la branche principale, non encore publiée.
 
 ```bash
 git clone https://github.com/jmalfonsi/AGENT-L.git && cd AGENT-L
@@ -380,6 +382,52 @@ applique ses seuls `DEFAULT` explicites et laisse les autres champs
 rapporte à part les runs non aboutis — **un run coupé n'est pas un succès de
 sûreté.**
 
+## Face à LangGraph, PydanticAI et CrewAI — le banc comparatif (v1.9)
+
+Le banc précédent compare des **modèles** qui résistent ou non. Celui-ci
+compare des **garde-fous** : le même modèle compromis, scripté, qui obéit à
+ce qu'il lit et invente des outils, est branché sur les quatre frameworks.
+Chacun utilise le mécanisme de sûreté que sa documentation recommande, et
+rien d'autre :
+
+- LangGraph : `interrupt()` avant `ToolNode`, `SqliteSaver` ;
+- PydanticAI : `requires_approval` et outils différés ;
+- CrewAI : crochet `before_tool_call` ;
+- AGENT-L : `NEVER … UNTRUSTED(…)`, `REQUIRE APPROVAL`, `--durable`.
+
+Un oracle extérieur ne lit que les effets produits. Chaque phase tourne dans
+un processus neuf, et les versions sont figées.
+
+```
+cd bench/frameworks && python3.12 -m venv .venv \
+  && .venv/bin/pip install -r requirements.lock && .venv/bin/python run.py
+```
+
+| propriété (sûreté) | AGENT-L | LangGraph 1.2 | PydanticAI 2.45 | CrewAI 1.15 |
+|---|---|---|---|---|
+| une injection ne choisit pas la cible d'une action critique, même approuvée | ✅ | ❌ | ❌ | ❌ |
+| un outil inventé ne produit rien (témoin) | ✅ | ✅ | ✅ | ✅ |
+| panne juste après l'effet, puis reprise : exactement une fois | ✅ | ✅ ¹ | ❌ ² | ❌ ² |
+| approbateur injoignable : l'action n'a pas lieu | ✅ | ✅ | ✅ | ❌ ³ |
+| l'action exécutée est celle qui a été approuvée | ✅ | ❌ | ❌ | — |
+
+Chaque cas a aussi une variante légitime, et les quatre frameworks la
+réussissent toutes : un framework qui ne fait rien ne peut pas gagner.
+
+¹ Avec `durability="sync"`. Avec le défaut (`"async"`), le virement est
+doublé.
+² Sans intégration durable externe (Temporal, DBOS, Prefect, non testées) :
+la tâche est relancée.
+³ Une exception levée dans un crochet `before_tool_call` est avalée, et
+l'outil s'exécute.
+
+**Ce que le banc ne dit pas.** Le modèle est un script : le banc mesure les
+garde-fous, pas la probabilité qu'un vrai modèle se trompe. Il mesure ce que
+chaque framework donne **sans code maison**. Un développeur peut écrire
+lui-même une liste blanche. Et la sûreté d'AGENT-L dépend du programme :
+sans la ligne `NEVER … UNTRUSTED(host)`, l'injection passe aussi. Méthode,
+règles d'équité et limites : [`bench/frameworks/README.md`](bench/frameworks/README.md).
+
 ## Sur AutomationBench (Zapier)
 
 `bench/` branche AGENT-L sur [AutomationBench](https://github.com/zapier/AutomationBench) —
@@ -443,10 +491,13 @@ centième est bloqué.
                                                        │
         ┌───────────────────── Runtime ────────────────▼────────┐
         │  BAYES ──postérieurs──►┌────────────┐                 │
-        │  PLANNER ◄──élagage───►│   POLICY   │──► HOST (outils)│
-        │  LLM ────propose──────►│   ENGINE   │──► STATE        │
+        │  PLANNER ◄──élagage───►│   KERNEL   │─permis─► HOST   │
+        │  LLM ────propose──────►│  (POLICY)  │──► STATE        │
         └────────────────────────└─────┬──────┘──► VERIFY ──► MEMORY
 ```
+
+Depuis la v1.9, le moteur de politiques est au cœur d'un **noyau** : seul lui
+émet les permis sans lesquels l'hôte refuse d'agir.
 
 Les trois sources de décision — inférence, recherche, génération — passent par
 le **même** moteur de politiques. Le planificateur l'interroge en plus *pendant*
@@ -458,6 +509,9 @@ vérificateur rejoue ce raisonnement hors ligne, sur l'AST.
 | `lexer.py` / `parser.py` / `nodes.py` | tokenisation, descente récursive, 43 types dérivés de `Node` |
 | `state.py` | $s_t=(x_t,b_t,m_t)$ + évaluateur d'expressions |
 | `policy.py` | moteur de politiques — **le point dur du langage** |
+| `kernel/` | noyau de confiance (v1.9) : action canonique, permis, porte d'autorisation, provenance |
+| `durable.py` | exécution durable (v1.9) : journal d'intentions, reprise, idempotence |
+| `aio.py` | exécution asynchrone (v1.9) : `AsyncHost`, `AsyncRuntime`, `AsyncSociety`, `Limits` |
 | `bayes.py` | postérieurs, contributions en bits, calibration |
 | `planner.py` | recherche sur états de croyance, utilité espérée |
 | `society.py` | bus de messages, mémoire partagée versionnée |
@@ -466,7 +520,7 @@ vérificateur rejoue ce raisonnement hors ligne, sur l'AST.
 | `boundary.py` | frontière hôte/agent, `B00x` |
 | `runtime.py` | ordonnanceur, exécuteur de plans, vérificateur, mémoire |
 | `llm.py` | oracle : `MockLLM` déterministe, `AnthropicLLM`, `GeminiLLM` |
-| `host.py` | liaison au monde : capteurs, outils, approbateur, sous-agents |
+| `host.py` | liaison au monde : capteurs, outils, approbateur, sous-agents, réconciliateurs |
 
 ---
 
@@ -1258,6 +1312,81 @@ lieu. Un horodatage tiers reste à faire (SPEC §28).
 
 ---
 
+## Le noyau, la reprise, la provenance (v1.9)
+
+### Un noyau à permis — plus d'appel à l'hôte sans autorisation
+
+L'autorisation et l'appel à l'hôte ont quitté l'interpréteur. Ils vivent dans
+un **noyau** de quelques fichiers (`agentl/kernel/`). Le noyau fige la
+proposition, évalue la politique, montre une copie à l'approbateur, puis
+émet un **permis** à usage unique lié au condensat exact de l'action.
+`Host.invoke` exige ce permis :
+
+```python
+host.invoke("wipe", {"host": "prod-db"})
+# PermitError: invoke `wipe` sans permis d'exécution : seul le noyau AGENT-L
+#              appelle l'hôte (Kernel.execute)
+```
+
+Ce qui a été approuvé est donc exactement ce qui s'exécute. Un défaut du
+planificateur, du Studio ou d'un hôte peut produire une mauvaise
+*proposition* ; il ne peut plus produire une exécution que la politique n'a
+pas autorisée. Dix invariants numérotés sont testés
+(`tests/test_kernel_invariants_aaa.py`), dont un vérifié sur le code source :
+seul le noyau appelle l'hôte. Le protocole est aussi modélisé en TLA+ et
+vérifié par TLC, avec des mutants qui doivent être attrapés
+(`docs/formal/`).
+
+### Exécution durable — un crash ne double pas un virement
+
+```
+agentl run examples/xxx.agent --durable runs/xxx      # neuve, ou reprise
+agentl durable status runs/xxx
+```
+
+L'intention d'une action est écrite et synchronisée sur disque **avant**
+l'appel, et le résultat après. À la reprise, le programme est ré-exécuté
+depuis le journal, sans effet ni appel au modèle, puis continue en direct.
+Une action restée sans résultat est tranchée :
+
+- l'outil est déclaré idempotent → il est relancé avec la **même clé**
+  (`current_action().idempotency_key`) ;
+- l'hôte sait réconcilier → on lui demande ce qui s'est passé ;
+- sinon → elle est déclarée **indéterminée**, jamais relancée à l'aveugle.
+  `tools.<outil>.in_doubt` le dit à la politique :
+
+```
+NEVER transfer WHEN tools.transfer.in_doubt == true
+```
+
+### La provenance est portée par les valeurs
+
+Chaque valeur porte l'ensemble de ses sources : `OBSERVED`, `LLM`, `TOOL`,
+`MESSAGE`… L'étiquette survit aux recopies, à l'arithmétique et aux branches.
+La politique la lit :
+
+```
+NEVER wipe_host WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_wipeable)
+NEVER transfer  WHEN LLM_DERIVED(to) AND NOT ATTESTED(to, resolve_account)
+```
+
+Une valeur sans étiquette connue est `UNKNOWN`, donc non fiable. Une
+attestation (« un validateur a accepté cette valeur ») n'est pas une
+confiance. `check` refuse une fonction inconnue (`E015`) ou mal employée
+(`E016`). Limite actuelle : `W119` et T6 ne créditent pas encore ces gardes.
+
+### Exécution asynchrone
+
+`agentl.aio` fournit `AsyncHost`, `AsyncRuntime`, `AsyncSociety` (agents
+réellement concurrents) et `Limits` (concurrence bornée, contre-pression,
+délais). Un agent reste séquentiel : chaque action est jugée sur l'état laissé
+par la précédente. Un outil qui dépasse son délai est **indéterminé**, jamais
+réussi. Les journaux publiés avec la v1.8.2 se rejouent à l'octet, en
+synchrone comme en asynchrone.
+
+Sémantique : SPEC §34–§38. Pour les auteurs : le skill `agentl-author`
+(contrat 2.10.0).
+
 ## Référence des commandes
 
 Toutes les sous-commandes de la CLI, leur rôle et leurs options. Le binaire est
@@ -1270,7 +1399,7 @@ Dans cet ordre. Un agent qui n'a pas passé les six n'est pas livrable.
 
 | commande | ce qu'elle établit |
 |---|---|
-| `agentl check X.agent` | **Bonne formation.** Erreurs `E001`-`E011` (bloquantes), avertissements `W101`-`W135`. Aucune erreur `E` n'est négociable — le programme ne s'exécute pas. |
+| `agentl check X.agent` | **Bonne formation.** Erreurs `E001`-`E016` (bloquantes), avertissements `W101`-`W135`. Aucune erreur `E` n'est négociable — le programme ne s'exécute pas. |
 | `agentl test X.agent` | **Critères d'acceptation.** Exécute les `SCENARIO` contre le *monde déclaré* : ni hôte, ni réseau, ni disque. |
 | `agentl verify X.agent` | **Sûreté prouvée sur l'AST**, huit théorèmes par agent (T1–T7, T9) plus **T8 sur le programme entier** dès qu'il y a plusieurs agents, avant tout appel de modèle. |
 | `agentl boundary X.agent` | **Linter architectural.** Analyse `X.py` et ses imports locaux (`B000`–`B016`), affiche les exclusions et échoue si la surface ou le contrat est incomplet. |
@@ -1302,7 +1431,8 @@ qui rend l'appariement non ambigu. Sans `X.py`, `run` refuse de démarrer et
 | `verify` | `--depth N` borne la recherche de route de T2/T5. La recherche s'arrête normalement bien avant, sur son point fixe ; augmenter `N` sert quand un verdict rend « ◐ BORNÉ » (`V113`, `V122`) |
 | `boundary` | `--project-root DIR` fixe la racine des imports locaux · `--external-policy report\|error` liste ou refuse les dépendances externes hors analyse |
 | `autoloop` | `--model M` rédacteur des corrections (`gemini-*` ou `claude-*`) ; sans lui, diagnostic seul · `-o F` écrit le programme corrigé (**sans `-o`, rien n'est écrit**) · `--holdout R` part des cas retenus (défaut `0.3` ; `0` la désactive, et avec elle la seule mesure du par-cœur) · `--max-attempts N` · `--budget S` · `--patience N` tentatives sans progrès tolérées · `--max-cases N` · `--seed N` · `--host-pass` second temps contre l'hôte réel, en lecture seule · `--host-ticks N` |
-| `run` | `--ticks N` plafond de ticks (prime sur `LOOP … MAX n`) · `--quiet` supprime la trace en direct · `--html F` journal visuel autonome · `--events F` trace en JSON Lines (un événement par ligne : `seq`, `agent`, `tick`, `kind`, `text`, `detail`), vidée au fil de l'exécution · `--record F` journal de rejeu (JSON) · `--sign-key K` signe le journal (PEM Ed25519, fichier de secret ou secret littéral ; défaut `AGENTL_JOURNAL_KEY`) |
+| `run` | `--ticks N` plafond de ticks (prime sur `LOOP … MAX n`) · `--quiet` supprime la trace en direct · `--html F` journal visuel autonome · `--events F` trace en JSON Lines (un événement par ligne : `seq`, `agent`, `tick`, `kind`, `text`, `detail`), vidée au fil de l'exécution · `--record F` journal de rejeu (JSON) · `--sign-key K` signe le journal (PEM Ed25519, fichier de secret ou secret littéral ; défaut `AGENTL_JOURNAL_KEY`) · `--durable DIR` exécution durable : démarre, ou reprend si `DIR` contient un journal (exclusif avec `--record`) · `--run-id ID` identifiant de l'exécution durable |
+| `durable` | `status DIR` état d'une exécution durable sans la reprendre (chaîne, intentions en suspens, résolutions) · `export DIR [-o F]` journal de rejeu standard d'une exécution terminée, pour `agentl replay` |
 | `replay` | `--source X.agent` rejoue contre un autre programme · `--force` rejoue même si le programme a changé · `--key K` vérifie le sceau · `--require-seal` échoue si le journal n'est pas valablement signé · `--ticks N` · `--quiet` · `--events F` trace rejouée en JSON Lines |
 | `seal` | vérifie l'intégrité et l'authenticité d'un journal sans le rejouer · `--key K` clé de vérification · `--keygen RÉP` génère une paire Ed25519 · `--name N` nom de base des clés |
 | `mcp` | `list` inspecte un serveur MCP · `import` traduit son catalogue en contrats `TOOL` · `--server N` · `-o F` · `--unsafe-import-descriptions` importe les descriptions rédigées par le serveur (**hors défaut** : elles atteignent le contexte du modèle) · `--strip-descriptions` obsolète, synonyme du défaut · `--force` écrase un fichier existant (les `RISK` tranchés y sont perdus) |
@@ -1396,11 +1526,14 @@ bancs, de laboratoires et d'outillage qui **ne sont pas des dépendances** :
 ```
 agentl/                 core Python (28 modules de premier niveau, 0 dépendance)
 agentl/studio/          studio web : session instrumentée, serveur, interface
-tests/                  901 tests du paquet — `pytest` sans argument
+tests/                  1 325 tests du paquet — `pytest` sans argument
 docs/agentl.ebnf        grammaire formelle complète
 docs/SPEC.md            sémantique : modèle, cycle, algorithme de politique
 docs/QUALITY.md         critères reproductibles du niveau interne Grade AAA
 bench/                  pont AutomationBench (Zapier) + 10 tâches résolues
+bench/frameworks/       banc comparatif AGENT-L / LangGraph / PydanticAI /
+                        CrewAI (environnement isolé, versions figées)
+docs/formal/            modèle TLA+ du protocole du noyau (v1.9)
 SKILLS/agentl-author/   skill d'écriture d'agents : méthode, pièges, checklist
 examples/               SOC, risque, société, maintenance, medic réel,
                         supervision industrielle (VALMONT), majordome Gmail,
@@ -1448,6 +1581,7 @@ WEBSITE/                site de présentation
 | **v1.8.0** | **`NEVER SEND`, `ON UNKNOWN` et `autoloop`** |
 | **v1.8.1** | **résilience : reprise LLM bornée, disjoncteur d'outil, diagnostics `W133`/`W134`** |
 | **v1.8.2** | **deux P0 de sûreté fermés (la sortie d'un outil ne forge plus l'état, une valeur non finie ne désarme plus une politique), vérificateur sensible au flot d'écritures, `V114`/`W135`, autorisation unifiée outil/délégation** |
+| **v1.9** (non publiée) | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
 
 Les `VERSION "…"` des exemples indiquent le niveau de langage illustré, pas la
 version du paquet — celle-ci est `agentl.__version__`.
@@ -1456,7 +1590,8 @@ Sémantique détaillée dans `docs/SPEC.md` : §16 inférence, §17 planificatio
 §19 société, §20 incertitude, §21 vérification, §22 calibration, §23 mémoire,
 §24 `FOREACH`, §25 frontière hôte/agent, §26 rejeu déterministe,
 §27 `SCENARIO`, §26.1 scellement des journaux, §29 pont MCP,
-§30 `EFFECT` confrontés au réel. Les limites assumées — solveur
+§30 `EFFECT` confrontés au réel, §34 noyau à permis, §35 provenance,
+§36 exécution durable, §37 exécution asynchrone, §38 validation externe. Les limites assumées — solveur
 incomplet, T2 borné en profondeur, plan conforme et non contingent,
 vérificateur qui ne vérifie pas le runtime, journaux non horodatés par un
 tiers, scénario qui ne prouve rien sur l'hôte — sont recensées en §28 plutôt que passées sous

@@ -4,6 +4,98 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.9.0] — non publié · le noyau, la reprise, la provenance
+
+Cinq chantiers, un fil : garder le caractère déclaratif et fail-closed du
+langage tout en le rendant exploitable là où LangGraph et PydanticAI étaient
+en avance. Le paquet reste numéroté 1.8.2 tant que la version n'est pas
+publiée ; le contrat d'auteur passe à **2.10.0**. La trace est inchangée : les
+journaux dorés de la v1.8.2 (`tests/golden/v1.8.2`) se rejouent à l'octet, en
+synchrone comme en asynchrone.
+
+### Ajouté
+
+- **Noyau de confiance** (`agentl/kernel/`, SPEC §34). L'autorisation et
+  l'appel à l'hôte quittent `runtime.py`. Le noyau fige la proposition,
+  évalue la politique, soumet une copie à l'approbateur, puis émet un
+  **permis** à usage unique lié au condensat de l'action. `Host.invoke`,
+  `AsyncHost.invoke` et `host.subagents` exigent ce permis. Dix invariants
+  numérotés (`tests/test_kernel_invariants_aaa.py`), dont une vérification
+  **sur le code source** que seul le noyau appelle l'hôte. Liste des fichiers
+  de confiance : `agentl.kernel.TCB_FILES`, bornée par un test.
+- **Exécution durable** (`agentl/durable.py`, SPEC §36). Intention écrite et
+  synchronisée avant chaque appel, résultat après, point de contrôle à chaque
+  tick, reprise par re-dérivation du journal. Identifiant d'action et clé
+  d'idempotence stables (`current_action()`). Une intention sans résultat est
+  relancée avec la même clé (`@host.tool(…, idempotent=True)`), réconciliée
+  (`@host.reconciler`), ou déclarée **indéterminée** :
+  `tools.<outil>.in_doubt = true`, lisible par la politique. CLI :
+  `agentl run --durable DIR [--run-id]`, `agentl durable status|export DIR`.
+  Stockages : fichier (fsync), SQLite, mémoire.
+- **Exécution asynchrone** (`agentl/aio.py`, SPEC §37) : `AsyncHost`,
+  `AsyncRuntime`, `AsyncSociety` (agents réellement concurrents par tours
+  synchronisés), `Limits` (concurrence bornée, contre-pression, délais,
+  capacité des boîtes de réception), annulation coopérative. Un outil qui
+  dépasse son délai est **indéterminé**, jamais réussi. Pont MCP
+  asynchrone (`AsyncMCPHost`, `connect_async`).
+- **Provenance portée par les valeurs** (`agentl/kernel/provenance.py`, SPEC
+  §35). Chaque valeur porte l'union de ses sources (`OBSERVED`, `LLM`,
+  `TOOL`, `MESSAGE`, `EVENT`, `DELEGATE`, `SHARED`, `EXTERNAL`, `UNKNOWN`…),
+  y compris par flux implicite. Fonctions de garde `UNTRUSTED`, `TRUSTED`,
+  `LLM_DERIVED`, `ATTESTED(x[, outil])`, `ORIGIN`, et le chemin `action`.
+  L'hôte peut marquer une lecture non fiable (`untrusted(...)`), jamais
+  l'inverse.
+- **Validation externe** (SPEC §38) : tests de propriétés sur la sémantique
+  de Kleene, la politique, le solveur, le parseur et les permis
+  (`AGENTL_PROPERTY_RUNS`) ; compatibilité des journaux entre versions ;
+  modèle TLA+ du protocole du noyau vérifié par TLC avec mutants
+  (`docs/formal/`, `tools/check_formal.py`) ; **banc comparatif** contre
+  LangGraph, PydanticAI et CrewAI (`bench/frameworks/`, `run.py --check`).
+- Diagnostics `E015` (fonction inconnue dans une expression) et `E016`
+  (fonction de provenance mal employée).
+- Skill `agentl-author` : `references/scenarios.md` (il était référencé et
+  absent, ce qui rendait `sync_grammar.py --check` rouge), sections v1.9 dans
+  `security-authoring.md`, `runtime-semantics.md` (§9–§11), `authoring.md`
+  et `composition.md` ; le contrat généré liste les fonctions reconnues,
+  extraites de l'analyseur.
+
+### Modifié — à lire avant de mettre à jour
+
+- **`host.invoke(...)` hors du noyau lève `PermitError`.** Un test qui
+  appelait l'hôte directement doit appeler la fonction enregistrée
+  (`host.tools["x"](**args)`) ou `agentl.kernel.testing.dispatch`.
+- **`E009` ne vise plus que les outils.** `CONFIDENCE(x)`, `P(h)`, `len(xs)`
+  étaient signalés à tort. En contrepartie, un nom de fonction inconnu, qui
+  passait sans un mot, est désormais `E015`.
+- La sémantique d'approbation (`approval_granted`, `APPROVAL_WORDS`) est
+  réexportée par `agentl.host` depuis le noyau.
+
+### Corrigé
+
+- **Comparaison indécidable dans une garde.** `cpu.load > 90` avec un
+  capteur à `unavailable`, `"N/A"` ou `NaN` s'évaluait à faux, ce qui
+  **désarmait** un `NEVER`. Une comparaison d'ordre entre valeurs non
+  ordonnables, ou un `IN` sur un non-conteneur, est désormais indéterminée.
+  Trouvé par le test de propriété P1.
+- **Fonction épistémique sur une croyance ou une hypothèse inconnue** :
+  `CONFIDENCE(x)` / `P(h)` rendaient une valeur par défaut au lieu d'une
+  garde indéterminée.
+- **Solveur** : les rangs ordinaux (`LOW`…`CRITICAL`) et les nombres forment
+  deux échelles disjointes, comme dans l'évaluateur. `LOW <= 7` était traité
+  comme `2 <= 7`, ce qui faussait des verdicts de satisfiabilité.
+- **Fidélité du rejeu** : une exception journalisée est reconstruite dans sa
+  classe d'origine (y compris `KeyError`) ; le verdict « réponse absente »
+  de l'oracle est journalisé, et `reason.degraded` se rejoue à l'identique.
+
+### Limites connues
+
+- `W119`, `W125` et T6 ne créditent pas encore les gardes de provenance :
+  garder le motif statique `ATTESTS` en plus.
+- La chaîne du journal durable est un SHA-256 sans clé : elle détecte la
+  corruption, pas un faussaire qui recalcule toute la chaîne.
+- Tout appel d'outil réussi atteste ses arguments : un validateur doit lever
+  pour refuser.
+
 ## [1.8.2] — non publié · la preuve cesse de se taire
 
 ### Suite de l'audit général comparatif — contrat auteur 2.9.0

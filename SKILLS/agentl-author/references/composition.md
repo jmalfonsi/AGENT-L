@@ -164,10 +164,38 @@ Points de conception :
 - **Les métriques ne fusionnent pas.** Les `inferences` du sous-agent
   n'apparaissent pas dans les métriques du superviseur — ce sont deux runtimes.
 
+## 5. Confiance, concurrence et reprise entre agents (v1.9)
+
+**Ce qu'un autre agent écrit n'est pas fiable par défaut.** Une charge utile
+`MESSAGE` porte la source `MESSAGE`, un retour `DELEGATE` la source
+`DELEGATE`, une lecture `SHARED.<clé>` la source `SHARED`. Les trois sont
+**non fiables** : un agent compromis ou trompé ne doit pas pouvoir choisir la
+cible de l'action d'un autre. Se protéger dans le destinataire :
+
+```agentl
+NEVER isolate WHEN UNTRUSTED(host) AND NOT ATTESTED(host, lookup_asset)
+```
+
+Le destinataire re-valide la cible par un outil à lui. Il ne fait pas
+confiance à l'identité revendiquée par l'expéditeur : un scénario d'attaque
+l'écrit avec `GIVEN MESSAGE … FROM attacker`.
+
+**Exécution réellement concurrente** : `agentl.aio.AsyncSociety` fait tiquer
+tous les agents en même temps, chacun sur un instantané de la mémoire
+partagée. Messages et écritures `SHARED` sont fusionnés à la barrière de fin
+de tour, dans l'ordre déclaré des agents. Le résultat ne dépend pas de
+l'ordonnanceur. `Limits(inbox_capacity=…)` borne les boîtes de réception :
+un message refusé est tracé et compté, jamais perdu en silence.
+
+**Reprise après panne** : `agentl run --durable DIR` accepte une société. Un
+seul journal ordonne tous les agents ; la reprise re-dérive la société entière
+puis continue (`runtime-semantics.md` §10).
+
 ## La limite, assumée
 
-Pas de spawn dynamique, pas de transaction, pas de consensus, pas d'ordre global
-sur les messages autre que le tour de rôle (`society.py` le dit noir sur blanc).
+Pas de spawn dynamique, pas de transaction distribuée, pas de consensus.
+L'ordre global des messages est le tour de rôle (`Society`) ou la barrière de
+fin de tour (`AsyncSociety`), rien de plus.
 Ces garanties se paient ; le langage ne les promet pas. Pour paralléliser une
 charge, on la place dans un `DELEGATE` (éventuellement un agent imbriqué) ou on
 déploie des pairs sous une `Society`.

@@ -53,7 +53,16 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # de périmètre ; la grammaire ne change pas.
 # 2.7.1 : alias de méthodes liées et argv partiellement dynamiques contrôlés.
 # 2.9.1 : documentation des scénarios et validation des assertions de trace.
-AUTHORING_CONTRACT_VERSION = "2.9.1"
+# 2.10.0 : v1.9 — fonctions de provenance dans les expressions (UNTRUSTED,
+# TRUSTED, LLM_DERIVED, ATTESTED, ORIGIN ; E015/E016), noyau à permis,
+# exécution durable (`run --durable`, `durable status|export`) et hôtes
+# asynchrones. La grammaire ne bouge pas d'un caractère — une fonction est un
+# appel dans une expression — mais ce qu'un auteur peut écrire dans une garde
+# s'élargit, et l'outillage verrouillé suit désormais le noyau : mineur. Le
+# contrat liste maintenant les fonctions reconnues, extraites de l'analyseur,
+# pour qu'une fonction ajoutée au runtime ne puisse plus être absente du
+# contrat sans que `--check` le voie.
+AUTHORING_CONTRACT_VERSION = "2.10.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
@@ -73,6 +82,13 @@ TOOLCHAIN_FILES = (
     "agentl/cli.py",
     "agentl/scenario.py",
     "agentl/verifier.py",
+    # v1.9 : l'autorisation et l'exécution vivent dans le noyau, et la
+    # sémantique des gardes de provenance dans `provenance.py`. Un auteur
+    # dépend d'eux autant que de `runtime.py`.
+    "agentl/kernel/gate.py",
+    "agentl/kernel/permit.py",
+    "agentl/kernel/provenance.py",
+    "agentl/durable.py",
 )
 AUTHORING_FILES = (
     "SKILLS/agentl-author/SKILL.md",
@@ -563,6 +579,18 @@ def generated_contract(lock: dict) -> str:
         for label, found in sections.items()
     ).lstrip()
     phases = ", ".join(sorted(PHASES))
+    from agentl.kernel.provenance import PROVENANCE_FUNCS
+    from agentl.state import EPISTEMIC_FUNCS, PURE_FUNCS
+
+    functions = {
+        "pures": sorted(PURE_FUNCS),
+        "épistémiques": sorted(EPISTEMIC_FUNCS),
+        "provenance (v1.9)": sorted(PROVENANCE_FUNCS),
+    }
+    function_lines = "\n".join(
+        f"        - {label} : {', '.join(names)}"
+        for label, names in functions.items()
+    ).lstrip()
     assertions = ", ".join(
         f"`EXPECT {kind}`"
         for kind in parser_literals("parse_scenario", reserved_only=False)
@@ -594,6 +622,17 @@ def generated_contract(lock: dict) -> str:
         non réservés par le lexer : {assertions}. Lire
         [scenarios.md](../scenarios.md) pour les cibles, les stimuli et les
         limites de ces tests. `CALL` seul reste une instruction invalide.
+
+        ## Fonctions reconnues dans les expressions
+
+        Extraites de l'analyseur (`KNOWN_FUNCS`). Tout autre nom appelé dans une
+        expression est un outil (`E009`) ou une erreur (`E015`) ; une fonction de
+        provenance mal employée est `E016`.
+
+        {function_lines}
+
+        Les fonctions de provenance prennent un **chemin**, jamais une valeur.
+        Lire `references/security-authoring.md` avant de les employer.
 
         ## Couverture
 

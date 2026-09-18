@@ -100,6 +100,46 @@ produit — une purge vérifie que le chemin reste dans le bac à sable, quel qu
 soit le `directory` renvoyé. La politique et l'hôte sont deux étages
 indépendants.
 
+### L'hôte depuis la v1.9 : permis, idempotence, réconciliation
+
+```python
+from agentl.durable import NOT_EXECUTED
+from agentl.kernel import current_action
+from agentl.kernel.provenance import untrusted
+
+# Texte écrit par un tiers : l'hôte le DIT. Il peut dégrader une valeur,
+# jamais l'élever — `untrusted()` ajoute la source EXTERNAL.
+h.sensors["mail.subject"] = lambda: untrusted(lire_sujet())
+
+# Outil à effet : transmettre la clé d'idempotence au service. `idempotent=True`
+# est une PROMESSE : le service ignore une seconde requête portant la même clé.
+@h.tool("transfer", idempotent=True)
+def transfer(amount, to):
+    key = current_action().idempotency_key      # stable d'une reprise à l'autre
+    return banque.virer(amount, to, idempotency_key=key)
+
+# Sans idempotence côté service : dire après une panne si l'effet a eu lieu.
+@h.reconciler("notify")
+def notify_done(args, context):
+    found = messagerie.chercher(context.idempotency_key)
+    return {"sent": Symbol("yes")} if found else NOT_EXECUTED
+```
+
+- **`h.invoke` n'est plus appelable hors du noyau** : il exige un permis
+  (`PermitError` sinon). Pour tester la logique d'un outil, appeler la
+  fonction : `h.tools["transfer"](amount=100, to="acct-1")`. Pour tester le
+  passage gouverné : `agentl.kernel.testing.dispatch(h, "transfer", args)`.
+- **Sans `idempotent=True` ni réconciliateur**, une action interrompue par
+  une panne devient **indéterminée** à la reprise (`tools.<outil>.in_doubt`) :
+  au plus une fois, jamais deux. Voir `runtime-semantics.md` §10.
+- **Un réconciliateur qui lève** avoue qu'il ne sait pas : l'action reste
+  indéterminée. Ne jamais rendre `NOT_EXECUTED` par défaut.
+- **Un validateur lève pour refuser.** Tout appel d'outil réussi atteste ses
+  arguments (`ATTESTED(x, outil)`), même s'il répond « non »
+  (`security-authoring.md`).
+- Hôte asynchrone : `agentl.aio.AsyncHost` offre les mêmes décorateurs en
+  `async def` (`runtime-semantics.md` §11).
+
 **Mais l'hôte ne décide pas.** Re-valider une borne de sûreté est légitime ;
 choisir quels éléments traiter, quelle priorité appliquer ou quoi écarter ne
 l'est pas — cela vide le programme de sa substance sans produire le moindre
@@ -302,6 +342,18 @@ Le `DEFAULT` est la valeur fail-closed des absences et sorties hors domaine.
 `ATTESTS` relie statiquement la preuve à la cible ; l’hôte conserve la charge
 de la fraîcheur, de l’usage unique et de la revalidation juste avant effet.
 `check`, T6/T7 et `boundary` rendent désormais ces omissions visibles.
+
+Depuis la v1.9, ajouter la garde de provenance à l'exécution, qui suit la
+valeur quel que soit son chemin :
+
+```agentl
+NEVER isolate WHEN UNTRUSTED(host) AND NOT ATTESTED(host, lookup_asset)
+```
+
+Les deux formes se complètent : `ATTESTS` rend T6 démontrable, la garde
+`UNTRUSTED` tient quand la valeur arrive par un chemin que l'analyse statique
+ne suit pas. Elle n'éteint pas `W119`
+(`security-authoring.md` §« Provenance portée par les valeurs »).
 
 
 ## Scénarios

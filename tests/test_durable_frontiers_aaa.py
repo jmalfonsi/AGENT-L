@@ -41,7 +41,7 @@ AGENT ops {
   PLAN respond WHEN incident.open == yes AND handled != yes {
     STEP think  { REASON "triage" { USING { incident.open }
                     PRODUCE { target: String DEFAULT "none", confidence: Number DEFAULT 0 } } }
-    STEP ask    { ASK operator "confirmer la cible ?" DEFAULT no }
+    STEP ask    { ASK operator { QUESTION "confirmer la cible ?" DEFAULT no } }
     STEP act    { isolate(host=reason.target) }
     STEP deep   { DELEGATE forensic { TASK "analyse" INPUT { reason.target } EXPECT { verdict } } }
     STEP close  { SET handled = yes }
