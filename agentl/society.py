@@ -119,15 +119,21 @@ class Society:
         la société s'arrête. Sans lui, on s'arrête quand *tous* les agents
         ont un score de 1.
         """
-        for _ in range(max_ticks):
+        for _ in self.iter_ticks(max_ticks, until):
+            pass
+        return self
+
+    def iter_ticks(self, max_ticks: int = 6, until: Optional[str] = None):
+        """Même boucle que `run`, rendue tour après tour (exécution durable)."""
+        for round_no in range(1, max_ticks + 1):
             self.tick()
+            yield round_no
             if until is not None:
                 if self.runtimes[until].state.get("goal.satisfied") is True:
                     break
             elif all(rt.state.get("goal.satisfied") is True
                      for rt in self.runtimes.values() if rt.agent.goals):
                 break
-        return self
 
     # ------------------------------------------------------------- rapports
     @property

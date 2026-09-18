@@ -22,6 +22,8 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W113  les OUTCOME d'un outil ne totalisent pas 1 (renormalisation appliquée)
   E008  écriture INTO SHARED.<clé> non déclarée dans MEMORY { SHARED { … } }
   E009  appel d'outil dans une expression (un appel n'est pas pur)
+  E015  fonction inconnue dans une expression (inévaluable à l'exécution)
+  E016  fonction de provenance mal employée (v1.9)
   W114  probabilité non calibrée alimentant une garde de politique
   W115  sortie de LLM non bornée alimentant un seuil de décision
   W116  THRESHOLD d'une hypothèse hors de l'amplitude atteignable
@@ -60,8 +62,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Set
 
+from .kernel.provenance import PROVENANCE_FUNCS
 from .mcp import UNSET_RISK
+from .state import EPISTEMIC_FUNCS, PURE_FUNCS
 from .trivalent import applies_when_unknown
+
+#: Fonctions qu'une expression peut appeler : pures, épistémiques, et de
+#: provenance. Tout le reste est soit un outil (E009), soit rien (E015).
+KNOWN_FUNCS = frozenset(PURE_FUNCS) | frozenset(EPISTEMIC_FUNCS) \
+    | PROVENANCE_FUNCS
 from .nodes import (
     Agent, CallExpr, CallStmt, ControlStmt, Decide, DelegateStmt, IfStmt,
     ForEachStmt, ListExpr, LoopStmt, MessageStmt, Node, PathExpr, Plan, Program,
@@ -117,6 +126,7 @@ class Analyzer:
         self._check_events()
         self._check_calls_and_plans()
         self._check_policies()
+        self._check_expression_calls()
         self._check_unset_risk()
         self._check_declared_durations()
         self._check_delegate_contracts()
@@ -200,18 +210,7 @@ class Analyzer:
                         self.diags.append(Diagnostic("E013", "error",
                             f"{stmt.call.name}() : " + "; ".join(problems), stmt.line))
             for expr in _stmt_exprs(stmt):
-                for node in _walk_expr(expr):
-                    if isinstance(node, CallExpr):
-                        # `x = outil(...)` est refusé à l'exécution : un
-                        # appel a des effets, il ne peut pas être évalué au
-                        # milieu d'une expression. Le dire ici, c'est la
-                        # thèse du projet — l'erreur se voit avant le run,
-                        # pas au milieu d'une écriture dans le CRM.
-                        self.diags.append(Diagnostic(
-                            "E009", "error",
-                            f"appel d'outil dans une expression : "
-                            f"{node.name}() — appelle-le dans une "
-                            f"instruction, puis lis sa sortie", stmt.line))
+                self._check_calls_in(expr, stmt.line, guard=False)
             if isinstance(stmt, ThenPlan) and stmt.plan not in plans:
                 self.diags.append(Diagnostic(
                     "E002", "error",
@@ -220,6 +219,98 @@ class Analyzer:
     def _delegate_targets(self) -> Set[str]:
         return {stmt.agent for stmt, _ in self._all_statements()
                 if isinstance(stmt, DelegateStmt)}
+
+    def _check_calls_in(self, expr, line: int, *, guard: bool) -> None:
+        """E009 / E015 / E016 — ce qu'une expression a le droit d'appeler.
+
+        `x = outil(...)` est refusé à l'exécution : un appel a des effets,
+        il ne peut pas être évalué au milieu d'une expression. Le dire ici,
+        c'est la thèse du projet — l'erreur se voit avant le run, pas au
+        milieu d'une écriture dans le CRM (E009).
+
+        Jusqu'en v1.8 **tout** appel en position d'expression était signalé
+        E009, `CONFIDENCE(x)` et `len(xs)` compris, que le runtime évalue
+        pourtant très bien ; et un nom inconnu dans une garde de politique
+        passait sans un mot — l'évaluation levait à l'exécution, la garde
+        devenait indéterminée, et un `NEVER` interdisait l'outil pour
+        toujours sans que `check` l'ait dit (E015).
+        """
+        tools = {t.name for t in self.agent.tools}
+        for node in _walk_expr(expr):
+            if not isinstance(node, CallExpr):
+                continue
+            if node.name in PROVENANCE_FUNCS:
+                self._check_provenance_call(node, line, guard=guard)
+            elif node.name in KNOWN_FUNCS:
+                continue
+            elif node.name in tools:
+                self.diags.append(Diagnostic(
+                    "E009", "error",
+                    f"appel d'outil dans une expression : "
+                    f"{node.name}() — appelle-le dans une "
+                    f"instruction, puis lis sa sortie", line))
+            else:
+                self.diags.append(Diagnostic(
+                    "E015", "error",
+                    f"fonction inconnue : {node.name}() — l'expression sera "
+                    f"inévaluable à l'exécution (fonctions reconnues : "
+                    f"{', '.join(sorted(KNOWN_FUNCS))})", line))
+
+    def _check_provenance_call(self, node, line: int, *, guard: bool) -> None:
+        """E016 — une fonction de provenance porte sur un chemin (v1.9)."""
+        name = node.name
+        tools = {t.name for t in self.agent.tools}
+        problems: List[str] = []
+        first = node.args[0] if node.args else None
+        if not isinstance(first, PathExpr):
+            problems.append("attend un chemin en premier argument")
+        elif first.dotted == "action":
+            if name == "ATTESTED":
+                problems.append("porte sur une valeur, pas sur l'action "
+                                "entière")
+            elif not guard:
+                problems.append("`action` ne se juge que dans une garde de "
+                                "politique")
+        max_args = 2 if name == "ATTESTED" else 1
+        if len(node.args) > max_args or node.kwargs:
+            problems.append(f"au plus {max_args} argument(s)")
+        if name == "ATTESTED" and len(node.args) == 2:
+            who = node.args[1]
+            if not (isinstance(who, PathExpr) and len(who.parts) == 1):
+                problems.append("le second argument nomme un outil")
+            elif who.parts[0] not in tools:
+                problems.append(f"`{who.parts[0]}` n'est pas un TOOL déclaré "
+                                f"— aucune attestation ne pourra le citer")
+        for problem in problems:
+            self.diags.append(Diagnostic(
+                "E016", "error", f"{name}() : {problem}", line))
+
+    def _check_expression_calls(self) -> None:
+        """Appels dans les expressions hors instructions : gardes, buts…"""
+        for rule in self.agent.policies:
+            self._check_calls_in(rule.guard, rule.line, guard=True)
+        roots = []
+        for plan in self.agent.plans:
+            roots.append((plan.when, plan.line))
+        for goal in self.agent.goals:
+            roots.append((goal.condition, goal.line))
+            roots.extend((target, goal.line) for target in goal.targets)
+        for obs in self.agent.observers:
+            roots.append((obs.when, obs.line))
+        for event in self.agent.events:
+            roots.append((event.when, event.line))
+        for handler in self.agent.messages:
+            roots.append((handler.when, handler.line))
+        for write in self.agent.memory.writes:
+            roots.append((write.when, getattr(write, "line", 0)))
+        for hypothesis in self.agent.hypotheses:
+            roots.extend((item.test, hypothesis.line)
+                         for item in hypothesis.evidence)
+        if self.agent.loop is not None:
+            roots.append((self.agent.loop.until, self.agent.loop.line))
+        for expr, line in roots:
+            if expr is not None:
+                self._check_calls_in(expr, line, guard=False)
 
     def _check_policies(self) -> None:
         # Depuis la v1.6, `DELEGATE` traverse le moteur de politiques et la

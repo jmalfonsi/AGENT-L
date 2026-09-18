@@ -432,9 +432,12 @@ def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
             def _run_phase(self, phase):
                 super()._run_phase(phase)
                 monitor()
-            def call_tool(self, name, args, origin="plan"):
+            def call_tool(self, name, args, origin="plan", **options):
                 host.latest_effects = {}
-                result = super().call_tool(name, args, origin)
+                # Les options — dont la provenance des arguments (v1.9) —
+                # suivent : un scénario doit juger l'action comme la
+                # production la jugerait.
+                result = super().call_tool(name, args, origin, **options)
                 # Les OUTCOME du double sont les faits du monde simulé.
                 # Le runtime ne doit pas rester sur une branche nominale.
                 self._apply_initial_values(host.latest_effects, "scenario-effect")

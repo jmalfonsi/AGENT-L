@@ -60,6 +60,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .core import AgentLError, Symbol
+from .kernel.errors import KernelAbort
+from .kernel.provenance import Labeled, Prov
 from .seal import (ChainReport, SignatureReport, SigningKey, chain_hashes,
                    chain_head, sign, verify_chain, verify_signature)
 
@@ -73,7 +75,15 @@ READABLE_FORMATS = (1, 2)
 #: enregistrement, mais pas un point de non-déterminisme : il note seulement
 #: si un sous-agent était présent, pour que son absence se rejoue aussi.
 KINDS = ("read", "invoke", "ask", "approve", "drain", "delegate",
-         "delegate_lookup", "reason", "select_plan")
+         "delegate_lookup", "reason", "select_plan",
+         "intent", "resolution", "checkpoint")
+
+#: Entrées d'**annotation** écrites par l'exécution durable (v1.9) : une
+#: intention journalisée avant l'appel, la manière dont une action restée
+#: sans résultat a été tranchée à la reprise, un point de contrôle de fin de
+#: tick. Aucune n'est un franchissement de frontière : le rejeu simple les
+#: saute, seule la reprise durable les consomme — et les vérifie.
+ANNOTATIONS = frozenset({"intent", "resolution", "checkpoint"})
 
 
 #: Sentinelle : « cet appel ne vérifie pas ses arguments ». Distinguer de
@@ -85,8 +95,13 @@ class ReplayError(AgentLError):
     """Défaut de rejeu — le journal ne colle pas à ce qu'on lui demande."""
 
 
-class ReplayDivergence(ReplayError):
-    """L'exécution rejouée s'écarte de l'exécution enregistrée."""
+class ReplayDivergence(ReplayError, KernelAbort):
+    """L'exécution rejouée s'écarte de l'exécution enregistrée.
+
+    `KernelAbort` : aucune frontière tolérante du runtime ne la convertit en
+    panne de capteur, d'outil ou d'oracle — un journal qui ne colle pas n'est
+    pas un monde qui tombe en panne.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -108,6 +123,11 @@ def encode(value: Any, lossy: Optional[List[str]] = None, path: str = "") -> Any
         return value
     if isinstance(value, Symbol):
         return {"$sym": value.name}
+    if isinstance(value, Labeled):
+        # Étiquette déclarée par l'hôte (v1.9) : elle a franchi la frontière
+        # avec la valeur, elle doit se rejouer avec elle.
+        return {"$lab": [encode(value.value, lossy, path),
+                         sorted(value.prov.sources)]}
     if isinstance(value, dict):
         return {"$dict": [[encode(k, lossy, path), encode(v, lossy, f"{path}.{k}")]
                           for k, v in value.items()]}
@@ -124,6 +144,9 @@ def decode(value: Any) -> Any:
     if isinstance(value, dict):
         if "$sym" in value:
             return Symbol(value["$sym"])
+        if "$lab" in value:
+            inner, sources = value["$lab"]
+            return Labeled(decode(inner), Prov(sources))
         if "$float" in value:
             return float(value["$float"])
         if "$dict" in value:
@@ -170,15 +193,42 @@ def _rebuild_error(name: str, message: str) -> BaseException:
     Le runtime journalise `f"{type(exc).__name__}: {exc}"` : sans le nom
     d'origine, la trace rejouée diffère d'un caractère — donc diffère.
     """
+    own = _AGENTL_ERRORS.get(name)
+    if own is not None:
+        # Une exception du noyau se rejoue en elle-même : le runtime traite
+        # une action indéterminée autrement qu'une panne quelconque, et un
+        # rejeu qui la rendrait générique changerait la trace.
+        return own(message)
     builtin = getattr(__builtins__, name, None) if not isinstance(__builtins__, dict) \
         else __builtins__.get(name)
     if isinstance(builtin, type) and issubclass(builtin, BaseException):
-        return builtin(message)
+        error = builtin(message)
+        if str(error) == message:
+            return error
+        # `str(KeyError("x"))` vaut `"'x'"` : le message enregistré porte déjà
+        # ces guillemets, et reconstruire l'exception les doublait. La trace
+        # rejouée différait alors d'un caractère sur tout outil absent de
+        # l'hôte — `logistics_coordinator` ne se rejouait pas. Une sous-classe
+        # de même nom rend exactement le texte enregistré, et reste attrapée
+        # par `except KeyError`.
+        faithful = type(name, (builtin,), {
+            "__str__": lambda self, _text=message: _text,
+            "__module__": builtin.__module__,
+        })
+        return faithful(message)
     return type(name, (ReplayedError,), {})(message)
 
 
 class ReplayedError(Exception):
     """Exception rejouée dont la classe d'origine n'est pas reconstructible."""
+
+
+def _agentl_errors() -> Dict[str, Any]:
+    from .kernel.errors import ActionInDoubt
+    return {"ActionInDoubt": ActionInDoubt}
+
+
+_AGENTL_ERRORS = _agentl_errors()
 
 
 # --------------------------------------------------------------------------
@@ -245,6 +295,10 @@ class Journal:
     # ------------------------------------------------------------ lecture
     def next(self, kind: str, key: str) -> Entry:
         """Consomme l'entrée suivante, en exigeant qu'elle soit *celle-là*."""
+        if kind not in ANNOTATIONS:
+            while (self._cursor < len(self.entries)
+                   and self.entries[self._cursor].kind in ANNOTATIONS):
+                self._cursor += 1
         if self._cursor >= len(self.entries):
             raise ReplayDivergence(
                 f"journal épuisé : l'exécution rejouée demande {kind}:{key} "
@@ -276,11 +330,13 @@ class Journal:
 
     @property
     def exhausted(self) -> bool:
-        return self._cursor >= len(self.entries)
+        return self.remaining == 0
 
     @property
     def remaining(self) -> int:
-        return len(self.entries) - self._cursor
+        """Franchissements non consommés — les annotations ne comptent pas."""
+        return sum(1 for e in self.entries[self._cursor:]
+                   if e.kind not in ANNOTATIONS)
 
     # --------------------------------------------------------- persistance
     def entry_bodies(self) -> List[Dict[str, Any]]:
@@ -381,6 +437,19 @@ class Journal:
     @property
     def signed(self) -> bool:
         return bool(self.meta.get("signature"))
+
+
+def _missing_args(missing: Any) -> Any:
+    return {"missing": list(missing)} if isinstance(missing, (list, tuple)) \
+        else None
+
+
+def missing_of(entry: Entry) -> Optional[List[str]]:
+    """Verdict « champs absents » journalisé avec une réponse `reason`."""
+    args = decode(entry.args) if entry.args is not None else None
+    if isinstance(args, dict) and isinstance(args.get("missing"), list):
+        return list(args["missing"])
+    return None
 
 
 def sha256(text: str) -> str:
@@ -500,7 +569,15 @@ class RecordingLLM:
         except BaseException as exc:                      # noqa: BLE001
             self._journal.record("reason", task, error=exc)
             raise
-        self._journal.record("reason", task, value=value)
+        # Le verdict « réponse partielle » de l'adaptateur voyage avec la
+        # réponse. Sans cela, l'enveloppe masquait `last_reason_missing` de
+        # l'oracle réel : une exécution enregistrée voyait complète une
+        # réponse tronquée que la même exécution sans `--record` voyait
+        # partielle — enregistrer changeait la décision (v1.9).
+        missing = getattr(self._inner, "last_reason_missing", None)
+        self.last_reason_missing = missing
+        self._journal.record("reason", task, value=value,
+                             args=_missing_args(missing))
         return value
 
     def select_plan(self, context: Dict[str, Any],
@@ -556,9 +633,12 @@ class ReplayHost:
     def ask(self, question: str, reason: str = "") -> Any:
         return self.journal.replay_value("ask", question, args={"reason": reason})
 
-    def approve(self, request: Any) -> bool:
+    def approve(self, request: Any) -> Any:
         key = request.render() if hasattr(request, "render") else str(request)
-        return bool(self.journal.replay_value("approve", key))
+        # La réponse **brute**, telle que l'hôte l'a rendue : c'est le noyau
+        # qui l'interprète (`approval_granted`). Un `bool()` ici faisait d'un
+        # « no » enregistré une approbation au rejeu.
+        return self.journal.replay_value("approve", key)
 
     def drain(self) -> List[Dict[str, Any]]:
         return list(self.journal.replay_value("drain", "") or [])
@@ -580,7 +660,13 @@ class ReplayLLM:
 
     def reason(self, task: str, context: Dict[str, Any],
                produce: Dict[str, str]) -> Dict[str, Any]:
-        return self.journal.replay_value("reason", task)
+        entry = self.journal.next("reason", task)
+        # Journal antérieur à la v1.9 : pas de verdict enregistré, le
+        # runtime le déduit de la forme de la réponse — comme à l'époque.
+        self.last_reason_missing = missing_of(entry)
+        if entry.error is not None:
+            raise _rebuild_error(entry.error[0], entry.error[1])
+        return decode(entry.value)
 
     def select_plan(self, context: Dict[str, Any],
                     candidates: List[str]) -> Optional[str]:

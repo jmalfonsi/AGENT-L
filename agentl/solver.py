@@ -21,6 +21,7 @@ librement satisfiable.
 """
 from __future__ import annotations
 
+import math
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
@@ -208,70 +209,138 @@ def _signature(node: Node) -> str:
 # --------------------------------------------------------------------------
 # Consistance d'une conjonction
 # --------------------------------------------------------------------------
+#: Deux échelles d'ordre, **disjointes** — comme dans l'évaluateur, où
+#: `state._compare` compare deux rangs ordinaux ou deux nombres, et rend faux
+#: tout le reste. `LOW <= 7` n'est pas « 2 <= 7 » : c'est une comparaison
+#: impossible, donc fausse, et sa négation est vraie.
+ORD, NUM = "ord", "num"
+
+
+def _scale(value: Any) -> Optional[Tuple[str, float]]:
+    """Échelle et rang d'une constante, ou `None` si elle n'est ordonnable."""
+    rank = ordinal(value)
+    if rank is not None:
+        return ORD, float(rank)
+    if isinstance(value, Symbol):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return (NUM, number) if math.isfinite(number) else None
+
+
 @dataclass
 class _Domain:
     """Ce qu'on sait d'un chemin dans une conjonction donnée."""
 
     equals: Set[Any] = field(default_factory=set)
+    #: Valeurs brutes des égalités — pour situer leur échelle.
+    equal_values: List[Any] = field(default_factory=list)
     differs: Set[Any] = field(default_factory=set)
-    low: Optional[float] = None
-    low_strict: bool = False
-    high: Optional[float] = None
-    high_strict: bool = False
-    numeric: bool = False
-    symbolic: bool = False
+    #: Échelles qu'une comparaison d'ordre **vraie** impose au chemin.
+    scales: Set[str] = field(default_factory=set)
+    #: Bornes par échelle : `échelle → [bas, bas strict, haut, haut strict]`.
+    bounds: Dict[str, List[Any]] = field(default_factory=dict)
+    #: Comparaisons d'ordre niées, en attente d'une échelle fixée.
+    negated: List[Tuple[str, str, float]] = field(default_factory=list)
     truth: Optional[bool] = None
 
-    def bound(self, op: str, value: float) -> None:
+    def bound(self, scale: str, op: str, value: float) -> None:
+        low, low_strict, high, high_strict = self.bounds.setdefault(
+            scale, [None, False, None, False])
         if op in (">", ">="):
-            if self.low is None or value > self.low:
-                self.low, self.low_strict = value, op == ">"
-            elif value == self.low and op == ">":
-                self.low_strict = True
+            if low is None or value > low:
+                low, low_strict = value, op == ">"
+            elif value == low and op == ">":
+                low_strict = True
         else:
-            if self.high is None or value < self.high:
-                self.high, self.high_strict = value, op == "<"
-            elif value == self.high and op == "<":
-                self.high_strict = True
+            if high is None or value < high:
+                high, high_strict = value, op == "<"
+            elif value == high and op == "<":
+                high_strict = True
+        self.bounds[scale] = [low, low_strict, high, high_strict]
+
+    def pinned(self) -> Optional[Tuple[str, bool]]:
+        """L'échelle du chemin, si la conjonction la fixe.
+
+        `(échelle, True)` : fixée sur cette échelle. `("", True)` : fixée sur
+        une valeur non ordonnable (toute comparaison d'ordre y est fausse).
+        `None` : rien ne la fixe.
+        """
+        if len(self.scales) == 1:
+            return next(iter(self.scales)), True
+        for value in self.equal_values:
+            scale = _scale(value)
+            return (scale[0] if scale else ""), True
+        return None
 
     def empty(self) -> bool:
-        if self.truth is not None and False:            # placeholder lisible
-            return True
         if len(self.equals) > 1:
             return True
         if self.equals & self.differs:
             return True
-        if self.low is not None and self.high is not None:
-            if self.low > self.high:
-                return True
-            if self.low == self.high and (self.low_strict or self.high_strict):
-                return True
-        for value in self.equals:
-            rank = _rank(value)
-            if rank is None:
-                continue
-            if self.low is not None:
-                if rank < self.low or (rank == self.low and self.low_strict):
+        # Deux comparaisons d'ordre vraies sur deux échelles : aucune valeur
+        # n'est à la fois un nombre et un rang ordinal.
+        if len(self.scales) > 1:
+            return True
+        for low, low_strict, high, high_strict in self.bounds.values():
+            if low is not None and high is not None:
+                if low > high:
                     return True
-            if self.high is not None:
-                if rank > self.high or (rank == self.high and self.high_strict):
+                if low == high and (low_strict or high_strict):
                     return True
-        if self.numeric and self.symbolic:
-            return False            # mélange : on ne conclut pas
+        for value in self.equal_values:
+            scale = _scale(value)
+            for bound_scale, (low, low_strict, high, high_strict) in \
+                    self.bounds.items():
+                if bound_scale not in self.scales:
+                    continue          # borne issue d'une négation : déjà filtrée
+                if scale is None or scale[0] != bound_scale:
+                    # Une comparaison d'ordre vraie exige une valeur de son
+                    # échelle : une valeur d'une autre échelle la rend fausse.
+                    return True
+                rank = scale[1]
+                if low is not None and (rank < low or (rank == low and low_strict)):
+                    return True
+                if high is not None and (rank > high
+                                         or (rank == high and high_strict)):
+                    return True
         return False
+
+    def settle_negations(self) -> bool:
+        """Applique les comparaisons niées là où l'échelle est connue.
+
+        `NOT (x > 7)` n'est `x <= 7` **que si** `x` est un nombre : pour un
+        rang ordinal ou un symbole, la comparaison est fausse et sa négation
+        vraie, sans rien borner. On ne conclut donc qu'échelle fixée — sinon
+        on ne sait pas, et ne pas savoir n'autorise jamais à répondre
+        « impossible ». Rend `False` si la conjonction devient vide.
+        """
+        pinned = self.pinned()
+        if pinned is None:
+            return True
+        scale = pinned[0]
+        for op, neg_scale, rank in self.negated:
+            if neg_scale == scale:
+                self.bound(scale, op, rank)
+                if scale not in self.scales:
+                    self.scales.add(scale)
+        return not self.empty()
 
 
 def _rank(value: Any) -> Optional[float]:
-    scale = ordinal(value)
-    if scale is not None:
-        return float(scale)
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
-    return None
+    scale = _scale(value)
+    return scale[1] if scale is not None else None
 
 
 def consistent(clause: Sequence[Literal_]) -> bool:
-    """Une conjonction est-elle satisfiable ? Faux ⇒ démontré contradictoire."""
+    """Une conjonction est-elle satisfiable ? Faux ⇒ démontré contradictoire.
+
+    Sémantique de référence : celle de l'évaluateur sur un état où les chemins
+    sont définis. Deux échelles d'ordre disjointes (`ORD`, `NUM`) ; une
+    comparaison d'ordre entre échelles différentes est fausse.
+    """
     domains: Dict[str, _Domain] = {}
     opaque: Dict[str, bool] = {}
 
@@ -293,26 +362,29 @@ def consistent(clause: Sequence[Literal_]) -> bool:
             domain.truth = wanted
             continue
 
-        op = NEGATION[atom.op] if negated else atom.op
         value = atom.value
-        rank = _rank(value)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            domain.numeric = True
-        if isinstance(value, (Symbol, str)):
-            domain.symbolic = True
-
-        if op == "==":
-            domain.equals.add(_hashable(value))
-        elif op == "!=":
-            domain.differs.add(_hashable(value))
-        elif rank is not None:
-            domain.bound(op, rank)
-        # comparaison d'ordre sur une valeur non ordonnable : sans effet
+        if atom.op in ("==", "!="):
+            op = NEGATION[atom.op] if negated else atom.op
+            if op == "==":
+                domain.equals.add(_hashable(value))
+                domain.equal_values.append(value)
+            else:
+                domain.differs.add(_hashable(value))
+        else:
+            scale = _scale(value)
+            if scale is None:
+                continue          # constante non ordonnable : on ne conclut rien
+            if negated:
+                domain.negated.append((NEGATION[atom.op], scale[0], scale[1]))
+                continue
+            domain.scales.add(scale[0])
+            domain.bound(scale[0], atom.op, scale[1])
 
         if domain.empty():
             return False
 
-    return all(not d.empty() for d in domains.values())
+    return all(not d.empty() and d.settle_negations()
+               for d in domains.values())
 
 
 def _hashable(value: Any) -> Any:

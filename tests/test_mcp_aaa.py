@@ -27,6 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from agentl.kernel import PermitError
+from agentl.kernel.testing import dispatch
 from agentl import Host
 from agentl.analyzer import Analyzer
 from agentl.mcp import (UNSET_RISK, CatalogDrift, MCPError, MCPHost, MCPTool,
@@ -307,7 +309,7 @@ class TestCatalogIsSealed(unittest.TestCase):
         client = StaticClient(catalog, {"search": {"hits": 2}})
         host = MCPHost(Host(), client, "srv", catalog_digest(catalog))
 
-        result = host.invoke("srv__search", {"query": "x"})
+        result = dispatch(host, "srv__search", {"query": "x"})
 
         self.assertEqual(result, {"hits": 2})
         # L'outil est appelé sous son nom MCP, pas sous son nom AGENT-L.
@@ -350,7 +352,7 @@ class TestCatalogIsSealed(unittest.TestCase):
 
         host.verify_catalog()          # ne lève pas
 
-        self.assertEqual(host.invoke("srv__search", {"query": "x"}), 1)
+        self.assertEqual(dispatch(host, "srv__search", {"query": "x"}), 1)
 
     def test_the_seal_is_read_back_from_the_generated_agent(self):
         catalog = [_tool()]
@@ -361,7 +363,7 @@ class TestCatalogIsSealed(unittest.TestCase):
             host = MCPHost.from_agent_file(
                 Host(), StaticClient(catalog, {"search": 7}), "srv", str(path))
 
-            self.assertEqual(host.invoke("srv__search", {"query": "x"}), 7)
+            self.assertEqual(dispatch(host, "srv__search", {"query": "x"}), 7)
 
     def test_an_agent_without_a_seal_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -384,7 +386,7 @@ class TestHostWrapping(unittest.TestCase):
         inner.tools["local_ping"] = lambda **kw: "pong"
         host = MCPHost(inner, StaticClient([_tool()], {}), "srv")
 
-        self.assertEqual(host.invoke("local_ping", {}), "pong")
+        self.assertEqual(dispatch(host, "local_ping", {}), "pong")
 
     def test_sensors_of_the_inner_host_remain_reachable(self):
         inner = Host()
@@ -392,6 +394,16 @@ class TestHostWrapping(unittest.TestCase):
         host = MCPHost(inner, StaticClient([], {}), "srv")
 
         self.assertEqual(host.read("cpu.load"), 42)
+
+    def test_a_server_call_without_a_kernel_permit_is_refused(self):
+        """v1.9 — la branche serveur est un point de dispatch réel : sans
+        permis du noyau, rien ne part vers le serveur MCP."""
+        client = StaticClient([_tool()], {"search": {"hits": 2}})
+        host = MCPHost(Host(), client, "srv")
+
+        with self.assertRaises(PermitError):
+            host.invoke("srv__search", {"query": "x"})
+        self.assertEqual(client.calls, [])
 
     def test_an_unknown_mcp_tool_is_refused_rather_than_forwarded(self):
         host = MCPHost(Host(), StaticClient([_tool()], {}), "srv")

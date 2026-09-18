@@ -9,10 +9,22 @@ Correspondance avec la sémantique formelle :
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .core import UNDEFINED, Belief, EvalError, Symbol, ordinal, truthy
+from .kernel import provenance as _prov
+from .kernel.provenance import (PROVENANCE_FUNCS, UNKNOWN_LABEL, Prov,
+                                attest_key)
 from .nodes import BinOp, CallExpr, ListExpr, Literal, Node, PathExpr, UnOp
+
+_DECLARED = Prov({_prov.DECLARED})
+_RUNTIME = Prov({_prov.RUNTIME})
+_SHARED = Prov({_prov.SHARED})
+
+
+def label_key(store: str, key: str) -> str:
+    """Clé d'étiquette : le magasin et la clé exacte qui ont répondu."""
+    return f"{store}\x00{key}"
 
 
 class State:
@@ -30,13 +42,49 @@ class State:
         #: ainsi désactiver un `NEVER`. Voir `Runtime._bind_payload`.
         self.untrusted: Dict[str, Any] = {}
         self.tick: int = 0
+        #: Provenance de chaque valeur écrite (v1.9), par magasin et clé
+        #: exacte. Une valeur sans étiquette est `UNKNOWN` — non fiable.
+        self.labels: Dict[str, Prov] = {}
+        #: Attestations : empreinte d'une valeur → outils qui l'ont acceptée.
+        self.attestations: Dict[str, Set[str]] = {}
 
     # ------------------------------------------------------------------ accès
     def get(self, path: str) -> Any:
-        for store in (self.locals, ):
-            hit = _dig(store, path)
-            if hit is not UNDEFINED:
-                return hit
+        return self._resolve(path)[0]
+
+    def get_labeled(self, path: str) -> Tuple[Any, Prov]:
+        """La valeur **et** sa provenance, par la même résolution que `get`."""
+        if type(self).get is not State.get:
+            # Vue qui redéfinit la lecture (planificateur, scénario) : on lit
+            # comme elle, et l'on ne prétend rien savoir de l'origine.
+            value = self.get(path)
+            return value, UNKNOWN_LABEL
+        value, where = self._resolve(path)
+        if value is UNDEFINED:
+            return UNDEFINED, UNKNOWN_LABEL
+        if isinstance(where, Prov):
+            return value, where
+        return value, self.label_at(where)
+
+    def label_at(self, key: str) -> Prov:
+        overlay = getattr(self, "_label_overlay", None)
+        if overlay and key in overlay:
+            return overlay[key]
+        return (getattr(self, "labels", None) or {}).get(key, UNKNOWN_LABEL)
+
+    def _resolve(self, path: str) -> Tuple[Any, Any]:
+        """`(valeur, provenance)` — la provenance est une clé d'étiquette,
+        ou directement une étiquette pour ce que le runtime calcule.
+
+        L'ordre est **la** règle de précédence du langage : locales, mémoire
+        partagée explicite, croyances, monde, mémoire, métadonnées de
+        croyance, et en dernier l'espace non fiable. `get` et `get_labeled`
+        passent tous deux par ici : la valeur lue et l'étiquette rendue ne
+        peuvent pas venir de deux magasins différents.
+        """
+        hit, key = _dig_key(self.locals, path)
+        if hit is not UNDEFINED:
+            return hit, label_key("L", key)
         if path.startswith("SHARED."):
             # Lecture explicite du compartiment partagé (v1.6). Explicite, et
             # non par nom nu comme les autres compartiments : deux agents qui
@@ -44,21 +92,24 @@ class State:
             # leur propre `LONG_TERM.incidents`. Le préfixe dit d'où vient la
             # donnée, ce qui est le minimum pour une décision qu'un autre
             # agent a rendue possible.
-            return self._shared(path[len("SHARED."):])
+            # Écrite par un autre agent : sa provenance ne nous est pas
+            # connue, elle vaut celle d'un message.
+            return self._shared(path[len("SHARED."):]), _SHARED
         if path in self.beliefs:
-            return self.beliefs[path].value
-        hit = _dig(self.world, path)
+            return self.beliefs[path].value, label_key("B", path)
+        hit, key = _dig_key(self.world, path)
         if hit is not UNDEFINED:
-            return hit
+            return hit, label_key("W", key)
         for bucket in ("SHORT_TERM", "LONG_TERM", "KNOWLEDGE"):
-            hit = _dig(self.memory[bucket], path)
+            hit, key = _dig_key(self.memory[bucket], path)
             if hit is not UNDEFINED:
-                return hit
+                return hit, label_key(f"M:{bucket}", key)
         # métadonnées de croyance : x.confidence
         if path.endswith(".confidence"):
             base = path[: -len(".confidence")]
             if base in self.beliefs:
-                return self.beliefs[base].confidence
+                return (self.beliefs[base].confidence,
+                        _RUNTIME | self.label_at(label_key("B", base)))
         # …et **en dernier** seulement, les noms nus d'une charge utile. Un
         # message ne peut donc rien masquer : il ne comble que ce que rien
         # d'autre ne renseigne. Sa forme préfixée `payload.x` reste, elle,
@@ -67,10 +118,10 @@ class State:
         # (`_Overlay` du planificateur, portées de scénario) sous-classent
         # `State` sans passer par ce constructeur. Une résolution de chemin ne
         # doit pas dépendre de la façon dont la vue a été construite.
-        hit = _dig(getattr(self, "untrusted", None) or {}, path)
+        hit, key = _dig_key(getattr(self, "untrusted", None) or {}, path)
         if hit is not UNDEFINED:
-            return hit
-        return UNDEFINED
+            return hit, label_key("U", key)
+        return UNDEFINED, None
 
     def _shared(self, suffix: str) -> Any:
         """Résout `SHARED.<clé>[.count|.version|.last[.champ]]`.
@@ -113,8 +164,16 @@ class State:
             return cursor
         return UNDEFINED
 
-    def set_world(self, path: str, value: Any) -> None:
+    def _label(self, store: str, key: str, prov: Optional[Prov]) -> None:
+        labels = getattr(self, "labels", None)
+        if labels is not None:
+            labels[label_key(store, key)] = prov if prov is not None \
+                else UNKNOWN_LABEL
+
+    def set_world(self, path: str, value: Any,
+                  prov: Optional[Prov] = None) -> None:
         self.world[path] = value
+        self._label("W", path, prov)
 
     def invalidate(self, path: str) -> None:
         """Efface ce qu'on croyait savoir d'un chemin : il redevient indéfini.
@@ -127,21 +186,50 @@ class State:
         self.world.pop(path, None)
         self.beliefs.pop(path, None)
         self.locals.pop(path, None)
+        labels = getattr(self, "labels", None)
+        if labels is not None:
+            for store in ("W", "B", "L"):
+                labels.pop(label_key(store, path), None)
 
     def set_belief(self, path: str, value: Any, confidence: float = 1.0,
-                   source: str = "runtime", updated: Any = None) -> None:
+                   source: str = "runtime", updated: Any = None,
+                   prov: Optional[Prov] = None) -> None:
         self.beliefs[path] = Belief(value, confidence, source, updated)
+        self._label("B", path, prov)
 
-    def set_local(self, path: str, value: Any) -> None:
+    def set_local(self, path: str, value: Any,
+                  prov: Optional[Prov] = None) -> None:
         self.locals[path] = value
+        self._label("L", path, prov)
 
-    def assign(self, path: str, value: Any) -> None:
+    def set_untrusted(self, key: str, value: Any, prov: Prov) -> None:
+        """Nom nu d'une donnée externe : consulté en dernier (§7.3)."""
+        self.untrusted[key] = value
+        self._label("U", key, prov)
+
+    def label_memory(self, bucket: str, key: str, prov: Prov) -> None:
+        self._label(f"M:{bucket}", key, prov)
+
+    def assign(self, path: str, value: Any,
+               prov: Optional[Prov] = None) -> None:
         """SET : écrit dans les croyances si la clé y existe, sinon en local."""
         if path in self.beliefs:
             self.beliefs[path].value = value
             self.beliefs[path].source = "assignment"
+            self._label("B", path, prov)
         else:
             self.locals[path] = value
+            self._label("L", path, prov)
+
+    def attest(self, tool: str, value: Any) -> None:
+        """`tool` a accepté `value` : un fait sur la valeur, pas une confiance."""
+        registry = getattr(self, "attestations", None)
+        if registry is not None:
+            registry.setdefault(attest_key(value), set()).add(tool)
+
+    def attested_by(self, value: Any) -> Set[str]:
+        registry = getattr(self, "attestations", None) or {}
+        return set(registry.get(attest_key(value), ()))
 
     def snapshot(self) -> Dict[str, Any]:
         return {
@@ -154,6 +242,10 @@ class State:
 
 
 def _dig(store: Dict[str, Any], path: str) -> Any:
+    return _dig_key(store, path)[0]
+
+
+def _dig_key(store: Dict[str, Any], path: str) -> Tuple[Any, str]:
     """Recherche exacte puis descente dans les dictionnaires imbriqués.
 
     On préfère le préfixe plat le plus long, mais si sa descente échoue on
@@ -164,7 +256,7 @@ def _dig(store: Dict[str, Any], path: str) -> Any:
     de chemin non déterministe vis-à-vis de la forme de stockage.
     """
     if path in store:
-        return store[path]
+        return store[path], path
     parts = path.split(".")
     for cut in range(len(parts) - 1, 0, -1):
         head = ".".join(parts[:cut])
@@ -178,8 +270,9 @@ def _dig(store: Dict[str, Any], path: str) -> Any:
                 cursor = UNDEFINED
                 break
         if cursor is not UNDEFINED:
-            return cursor
-    return UNDEFINED
+            # La feuille hérite de l'étiquette du composite qui la contient.
+            return cursor, head
+    return UNDEFINED, path
 
 
 # ---------------------------------------------------------------- évaluation
@@ -226,6 +319,8 @@ class Evaluator:
         if isinstance(node, CallExpr):
             if node.name in EPISTEMIC_FUNCS:
                 return self._epistemic(node)
+            if node.name in PROVENANCE_FUNCS:
+                return self._provenance(node)
             fn = PURE_FUNCS.get(node.name)
             if fn is None:
                 raise EvalError(
@@ -256,6 +351,83 @@ class Evaluator:
             return 0.0 if node.name == "CONFIDENCE" else 1.0
         return belief.confidence if node.name == "CONFIDENCE" \
             else 1.0 - belief.confidence
+
+    def _provenance(self, node: CallExpr) -> Any:
+        """`ORIGIN`, `UNTRUSTED`, `TRUSTED`, `LLM_DERIVED`, `ATTESTED` (v1.9).
+
+        Portent sur la valeur que désigne le **chemin**, telle qu'elle est
+        lue — même précédence que partout ailleurs. `action` désigne l'action
+        en cours de jugement : ses arguments et la décision qui l'a produite.
+        Une valeur absente rend la fonction indéfinie, donc la garde
+        indéterminée : le sens fermé est celui de chaque effet.
+        """
+        name = node.name
+        if not node.args or not isinstance(node.args[0], PathExpr):
+            raise EvalError(f"{name}() attend un chemin, pas une valeur")
+        path = node.args[0].dotted
+        if path == "action":
+            if name == "ATTESTED":
+                raise EvalError("ATTESTED() porte sur une valeur, pas sur "
+                                "l'action entière")
+            label = getattr(self.state, "action_label", None)
+            if label is None:
+                self.notes.append("action hors d'un jugement de politique")
+                return UNDEFINED
+            value = True
+        else:
+            value, label = self.state.get_labeled(path)
+            if value is UNDEFINED:
+                self.notes.append(f"provenance d'un chemin indéfini : {path}")
+                return UNDEFINED
+        if name == "ORIGIN":
+            return [Symbol(src) for src in sorted(label.sources)]
+        if name == "UNTRUSTED":
+            return label.untrusted
+        if name == "TRUSTED":
+            return not label.untrusted
+        if name == "LLM_DERIVED":
+            return label.llm_derived
+        # ATTESTED(x) / ATTESTED(x, validateur)
+        validators = self.state.attested_by(value) \
+            if hasattr(self.state, "attested_by") else set()
+        if len(node.args) < 2:
+            return bool(validators)
+        who = node.args[1]
+        if not (isinstance(who, PathExpr) and len(who.parts) == 1):
+            raise EvalError("ATTESTED(x, outil) : le second argument nomme "
+                            "un outil")
+        return who.parts[0] in validators
+
+    def label(self, node: Optional[Node]) -> Prov:
+        """Étiquette de provenance d'une expression : l'union de ce qu'elle lit.
+
+        Sur-approximation voulue : `a AND b` porte l'étiquette des deux côtés
+        même quand le premier suffit à conclure. Une étiquette trop large
+        refuse davantage ; trop étroite, elle blanchirait.
+        """
+        if node is None or isinstance(node, Literal):
+            return _DECLARED
+        if isinstance(node, PathExpr):
+            value, label = self.state.get_labeled(node.dotted) \
+                if hasattr(self.state, "get_labeled") \
+                else (self.state.get(node.dotted), UNKNOWN_LABEL)
+            if value is UNDEFINED:
+                # Identifiant nu non résolu : une constante du programme.
+                return _DECLARED if len(node.parts) == 1 else UNKNOWN_LABEL
+            return label
+        if isinstance(node, ListExpr):
+            return _prov.join(_DECLARED, *[self.label(i) for i in node.items])
+        if isinstance(node, UnOp):
+            return self.label(node.operand)
+        if isinstance(node, BinOp):
+            return self.label(node.left) | self.label(node.right)
+        if isinstance(node, CallExpr):
+            if node.name in PROVENANCE_FUNCS:
+                return _RUNTIME          # un fait sur l'étiquette, calculé ici
+            if node.name in EPISTEMIC_FUNCS:
+                return _prov.join(_RUNTIME, *[self.label(a) for a in node.args])
+            return _prov.join(_DECLARED, *[self.label(a) for a in node.args])
+        return UNKNOWN_LABEL
 
     def test(self, node: Optional[Node]) -> bool:
         if node is None:

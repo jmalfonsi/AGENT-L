@@ -5,51 +5,54 @@ Boucle canonique (§18 de l'étude) :
     Observe → Believe → Evaluate → Plan → Act → Verify → Learn
 
 Invariant d'architecture : **le LLM ne contrôle pas le runtime**. Il propose ;
-le runtime décide. Tout appel d'outil traverse obligatoirement le
-`PolicyEngine`, puis le contrôle de type, puis éventuellement l'approbation
-humaine, avant d'atteindre l'hôte.
+le runtime décide. Et depuis la v1.9, le runtime lui-même ne détient plus le
+droit d'appeler l'hôte : il demande un permis au noyau (`agentl.kernel`), qui
+applique le contrat INPUT, la politique et l'approbation, puis exécute. Un
+chemin du runtime qui oublierait le noyau n'a pas de permis à présenter, et
+l'hôte le refuse.
 """
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 import math
 from typing import Any, Dict, List, Optional
 
 from .core import UNDEFINED, Symbol, fmt, truthy
-from .host import Host, approval_granted
+from .host import Host
+from .kernel import ActionInDoubt, Kernel, KernelAbort
+from .kernel import gate as _gate
+from .kernel import provenance as P
+from .kernel.provenance import Prov, UNKNOWN_LABEL, unwrap
+from .kernel.action import (_NUMERIC_TYPES, _TYPE_CHECKS,  # noqa: F401
+                            coerce_inputs as _coerce_inputs,
+                            typecheck as _typecheck)
 from .llm import LLM, MockLLM
 from .nodes import (
     Agent, AskStmt, CallStmt, ControlStmt, DelegateStmt, ForEachStmt, IfStmt, LoopStmt,
     MessageStmt, Plan, ReasonStmt, SetStmt, Stmt, ThenPlan, VerifyStmt,
 )
 from .planner import Planner, PlanningResult
-from .policy import (ALLOWED, APPROVAL_REQUIRED, DENIED, ActionRequest,
-                     PolicyEngine, action_from_tool, _ActionScope)
-from .replay import ReplayDivergence
-from .state import Evaluator, State
+from .policy import ActionRequest, _ActionScope
+from .state import Evaluator, State, label_key
 
 DEFAULT_CYCLE = ["RECEIVE", "OBSERVE", "UPDATE_BELIEFS", "UPDATE_HYPOTHESES",
                  "EVALUATE_GOALS", "SELECT_PLAN", "EXECUTE", "VERIFY",
                  "UPDATE_MEMORY"]
 
-_TYPE_CHECKS = {
-    "number": (int, float), "float": (int, float), "int": (int,),
-    "string": (str,), "bool": (bool,), "boolean": (bool,),
-    "symbol": (Symbol, str), "list": (list,),
-}
-
-#: Types numériques auxquels un booléen **ne** satisfait **pas**.
-#:
-#: `bool` hérite de `int` en Python : `isinstance(True, int)` est vrai, donc
-#: `_typecheck` acceptait `True` là où un outil déclare `count: Int`. L'hôte
-#: recevait alors 1 ou 0 sans le savoir — un `delete(retention_days=False)`
-#: passait le contrat et supprimait tout. Un contrat d'outil est une frontière
-#: avec le monde réel : il doit refuser une valeur d'un autre genre, pas la
-#: convertir en silence. L'inverse (`Bool` recevant `1`) est déjà refusé,
-#: puisque `isinstance(1, bool)` est faux.
-_NUMERIC_TYPES = frozenset({"number", "float", "int"})
+#: Étiquettes de provenance des sources fixes (v1.9).
+_RUNTIME = Prov({P.RUNTIME})
+_DECLARED = Prov({P.DECLARED})
+_OBSERVED = Prov({P.OBSERVED})
+_HUMAN = Prov({P.HUMAN})
+_LLM = Prov({P.LLM})
+_TOOL = Prov({P.TOOL})
+_DELEGATE = Prov({P.DELEGATE})
+_INFERRED = Prov({P.INFERRED})
+_EFFECT = Prov({P.EFFECT})
+_PAYLOAD = {"message": Prov({P.MESSAGE}), "event": Prov({P.EVENT})}
 
 
 @dataclass
@@ -120,7 +123,8 @@ class Runtime:
     def __init__(self, agent: Agent, host: Optional[Host] = None,
                  llm: Optional[LLM] = None, echo: bool = False,
                  tool_breaker: Optional[int] = None,
-                 tool_cooldown: Optional[int] = None):
+                 tool_cooldown: Optional[int] = None,
+                 run_id: str = "run"):
         self.agent = agent
         self.host = host or Host()
         self.llm = llm or MockLLM()
@@ -131,7 +135,11 @@ class Runtime:
         #: `nom d'outil → (échecs consécutifs, tick du dernier échec)`.
         self._tool_failures: Dict[str, tuple] = {}
         self.state = State()
-        self.policy = PolicyEngine(agent)
+        #: Seule autorité capable d'appeler l'hôte. Le moteur de politiques
+        #: est le sien : le runtime le partage (planificateur, affichage) mais
+        #: ne décide plus avec.
+        self.kernel = Kernel(agent, run_id=run_id)
+        self.policy = self.kernel.policy
         self.trace = Trace(getattr(self.host, "trace_sink", None))
         self.trace.echo = echo
         self.plan_queue: deque = deque()
@@ -161,12 +169,39 @@ class Runtime:
         self.planner = (Planner(agent, agent.planner, self.policy)
                         if agent.planner and agent.planner.enabled else None)
         self._synth: Dict[str, Plan] = {}
+        #: Contexte de contrôle (v1.9) : étiquettes des décisions en cours —
+        #: plan choisi, branche prise, gestionnaire déclenché. Tout ce qui
+        #: s'écrit ou s'exécute dessous en hérite (flux implicite).
+        self._control: List[Prov] = []
+        #: Étiquette de la décision qui a mis chaque plan en file.
+        self._plan_labels: Dict[str, Prov] = {}
         self._bootstrap()
 
     # -------------------------------------------------------- résolution
     def plan_named(self, name: str) -> Optional[Plan]:
         """Plans déclarés *et* plans synthétisés par le planificateur."""
         return self.agent.plan(name) or self._synth.get(name)
+
+    # ---------------------------------------------------- provenance (v1.9)
+    def _pc(self) -> Prov:
+        """Étiquette du contexte de contrôle courant."""
+        return P.join(*self._control) if self._control else P.NONE
+
+    @contextmanager
+    def _under(self, label: Prov):
+        """Exécute un bloc sous une décision d'étiquette `label`."""
+        self._control.append(label)
+        try:
+            yield
+        finally:
+            self._control.pop()
+
+    def _label(self, node: Any, evaluator: Optional[Evaluator] = None) -> Prov:
+        """Étiquette d'une expression ; inévaluable = inconnue, jamais sûre."""
+        try:
+            return (evaluator or Evaluator(self.state)).label(node)
+        except Exception:                             # noqa: BLE001
+            return UNKNOWN_LABEL
 
     # ------------------------------------------------------ évaluation sûre
     def _safe_test(self, cond, *, on_error: bool, context: str,
@@ -205,10 +240,11 @@ class Runtime:
         fait pas tomber la boucle — il ne produit simplement pas de perception."""
         try:
             return self.host.read(path)
-        except ReplayDivergence:
+        except KernelAbort:
             # Une divergence de rejeu n'est pas une panne de capteur. La
             # convertir en perception absente permettrait à un journal
-            # tronqué ou réordonné de sembler rejouable.
+            # tronqué ou réordonné de sembler rejouable. Même chose pour une
+            # annulation ou une violation de permis (v1.9).
             raise
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(self.state.tick, "ERROR",
@@ -221,30 +257,13 @@ class Runtime:
         injoignable vaut absence de réponse (le DEFAULT s'appliquera)."""
         try:
             return self.host.ask(question, reason)
-        except ReplayDivergence:
+        except KernelAbort:
             raise
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(self.state.tick, "ERROR",
                            "opérateur injoignable",
                            f"{type(exc).__name__}: {exc} — sans réponse")
             return Symbol("no_answer")
-
-    def _approve(self, request: Any) -> bool:
-        """Approbation humaine, fail-closed : un approbateur en erreur vaut
-        REFUS — jamais un passage par défaut."""
-        try:
-            # `approval_granted` et non `bool(...)` : l'hôte peut être une
-            # sous-classe, un enregistreur de rejeu ou un service distant, et
-            # rien ne garantit qu'il rende un booléen. Une réponse qui ne dit
-            # pas oui explicitement est un refus. Voir `host.approval_granted`.
-            return approval_granted(self.host.approve(request))
-        except ReplayDivergence:
-            raise
-        except Exception as exc:                      # noqa: BLE001
-            self.trace.log(self.state.tick, "ERROR",
-                           "approbateur en erreur",
-                           f"{type(exc).__name__}: {exc} — refus (fail-closed)")
-            return False
 
     def _drain_events(self) -> List[Dict[str, Any]]:
         """Une file d'événements indisponible ne tue pas la surveillance.
@@ -257,7 +276,7 @@ class Runtime:
         """
         try:
             events = self.host.drain()
-        except ReplayDivergence:
+        except KernelAbort:
             raise
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(
@@ -272,72 +291,58 @@ class Runtime:
         return events
 
     # -------------------------------------------------- action gouvernée
-    def _authorize_action(self, request: ActionRequest) -> bool:
-        """Fait franchir à une capacité le même passage obligé.
+    def _authorize(self, request: ActionRequest, kind: str = "invoke"):
+        """Demande un permis au noyau, et trace chacune de ses étapes.
 
         Outil et sous-agent sont deux Adapters d'invocation différents, mais
-        leur autorisation a une seule sémantique : politique fail-closed,
-        arguments homonymes visibles, approbation explicite, métriques et
-        état d'audit. Garder ce Module profond ici évite qu'une future règle
-        de sûreté soit ajoutée à un chemin et oubliée sur l'autre.
+        leur autorisation a une seule sémantique — elle vit dans
+        `Kernel.authorize` depuis la v1.9. Ce qui reste ici est ce qui n'est
+        pas du noyau : les lignes de trace, les métriques et l'état d'audit
+        `last_action.blocked`, dans le même ordre qu'avant l'extraction (les
+        journaux publiés se rejouent à l'octet, `tests/golden`).
+
+        Rend le permis, ou `None` si l'action ne passe pas.
         """
-        # La requête est déjà canonique : chaque Adapter fige arguments,
-        # risque, origine et confiance avant ce passage. Politique et humain
-        # examinent ainsi exactement l'action qui sera invoquée.
         subject = (f"DELEGATE {request.tool}"
-                   if request.origin == "delegate" else request.render())
-        try:
-            decision = self.policy.check(request, self.state)
-        except Exception as exc:                      # noqa: BLE001
-            self.metrics["blocked"] += 1
+                   if kind == "delegate" else request.render())
+        auth = self.kernel.authorize(
+            request, self.state, kind=kind,
+            # L'attribut est résolu *dans* le noyau : un hôte sans `approve`
+            # échoue à l'approbation — refus — au lieu de faire tomber la
+            # boucle avant même la politique.
+            approve=lambda proposal: self.host.approve(proposal),
+            observer=_AuthorizationTrace(self, subject))
+        if auth.granted:
+            if auth.approved:
+                self.trace.log(self.state.tick, "APPROVAL", "approuvé")
+            # La capacité a franchi la gouvernance. Une panne d'invocation
+            # reste une panne du monde, pas un refus de politique.
+            self.state.set_local("last_action.blocked", False, _RUNTIME)
+            return auth.permit
+
+        self.metrics["blocked"] += 1
+        if auth.stage == _gate.STAGE_ISOLATION:
+            self.trace.log(self.state.tick, "BLOCKED", f"{subject} refusé",
+                           f"proposition non isolable : {auth.detail} — "
+                           "refus (fail-closed)")
+        elif auth.stage == _gate.STAGE_POLICY_ERROR:
             self.trace.log(
                 self.state.tick, "BLOCKED", f"{subject} refusé",
-                f"politique inévaluable : {type(exc).__name__}: {exc} — "
+                f"politique inévaluable : {auth.detail} — "
                 "repli fermé (DENY)")
-            self.state.set_local("last_action.blocked", True)
-            return False
-
-        if decision.shadowed_args:
-            self.trace.log(
-                self.state.tick, "POLICY",
-                f"{request.render()} : garde évaluée sur l'argument",
-                ", ".join(f"`{key}` masque la locale {fmt(value)}"
-                          for key, value
-                          in sorted(decision.shadowed_args.items())))
-
-        if decision.verdict == DENIED:
-            self.metrics["blocked"] += 1
+        elif auth.stage == _gate.STAGE_POLICY:
             self.trace.log(self.state.tick, "BLOCKED",
-                           f"{subject} refusé", decision.reason)
-            self.state.set_local("last_action.blocked", True)
-            return False
-
-        if decision.verdict == APPROVAL_REQUIRED:
-            self.metrics["approvals"] += 1
-            self.trace.log(self.state.tick, "APPROVAL",
-                           f"{subject} en attente", decision.reason)
-            try:
-                approval_request = deepcopy(request)
-            except Exception as exc:                  # noqa: BLE001
-                self.metrics["blocked"] += 1
-                self.trace.log(
-                    self.state.tick, "BLOCKED", f"{subject} non approuvé",
-                    f"proposition non isolable : {type(exc).__name__}: {exc}"
-                    " — refus (fail-closed)")
-                self.state.set_local("last_action.blocked", True)
-                return False
-            if not self._approve(approval_request):
-                self.metrics["blocked"] += 1
-                self.trace.log(self.state.tick, "BLOCKED",
-                               f"{subject} non approuvé")
-                self.state.set_local("last_action.blocked", True)
-                return False
-            self.trace.log(self.state.tick, "APPROVAL", "approuvé")
-
-        # La capacité a franchi la gouvernance. Une panne d'invocation reste
-        # une panne du monde, pas un refus de politique.
-        self.state.set_local("last_action.blocked", False)
-        return True
+                           f"{subject} refusé", auth.detail)
+        elif auth.stage == _gate.STAGE_APPROVAL_ISOLATION:
+            self.trace.log(
+                self.state.tick, "BLOCKED", f"{subject} non approuvé",
+                f"proposition non isolable : {auth.detail}"
+                " — refus (fail-closed)")
+        else:
+            self.trace.log(self.state.tick, "BLOCKED",
+                           f"{subject} non approuvé")
+        self.state.set_local("last_action.blocked", True, _RUNTIME)
+        return None
 
     # ------------------------------------------------------- oracle dégradé
     def _flag_reason(self, stmt: Any, missing: Optional[List[str]],
@@ -357,8 +362,10 @@ class Runtime:
         # `missing is None` : adaptateur qui ne renseigne pas le verdict. On
         # ne présume pas d'une panne — silence n'est pas dégradation.
         degraded = bool(total) and absent >= total
-        self.state.set_local("reason.degraded", degraded)
-        self.state.set_local("reason.missing", absent)
+        # Le modèle décide de répondre ou de se taire : le fait est calculé
+        # par le runtime, mais c'est l'oracle qui le provoque.
+        self.state.set_local("reason.degraded", degraded, _RUNTIME | _LLM)
+        self.state.set_local("reason.missing", absent, _RUNTIME | _LLM)
         if degraded:
             self.metrics["reason_degraded"] += 1
             # Volontairement PAS `ERROR` : un oracle qui se tait n'est pas une
@@ -393,16 +400,16 @@ class Runtime:
     def _record_tool_failure(self, name: str) -> None:
         failures = self._tool_failures.get(name, (0, 0))[0] + 1
         self._tool_failures[name] = (failures, self.state.tick)
-        self.state.set_world(f"tools.{name}.failures", failures)
+        self.state.set_world(f"tools.{name}.failures", failures, _RUNTIME)
         if self.tool_breaker > 0 and failures >= self.tool_breaker:
-            self.state.set_world(f"tools.{name}.available", False)
+            self.state.set_world(f"tools.{name}.available", False, _RUNTIME)
 
     def _record_tool_success(self, name: str) -> None:
         """Un succès referme le disjoncteur : la panne était passagère."""
         if name in self._tool_failures:
             self._tool_failures.pop(name)
-        self.state.set_world(f"tools.{name}.failures", 0)
-        self.state.set_world(f"tools.{name}.available", True)
+        self.state.set_world(f"tools.{name}.failures", 0, _RUNTIME)
+        self.state.set_world(f"tools.{name}.available", True, _RUNTIME)
 
     def _cooldown_left(self, name: str) -> int:
         last = self._tool_failures.get(name, (0, 0))[1]
@@ -428,7 +435,8 @@ class Runtime:
         ev = Evaluator(self.state)
         for decl in self.agent.beliefs:
             self.state.set_belief(decl.path, ev.eval(decl.value),
-                                  decl.confidence, decl.source, decl.updated)
+                                  decl.confidence, decl.source, decl.updated,
+                                  _DECLARED | self._label(decl.value, ev))
         for bucket, names in (("SHORT_TERM", self.agent.memory.short_term),
                               ("LONG_TERM", self.agent.memory.long_term),
                               ("KNOWLEDGE", self.agent.memory.knowledge),
@@ -436,6 +444,14 @@ class Runtime:
             self.state.memory.setdefault(bucket, {})
             for name in names:
                 self.state.memory[bucket].setdefault(name, [])
+                self.state.label_memory(bucket, name, _DECLARED)
+        # « Aucune action de cet outil n'est indéterminée » est un fait vrai
+        # au démarrage, et il doit être posé : indéfini, il rendrait
+        # indéterminée toute garde `NEVER x WHEN tools.x.in_doubt == true` —
+        # donc, fermée, elle interdirait l'outil pour toujours (v1.9).
+        for decl in self.agent.tools:
+            self.state.set_world(f"tools.{decl.name}.in_doubt", False,
+                                 _RUNTIME)
         self._load_drift()
 
     def _apply_initial_values(self, values: Dict[str, Any], source: str) -> None:
@@ -446,11 +462,13 @@ class Runtime:
         valeurs appartiennent au monde. Cette règle vit ici pour que tous les
         Adapters d'exécution observent le même tick zéro.
         """
+        # Un monde de départ simulé tient lieu d'observation.
         for path, value in values.items():
             if path in self.state.beliefs:
-                self.state.set_belief(path, value, 1.0, source)
+                self.state.set_belief(path, value, 1.0, source,
+                                      prov=_OBSERVED)
             else:
-                self.state.set_world(path, value)
+                self.state.set_world(path, value, _OBSERVED)
 
     # ------------------------------------------------------------- boucle
     def run(self, max_ticks: Optional[int] = None) -> "Runtime":
@@ -529,14 +547,13 @@ class Runtime:
             payload = message.get("payload", {})
             meta = {"name": message["name"], "from": message["from"]}
             for handler in handlers:
-                snapshot = (dict(self.state.locals),
-                            dict(self.state.untrusted))
+                snapshot = self._scope_snapshot()
                 self._bind_payload(payload, meta, "message")
                 if not self._safe_test(
                         handler.when, on_error=False,
                         context=f"ON MESSAGE {message['name']}"):
                     # Un message refusé ne doit rien laisser derrière lui.
-                    self.state.locals, self.state.untrusted = snapshot
+                    self._scope_restore(snapshot)
                     self.trace.log(self.state.tick, "MESSAGE",
                                    f"{message['name']} filtré par WHEN")
                     continue
@@ -544,7 +561,18 @@ class Runtime:
                     self.state.tick, "MESSAGE",
                     f"{message['name']} ← {message['from']}",
                     ", ".join(f"{k}={fmt(v)}" for k, v in payload.items()))
-                self.exec_stmts(handler.body)
+                # Le gestionnaire s'exécute *parce qu'un message est arrivé* :
+                # tout ce qu'il décide en porte la provenance.
+                with self._under(_PAYLOAD["message"]
+                                 | self._label(handler.when)):
+                    self.exec_stmts(handler.body)
+
+    def _scope_snapshot(self):
+        return (dict(self.state.locals), dict(self.state.untrusted),
+                dict(self.state.labels))
+
+    def _scope_restore(self, snapshot) -> None:
+        self.state.locals, self.state.untrusted, self.state.labels = snapshot
 
     def _bind_payload(self, payload: Dict[str, Any], meta: Dict[str, Any],
                       kind: str) -> None:
@@ -567,8 +595,11 @@ class Runtime:
         décidait d'une question de sécurité. Reléguée en dernier, elle ne
         comble plus que ce que rien d'autre ne renseigne.
         """
-        self.state.locals["payload"] = dict(payload)
-        self.state.locals[kind] = dict(meta)
+        label = _PAYLOAD[kind]
+        self.state.set_local("payload", dict(payload), label)
+        # L'enveloppe — émetteur, source — est posée par le runtime ou la
+        # société, pas par l'émetteur : elle ne vaut pas le contenu.
+        self.state.set_local(kind, dict(meta), _RUNTIME)
         shadowed = []
         for key, value in payload.items():
             if self.state.get(key) is not UNDEFINED:
@@ -576,7 +607,7 @@ class Runtime:
                 # fait connu est soit une méprise, soit une tentative. Muet,
                 # le comportement sûr serait indistinguable d'un bug.
                 shadowed.append(key)
-            self.state.untrusted[key] = value
+            self.state.set_untrusted(key, value, label)
         if shadowed:
             self.trace.log(
                 self.state.tick, "BLOCKED",
@@ -592,13 +623,14 @@ class Runtime:
                     obs.when, on_error=False,
                     context=f"OBSERVE {obs.path}", evaluator=ev):
                 continue
-            value = self._read(obs.path)
+            value, label = unwrap(self._read(obs.path), _OBSERVED)
             if value is None:
                 self._sensor_unknown(obs)
                 continue
-            self.state.set_world(f"sensors.{obs.path}.available", True)
+            self.state.set_world(f"sensors.{obs.path}.available", True,
+                                 _RUNTIME)
             self._sensor_escalated.discard(obs.path)
-            self.state.set_world(obs.path, value)
+            self.state.set_world(obs.path, value, label)
             self.trace.log(self.state.tick, "OBSERVE",
                            f"{obs.path} = {fmt(value)}")
 
@@ -622,14 +654,15 @@ class Runtime:
           garde puisse distinguer une mesure d'une hypothèse.
         """
         self.metrics["sensor_unknown"] += 1
-        self.state.set_world(f"sensors.{obs.path}.available", False)
+        self.state.set_world(f"sensors.{obs.path}.available", False, _RUNTIME)
 
         if obs.on_unknown == "DEGRADE":
             value = Evaluator(self.state).eval(obs.fallback)
+            label = Prov({P.FALLBACK}) | self._label(obs.fallback)
             self.metrics["sensor_degraded"] += 1
-            self.state.set_world(obs.path, value)
+            self.state.set_world(obs.path, value, label)
             self.state.set_belief(obs.path, value, 0.3, "fallback",
-                                  self.state.tick)
+                                  self.state.tick, label)
             self.trace.log(self.state.tick, "OBSERVE",
                            f"{obs.path} : capteur muet → repli {fmt(value)}",
                            "valeur déclarée, non mesurée — confiance 0.3, "
@@ -668,7 +701,8 @@ class Runtime:
                                    f"{obs.path}: {fmt(old.value)} → {fmt(value)}")
                 self._audit_effect(obs.path, old, value)
             self.state.set_belief(obs.path, value, 0.95, "observation",
-                                  self.state.tick)
+                                  self.state.tick,
+                                  self.state.label_at(label_key("W", obs.path)))
 
     def _audit_effect(self, path: str, previous, observed: Any) -> None:
         """Confronte le modèle d'effets au monde (v1.2, conséquences en v1.7).
@@ -760,6 +794,9 @@ class Runtime:
         prochain démarrage : la mémoire arrive après le `_bootstrap`.
         """
         self.state.memory.setdefault(bucket, {})[key] = list(records)
+        # Rendue par l'hôte depuis un stockage : ce qu'elle contient a pu être
+        # modifié hors de toute exécution.
+        self.state.label_memory(bucket, key, Prov({P.MEMORY}))
         if bucket == "LONG_TERM" and key == self.DRIFT_KEY:
             self.drift = {}
             self._load_drift()
@@ -801,6 +838,7 @@ class Runtime:
         if self.DRIFT_KEY not in self.agent.memory.long_term:
             return
         bucket = self.state.memory.setdefault("LONG_TERM", {})
+        self.state.label_memory("LONG_TERM", self.DRIFT_KEY, _RUNTIME)
         bucket[self.DRIFT_KEY] = [
             {"tool": couple.split("→", 1)[0], "path": couple.split("→", 1)[1],
              "confirmé": ledger["confirmé"], "démenti": ledger["démenti"]}
@@ -814,7 +852,9 @@ class Runtime:
         best: Optional[Any] = None
         for hypothesis in self.agent.hypotheses:
             inference = infer(hypothesis, self.state)
-            publish(inference, self.state)
+            evidence = P.join(_INFERRED, *[self._label(item.test)
+                                           for item in hypothesis.evidence])
+            publish(inference, self.state, evidence)
             self.inferences[hypothesis.name] = inference
             self.metrics["inferences"] += 1
             self.trace.log(self.state.tick, "BAYES", inference.render(),
@@ -828,29 +868,31 @@ class Runtime:
                 self.state.set_belief(hypothesis.explains_path, value,
                                       inference.posterior,
                                       f"hypothesis:{hypothesis.name}",
-                                      self.state.tick)
+                                      self.state.tick, evidence)
                 self.trace.log(self.state.tick, "BELIEF",
                                f"{hypothesis.explains_path} = {fmt(value)}",
                                f"c={inference.posterior:.3f} (dérivée)")
         if best is not None:
-            self.state.set_world("hypotheses.best", Symbol(best.name))
-            self.state.set_world("hypotheses.best.posterior", best.posterior)
+            self.state.set_world("hypotheses.best", Symbol(best.name),
+                                 _INFERRED)
+            self.state.set_world("hypotheses.best.posterior", best.posterior,
+                                 _INFERRED)
 
     def phase_synthesize(self) -> None:
         """v0.5 — synthétise un plan quand aucun plan déclaré ne s'applique."""
         if self.planner is None or self.plan_queue:
             return
-        self.state.set_world("planner.exhausted", False)
+        self.state.set_world("planner.exhausted", False, _RUNTIME)
         result = self.planner.synthesize(self.state)
         for note in result.pruned_by_policy:
             self.trace.log(self.state.tick, "PLANNER",
                            "action écartée à la planification", note)
         if not result.found:
             self.state.set_world("planner.exhausted",
-                                 "atteints" not in result.reason)
+                                 "atteints" not in result.reason, _RUNTIME)
             self.trace.log(self.state.tick, "PLANNER", result.render())
             return
-        self.state.set_world("planner.exhausted", False)
+        self.state.set_world("planner.exhausted", False, _RUNTIME)
         name = f"__synth_t{self.state.tick}"
         self._synth[name] = self.planner.as_plan(result, name)
         self.metrics["plans_synthesized"] += 1
@@ -871,15 +913,19 @@ class Runtime:
                     target, on_error=False,
                     context=f"TARGET de {goal.name}", evaluator=ev) else 0.0)
             score = sum(parts) / len(parts) if parts else 1.0
-            self.state.set_world(f"goals.{goal.name}.score", score)
-            scores.append((goal, score))
+            label = P.join(_RUNTIME, self._label(goal.condition, ev),
+                           *[self._label(t, ev) for t in goal.targets])
+            self.state.set_world(f"goals.{goal.name}.score", score, label)
+            scores.append((goal, score, label))
             self.trace.log(self.state.tick, "GOAL",
                            f"{goal.name} score={score:.2f}",
                            goal.mode.lower())
-        total_w = sum(g.weight for g, _ in scores) or 1.0
-        overall = sum(s * g.weight for g, s in scores) / total_w if scores else 1.0
-        self.state.set_world("goal.score", overall)
-        self.state.set_world("goal.satisfied", overall >= 1.0)
+        total_w = sum(g.weight for g, _, _ in scores) or 1.0
+        overall = (sum(s * g.weight for g, s, _ in scores) / total_w
+                   if scores else 1.0)
+        label = P.join(_RUNTIME, *[lab for _, _, lab in scores])
+        self.state.set_world("goal.score", overall, label)
+        self.state.set_world("goal.satisfied", overall >= 1.0, label)
 
     def phase_select_plan(self) -> None:
         # 1. Événements
@@ -891,14 +937,16 @@ class Runtime:
             if plan.when is not None and self._safe_test(
                     plan.when, on_error=False,
                     context=f"garde WHEN de {plan.name}", evaluator=ev):
-                self._enqueue(plan.name, "garde WHEN")
+                self._enqueue(plan.name, "garde WHEN",
+                              self._label(plan.when, ev))
         # 3. Règles DECIDE
         decide = self.agent.decide
         if decide:
             for rule in decide.rules:
                 if self._safe_test(rule.cond, on_error=False,
                                    context="règle DECIDE"):
-                    self.exec_stmts(rule.then)
+                    with self._under(self._label(rule.cond)):
+                        self.exec_stmts(rule.then)
         # 4. Synthèse (v0.5) — le déterministe avant le probabiliste
         self.phase_synthesize()
         # 5. Raisonnement LLM, en dernier recours seulement
@@ -909,6 +957,8 @@ class Runtime:
                 self.metrics["llm_calls"] += 1
                 try:
                     choice = self.llm.select_plan(self.llm_context(), candidates)
+                except KernelAbort:
+                    raise
                 except Exception as exc:              # noqa: BLE001
                     choice = None
                     self.trace.log(self.state.tick, "ERROR",
@@ -917,7 +967,8 @@ class Runtime:
                 if choice in candidates:
                     self.trace.log(self.state.tick, "LLM",
                                    f"plan proposé : {choice}", "validé")
-                    self._enqueue(choice, "proposition LLM")
+                    # Le modèle a choisi : tout ce que le plan fera en dépend.
+                    self._enqueue(choice, "proposition LLM", _LLM)
                 elif choice is not None:
                     self.trace.log(self.state.tick, "BLOCKED",
                                    f"plan inconnu proposé par le LLM : {choice}")
@@ -926,10 +977,12 @@ class Runtime:
         while self.plan_queue:
             name = self.plan_queue.popleft()
             plan = self.plan_named(name)
+            label = self._plan_labels.pop(name, _RUNTIME)
             if plan is None:
                 self.trace.log(self.state.tick, "ERROR", f"plan inconnu : {name}")
                 continue
-            self.run_plan(plan)
+            with self._under(label):
+                self.run_plan(plan)
 
     def phase_verify(self) -> None:
         """Vérification globale : réévalue les objectifs après action."""
@@ -942,7 +995,10 @@ class Runtime:
                                    context="garde d'écriture MEMORY",
                                    evaluator=ev):
                 continue
-            record = {path: self.state.get(path) for path in write.store}
+            record, labels = {}, [self._label(write.when, ev)]
+            for path in write.store:
+                record[path], label = self.state.get_labeled(path)
+                labels.append(label)
             bucket = self.state.memory.setdefault(write.into, {})
             records = bucket.setdefault(write.key, [])
             if not isinstance(records, list):
@@ -950,6 +1006,15 @@ class Runtime:
             if records and records[-1] == record:
                 continue      # mémoire opérationnelle : pas de doublon successif
             records.append(record)
+            if write.into != "SHARED":
+                # La suite d'enregistrements porte l'union de tout ce qui y
+                # est entré : une mémoire ne blanchit pas ce qu'elle retient.
+                previous = self.state.label_at(
+                    label_key(f"M:{write.into}", write.key))
+                self.state.label_memory(
+                    write.into, write.key,
+                    P.join(*labels) if len(records) == 1
+                    else P.join(previous, *labels))
             self.metrics["memory_writes"] += 1
             rendered = ", ".join(f"{k}={fmt(v)}" for k, v in record.items())
             if write.into == "SHARED":
@@ -979,7 +1044,7 @@ class Runtime:
         versions[key] = version
         self._seen_shared[key] = version
         self.metrics["shared_writes"] += 1
-        self.state.set_world(f"shared.{key}.version", version)
+        self.state.set_world(f"shared.{key}.version", version, _RUNTIME)
         self.trace.log(self.state.tick, "SHARED",
                        f"{key} v{version} ← {rendered}")
 
@@ -990,7 +1055,7 @@ class Runtime:
         for handler in self.agent.events:
             if handler.source != source:
                 continue
-            snapshot = (dict(self.state.locals), dict(self.state.untrusted))
+            snapshot = self._scope_snapshot()
             self._bind_payload(payload, {"source": source}, "event")
             if self._safe_test(handler.when, on_error=False,
                                context=f"ON {source}"):
@@ -998,20 +1063,29 @@ class Runtime:
                                f"{source} déclenché",
                                ", ".join(f"{k}={fmt(v)}"
                                          for k, v in payload.items()))
-                self.exec_stmts(handler.body)
+                with self._under(_PAYLOAD["event"]
+                                 | self._label(handler.when)):
+                    self.exec_stmts(handler.body)
             else:
-                self.state.locals, self.state.untrusted = snapshot
+                self._scope_restore(snapshot)
                 self.trace.log(self.state.tick, "EVENT",
                                f"{source} filtré par WHEN")
 
-    def _enqueue(self, name: str, why: str) -> None:
+    def _enqueue(self, name: str, why: str,
+                 label: Optional[Prov] = None) -> None:
+        # La décision qui met un plan en file est son contexte de contrôle.
+        # Mis en file deux fois, il dépend des deux : les étiquettes s'unissent.
+        decided = (label if label is not None else _RUNTIME) | self._pc()
         if name in self.plan_queue:
+            self._plan_labels[name] = self._plan_labels.get(name, P.NONE) \
+                | decided
             return
         if self.plan_named(name) is None:
             self.trace.log(self.state.tick, "ERROR",
                            f"plan non déclaré : {name}")
             return
         self.plan_queue.append(name)
+        self._plan_labels[name] = decided
         self.trace.log(self.state.tick, "PLAN", f"{name} mis en file", why)
 
     # ------------------------------------------------------------ exécution
@@ -1037,7 +1111,7 @@ class Runtime:
                                f"{plan.name} : nouvelle tentative "
                                f"{attempt}/{retries_allowed}")
                 continue
-            self.state.set_local("still_failed", True)
+            self.state.set_local("still_failed", True, _RUNTIME)
             failed = self.verify_failure
             self.verify_failure = None
             self.exec_stmts([s for s in handler
@@ -1051,7 +1125,8 @@ class Runtime:
                 return
             self.exec_stmt(stmt)
 
-    def _project(self, var: str, item: Any) -> List[str]:
+    def _project(self, var: str, item: Any,
+                 label: Optional[Prov] = None) -> List[str]:
         """Projette un élément de collection en locales scalaires.
 
         Une valeur composite (dict imbriqué, liste) n'entre jamais dans
@@ -1062,7 +1137,8 @@ class Runtime:
         bound: List[str] = []
 
         def put(path: str, value: Any) -> None:
-            self.state.set_local(path, value)
+            # Chaque champ projeté hérite de la collection dont il sort.
+            self.state.set_local(path, value, label)
             bound.append(path)
 
         if isinstance(item, dict):
@@ -1098,6 +1174,7 @@ class Runtime:
     def _exec_foreach(self, stmt: ForEachStmt) -> None:
         try:
             source = Evaluator(self.state).eval(stmt.source)
+            source_label = self._label(stmt.source) | self._pc()
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(self.state.tick, "ERROR",
                            "FOREACH : source inévaluable",
@@ -1131,11 +1208,13 @@ class Runtime:
         self.trace.log(self.state.tick, "INFO",
                        f"FOREACH {stmt.var} sur {min(total, bound_max)} élément(s)")
         for index, item in enumerate(source[:bound_max]):
-            bound = self._project(stmt.var, item)
-            self.state.set_local(f"{stmt.var}.index", index)
+            bound = self._project(stmt.var, item, source_label)
+            self.state.set_local(f"{stmt.var}.index", index, source_label)
             bound.append(f"{stmt.var}.index")
             try:
-                self.exec_stmts(stmt.body)
+                # Le nombre de tours et chaque élément viennent de la source.
+                with self._under(source_label):
+                    self.exec_stmts(stmt.body)
             finally:
                 # Décision 7 : une liaison qui n'a plus cours ne laisse rien
                 # derrière elle. Sans cela l'élément n+1 hériterait des
@@ -1150,6 +1229,7 @@ class Runtime:
         if isinstance(stmt, CallStmt):
             try:
                 args = self._eval_args(stmt.call)
+                labels = self._label_args(stmt.call)
             except Exception as exc:                  # noqa: BLE001
                 # Un argument inévaluable ne doit pas crasher la boucle : on
                 # bloque l'appel (fail-closed), on ne l'exécute pas à moitié.
@@ -1158,10 +1238,13 @@ class Runtime:
                                f"{stmt.call.name}() : arguments inévaluables",
                                f"{type(exc).__name__}: {exc}")
                 return None
-            return self.call_tool(stmt.call.name, args, origin="plan")
+            return self.call_tool(stmt.call.name, args, origin="plan",
+                                  provenance=labels)
         if isinstance(stmt, SetStmt):
             try:
-                value = Evaluator(self.state).eval(stmt.value)
+                ev = Evaluator(self.state)
+                value = ev.eval(stmt.value)
+                label = ev.label(stmt.value) | self._pc()
             except Exception as exc:                  # noqa: BLE001
                 # Une expression inévaluable n'écrit rien et n'interrompt pas
                 # la boucle : l'affectation échoue, la trace le dit, et la
@@ -1171,15 +1254,16 @@ class Runtime:
                                f"SET {stmt.target} : expression inévaluable",
                                f"{type(exc).__name__}: {exc}")
                 return None
-            self.state.assign(stmt.target, value)
+            self.state.assign(stmt.target, value, label)
             self.trace.log(self.state.tick, "INFO",
                            f"SET {stmt.target} = {fmt(value)}")
             return value
         if isinstance(stmt, IfStmt):
-            if self._safe_test(stmt.cond, on_error=False, context="IF"):
-                self.exec_stmts(stmt.then)
-            else:
-                self.exec_stmts(stmt.otherwise)
+            taken = self._safe_test(stmt.cond, on_error=False, context="IF")
+            # Les deux branches dépendent de la condition : celle qu'on ne
+            # prend pas aussi, par ce qu'elle n'a pas écrit.
+            with self._under(self._label(stmt.cond)):
+                self.exec_stmts(stmt.then if taken else stmt.otherwise)
             return None
         if isinstance(stmt, VerifyStmt):
             return self._exec_verify(stmt)
@@ -1202,13 +1286,15 @@ class Runtime:
             # boucler sans fin.
             bound = stmt.max_iter if isinstance(stmt.max_iter, int) \
                 and stmt.max_iter > 0 else 100
-            for _ in range(bound):
-                self.exec_stmts(stmt.body)
-                if stmt.until is not None and self._safe_test(
-                        stmt.until, on_error=False, context="LOOP UNTIL"):
-                    break
-                if self.verify_failure is not None:
-                    break
+            with self._under(self._label(stmt.until)
+                             if stmt.until is not None else P.NONE):
+                for _ in range(bound):
+                    self.exec_stmts(stmt.body)
+                    if stmt.until is not None and self._safe_test(
+                            stmt.until, on_error=False, context="LOOP UNTIL"):
+                        break
+                    if self.verify_failure is not None:
+                        break
             return None
         if isinstance(stmt, ControlStmt):
             if stmt.kind == "ESCALATE":
@@ -1264,10 +1350,11 @@ class Runtime:
         for obs in self.agent.observers:
             if obs.path not in wanted:
                 continue
-            value = self._read(obs.path)
+            value, label = unwrap(self._read(obs.path), _OBSERVED)
             if value is None:
                 self.metrics["sensor_unknown"] += 1
-                self.state.set_world(f"sensors.{obs.path}.available", False)
+                self.state.set_world(f"sensors.{obs.path}.available", False,
+                                     _RUNTIME)
                 self.state.invalidate(obs.path)
                 detail = ("la croyance d'avant l'action est écartée — la "
                           "vérification ne statuera pas sur une mesure "
@@ -1283,8 +1370,9 @@ class Runtime:
                     self.state.tick, "OBSERVE",
                     f"{obs.path} : capteur muet à la revérification", detail)
                 continue
-            self.state.set_world(f"sensors.{obs.path}.available", True)
-            self.state.set_world(obs.path, value)
+            self.state.set_world(f"sensors.{obs.path}.available", True,
+                                 _RUNTIME)
+            self.state.set_world(obs.path, value, label)
             previous = self.state.beliefs.get(obs.path)
             if previous is None or previous.value != value:
                 self.trace.log(self.state.tick, "BELIEF",
@@ -1295,7 +1383,7 @@ class Runtime:
             if previous is not None:
                 self._audit_effect(obs.path, previous, value)
             self.state.set_belief(obs.path, value, 0.95, "observation",
-                                  self.state.tick)
+                                  self.state.tick, label)
 
     def _run_reason(self, stmt: ReasonStmt) -> Dict[str, Any]:
         self.metrics["llm_calls"] += 1
@@ -1331,6 +1419,8 @@ class Runtime:
         missing: Optional[List[str]] = None
         try:
             produced = self.llm.reason(stmt.task, context, schema)
+        except KernelAbort:
+            raise
         except Exception as exc:                      # noqa: BLE001
             produced = {}
             missing = list(schema)
@@ -1368,12 +1458,16 @@ class Runtime:
                 produced[key] = UNDEFINED
         self._flag_reason(stmt, missing, schema)
         produced = self._enforce_domains(stmt, produced)
+        # Une sortie du modèle reste une sortie du modèle, même bornée, même
+        # remplacée par son DEFAULT : c'est l'oracle qui a répondu — ou qui
+        # s'est tu.
+        label = _LLM | self._pc()
         for key, value in produced.items():
-            self.state.set_local(key, value)
-            self.state.set_local(f"reason.{key}", value)
+            self.state.set_local(key, value, label)
+            self.state.set_local(f"reason.{key}", value, label)
         conf = produced.get("confidence")
         if isinstance(conf, (int, float)):
-            self.state.set_local("confidence", float(conf))
+            self.state.set_local("confidence", float(conf), label)
         self.trace.log(self.state.tick, "LLM", f"REASON « {stmt.task} »",
                        ", ".join(f"{k}={fmt(v)}" for k, v in produced.items()))
         return produced
@@ -1592,8 +1686,8 @@ class Runtime:
                               and answer.name == "no_answer"):
             answer = Evaluator(self.state).eval(stmt.default) \
                 if stmt.default is not None else Symbol("no_answer")
-        self.state.set_local("answer", answer)
-        self.state.set_local(f"answer.{stmt.addressee}", answer)
+        self.state.set_local("answer", answer, _HUMAN)
+        self.state.set_local(f"answer.{stmt.addressee}", answer, _HUMAN)
         self.trace.log(self.state.tick, "ASK", f"réponse = {fmt(answer)}")
         return answer
 
@@ -1601,7 +1695,7 @@ class Runtime:
     #: est une fonction Python opaque : rien dans l'interface n'empêche d'y
     #: écrire en base, d'appeler le réseau ou de lancer une commande. Sans
     #: contrat, on ne *devine* pas son innocuité — on échoue fermé.
-    UNDECLARED_DELEGATE_RISK = "CRITICAL"
+    UNDECLARED_DELEGATE_RISK = Kernel.UNDECLARED_DELEGATE_RISK
 
     def _exec_delegate(self, stmt: DelegateStmt) -> Any:
         """Délègue à un sous-agent, **après** passage par les politiques.
@@ -1621,31 +1715,34 @@ class Runtime:
         """
         self.trace.log(self.state.tick, "DELEGATE",
                        f"{stmt.agent} ← « {stmt.task} »")
-        decl = self.agent.tool(stmt.agent)
-        request = ActionRequest(
-            stmt.agent,
-            {name: self.state.get(name) for name in stmt.inputs},
-            decl.risk if decl is not None else self.UNDECLARED_DELEGATE_RISK,
-            list(decl.side_effects) if decl is not None else [],
-            "delegate",
+        inputs, labels = {}, {"$control": self._pc()}
+        for name in stmt.inputs:
+            inputs[name], labels[name] = self.state.get_labeled(name)
+        request = self.kernel.propose_delegate(
+            stmt.agent, inputs,
             self.state.locals["confidence"]
             if "confidence" in self.state.locals else 1.0)
-        if not self._authorize_action(request):
+        request.provenance = labels
+        permit = self._authorize(request, kind="delegate")
+        if permit is None:
             return None
 
-        fn = self.host.subagents.get(stmt.agent)
-        payload = dict(request.args)
-        if fn is None:
-            self.trace.log(self.state.tick, "ERROR",
-                           f"sous-agent non enregistré : {stmt.agent}")
-            return None
         try:
-            result = fn(payload) or {}
+            registered, result = self.kernel.delegate(permit, self.host)
+        except KernelAbort:
+            raise
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(self.state.tick, "ERROR",
                            f"sous-agent {stmt.agent} en erreur",
                            f"{type(exc).__name__}: {exc}")
+            if isinstance(exc, ActionInDoubt):
+                self._flag_in_doubt(stmt.agent, request.side_effects)
             return None
+        if not registered:
+            self.trace.log(self.state.tick, "ERROR",
+                           f"sous-agent non enregistré : {stmt.agent}")
+            return None
+        result = result or {}
         if not isinstance(result, dict):
             self.trace.log(self.state.tick, "ERROR",
                            f"sous-agent {stmt.agent} : retour non conforme",
@@ -1660,8 +1757,9 @@ class Runtime:
             # Préfixé dans les locales (provenance lisible), nu dans l'espace
             # non fiable : le retour d'un sous-agent est de la donnée externe
             # au même titre qu'une charge utile, il ne masque rien.
-            self.state.set_local(f"{stmt.agent}.{key}", value)
-            self.state.untrusted[key] = value
+            value, label = unwrap(value, _DELEGATE)
+            self.state.set_local(f"{stmt.agent}.{key}", value, label)
+            self.state.set_untrusted(key, value, label)
         self.trace.log(self.state.tick, "DELEGATE",
                        f"{stmt.agent} → " +
                        ", ".join(f"{k}={fmt(v)}" for k, v in result.items()))
@@ -1686,6 +1784,20 @@ class Runtime:
                           else ""))
 
     # ------------------------------------------------------------- outils
+    def _label_args(self, call) -> Dict[str, Prov]:
+        """Provenance de chaque argument, plus le contexte de la décision."""
+        decl = self.agent.tool(call.name)
+        names = list(decl.inputs) if decl else []
+        ev = Evaluator(self.state)
+        pc = self._pc()
+        labels: Dict[str, Prov] = {"$control": pc}
+        for idx, node in enumerate(call.args):
+            key = names[idx] if idx < len(names) else f"arg{idx}"
+            labels[key] = ev.label(node) | pc
+        for key, node in call.kwargs.items():
+            labels[key] = ev.label(node) | pc
+        return labels
+
     def _eval_args(self, call) -> Dict[str, Any]:
         decl = self.agent.tool(call.name)
         names = list(decl.inputs) if decl else []
@@ -1699,7 +1811,8 @@ class Runtime:
         return args
 
     def call_tool(self, name: str, args: Dict[str, Any],
-                  origin: str = "plan") -> Any:
+                  origin: str = "plan",
+                  provenance: Optional[Dict[str, Prov]] = None) -> Any:
         decl = self.agent.tool(name)
         if decl is None:
             self.metrics["blocked"] += 1
@@ -1725,39 +1838,46 @@ class Runtime:
                                "retombée depuis la planification")
                 return None
 
-        _coerce_inputs(decl.inputs, args)
-        type_error = _typecheck(decl.inputs, args)
-        if type_error:
+        confidence = (self.state.locals["confidence"]
+                      if "confidence" in self.state.locals else 1.0)
+        request, type_error = self.kernel.propose_tool(
+            name, args, origin, confidence)
+        if request is not None:
+            # Sans étiquettes — appel direct, hors d'un plan — rien n'est
+            # présumé : `UNKNOWN`, donc non fiable.
+            request.provenance = dict(provenance or {})
+        if request is None:
             self.metrics["blocked"] += 1
             self.trace.log(self.state.tick, "BLOCKED",
                            f"{name}() : contrat INPUT violé", type_error)
             return None
-
-        confidence = (self.state.locals["confidence"]
-                      if "confidence" in self.state.locals else 1.0)
-        request = action_from_tool(
-            decl, name, args, origin, confidence)
-        if not self._authorize_action(request):
+        permit = self._authorize(request)
+        if permit is None:
             return None
 
         if self._circuit_open(name):
+            self.kernel.void(permit)
             self.metrics["circuit_open"] += 1
             failures = self._tool_failures[name][0]
             self.trace.log(
                 self.state.tick, "BLOCKED", f"{request.render()} non tenté",
                 f"disjoncteur ouvert : {failures} échecs consécutifs — "
                 f"nouvel essai dans {self._cooldown_left(name)} tick(s)")
-            self.state.set_local("last_action.blocked", True)
+            self.state.set_local("last_action.blocked", True, _RUNTIME)
             return None
 
         try:
-            result = self.host.invoke(name, args)
+            result = self.kernel.execute(permit, self.host)
+        except KernelAbort:
+            raise
         except Exception as exc:                      # noqa: BLE001
             self._record_tool_failure(name)
             self.metrics["tool_failures"] += 1
             self.trace.log(self.state.tick, "ERROR", f"{name}() a échoué",
                            f"{type(exc).__name__}: {exc} — "
                            f"{self._tool_failures[name][0]} échec(s) consécutif(s)")
+            if isinstance(exc, ActionInDoubt):
+                self._flag_in_doubt(name, decl.side_effects)
             return None
 
         # L'appel a franchi la frontière et peut avoir produit un effet dans
@@ -1766,8 +1886,15 @@ class Runtime:
         # postcondition déclarée ne sera crue tant que le contrat OUTPUT
         # n'est pas satisfait.
         for path in decl.side_effects:
-            self.state.set_world(f"{path}.dirty", True)
+            self.state.set_world(f"{path}.dirty", True, _RUNTIME)
 
+        # Une valeur qu'un hôte déclare lui-même non fiable (`untrusted()`)
+        # garde cette étiquette en plus de celle de l'outil.
+        out_labels: Dict[str, Prov] = {}
+        if isinstance(result, dict):
+            result = dict(result)
+            for key in list(result):
+                result[key], out_labels[key] = unwrap(result[key], _TOOL)
         safe_result, contract_error = self._validate_tool_result(
             name, decl.outputs, result)
         if contract_error:
@@ -1781,9 +1908,14 @@ class Runtime:
 
         self._record_tool_success(name)
         self.metrics["tool_calls"] += 1
-        self.state.set_local("last_action.blocked", False)
-        self.state.set_local(f"result.{name}", safe_result)
-        self.state.set_local("result", safe_result)
+        self.state.set_local("last_action.blocked", False, _RUNTIME)
+        self.state.set_local(f"result.{name}", safe_result, _TOOL)
+        self.state.set_local("result", safe_result, _TOOL)
+        # L'outil a accepté ces valeurs : c'est un fait sur elles, que
+        # `ATTESTED(x, outil)` peut lire. Pas une confiance — un validateur
+        # qui accepte une cible injectée ne la rend pas fiable.
+        for value in request.args.values():
+            self.state.attest(name, value)
         for key, value in safe_result.items():
             # Provenance, et non confiance. Un outil est une frontière externe
             # (SPEC §28) : ce qu'il rapporte peut avoir été écrit par un tiers
@@ -1796,22 +1928,48 @@ class Runtime:
             # pouvait désactiver un `NEVER` dont la garde porte ce nom.
             # Même traitement que le retour d'un sous-agent (`_exec_delegate`)
             # et qu'une charge utile d'événement (`_bind_payload`).
-            self.state.untrusted[key] = value
-            self.state.set_world(f"{name}.{key}", value)
+            label = out_labels.get(key, _TOOL)
+            self.state.set_untrusted(key, value, label)
+            self.state.set_world(f"{name}.{key}", value, label)
         # Les EFFECT déclarés sont enregistrés comme *attendus*, avec une
         # confiance inférieure à celle d'une observation : le modèle utilisé
         # pour planifier et celui utilisé pour exécuter ne divergent pas, mais
         # une perception ultérieure prime toujours sur une postcondition.
         if decl.effects:
             ev = Evaluator(_ActionScope(self.state, request))
+            control = request.provenance.get("$control", UNKNOWN_LABEL)
             for effect in decl.effects:
                 self.state.set_belief(
                     effect.path, ev.eval(effect.value),
                     self._effect_confidence(name, effect.path),
-                    f"effect:{name}", self.state.tick)
+                    f"effect:{name}", self.state.tick,
+                    _EFFECT | ev.label(effect.value) | control)
         self.trace.log(self.state.tick, "TOOL", request.render(),
                        f"risk={decl.risk} → {fmt(safe_result)}")
         return safe_result
+
+    def _flag_in_doubt(self, name: str, side_effects: List[str]) -> None:
+        """Une action a pu avoir lieu sans qu'on sache si elle a eu lieu (v1.9).
+
+        Cas de l'exécution durable : l'intention est au journal, pas le
+        résultat, et l'hôte ne sait ni honorer une clé d'idempotence ni
+        réconcilier. Le noyau n'a pas relancé l'action — au plus une fois,
+        jamais deux. Ce qui reste à faire ici, c'est ne rien présumer et le
+        **dire** : les effets de bord déclarés sont marqués sales, aucun
+        `EFFECT` n'est cru, et `tools.<outil>.in_doubt` devient lisible par
+        une politique :
+
+            NEVER transfer WHEN tools.transfer.in_doubt == true
+        """
+        self.state.set_world(f"tools.{name}.in_doubt", True, _RUNTIME)
+        self.state.set_local("last_action.in_doubt", True, _RUNTIME)
+        for path in side_effects:
+            self.state.set_world(f"{path}.dirty", True, _RUNTIME)
+        self.trace.log(
+            self.state.tick, "ERROR", f"{name}() : effet indéterminé",
+            "intention journalisée sans résultat — action non relancée (au "
+            f"plus une fois), EFFECT non présumés ; `tools.{name}.in_doubt` "
+            "posé")
 
     def _validate_tool_result(self, name: str, outputs: Dict[str, str],
                               result: Any) -> tuple[Dict[str, Any], str]:
@@ -1858,54 +2016,38 @@ def _retry_count(handler: List[Stmt]) -> int:
     return 0
 
 
-def _coerce_inputs(spec: Dict[str, str], args: Dict[str, Any]) -> None:
-    """Un symbole perçu satisfait un contrat `String`.
+class _AuthorizationTrace:
+    """Observateur du noyau : les étapes d'une autorisation, en trace.
 
-    Depuis que `FOREACH` projette des éléments perçus, un identifiant réel
-    (`tkt_101`) arrive dans l'état sous forme de `Symbol` — c'est ce qui
-    permet de le comparer à une constante non quotée. Le refuser à l'entrée
-    d'un outil déclaré `String` bloquerait toute action sur une donnée
-    perçue. On l'accepte donc, en le rendant au monde comme une chaîne :
-    l'hôte ne voit jamais de type propre à AGENT-L.
+    Il voit passer la décision et l'attente d'approbation au moment où elles
+    ont lieu — une interface en direct montre « en attente » pendant que
+    l'humain est interrogé — mais ne peut rien y changer : le permis n'est
+    émis qu'après lui.
     """
-    for key, typ in spec.items():
-        value = args.get(key)
-        kind = typ.lower()
-        if kind == "string" and isinstance(value, Symbol):
-            args[key] = str(value)
-        elif kind in ("bool", "boolean") and isinstance(value, Symbol):
-            # `yes`/`no` sont le vocabulaire naturel d'un programme AGENT-L ;
-            # un contrat booléen doit les accepter plutôt que d'obliger à
-            # écrire un littéral d'un autre monde. Tout autre symbole reste
-            # refusé — on convertit ce qui a un sens, on ne devine pas.
-            name = str(value).lower()
-            if name in ("yes", "true", "on"):
-                args[key] = True
-            elif name in ("no", "false", "off"):
-                args[key] = False
-        elif kind == "symbol" and isinstance(value, str) and not isinstance(value, Symbol):
-            args[key] = Symbol(value)
 
+    def __init__(self, runtime: "Runtime", subject: str) -> None:
+        self.runtime, self.subject = runtime, subject
 
-def _typecheck(spec: Dict[str, str], args: Dict[str, Any]) -> str:
-    for key, typ in spec.items():
-        if key not in args:
-            return f"argument manquant : {key}: {typ}"
-        kind = typ.lower()
-        expected = _TYPE_CHECKS.get(kind)
-        if kind in _NUMERIC_TYPES and isinstance(args[key], bool):
-            return f"{key} attendu {typ}, reçu bool"
-        if expected and not isinstance(args[key], expected):
-            return (f"{key} attendu {typ}, reçu "
-                    f"{type(args[key]).__name__}")
-        if (kind in _NUMERIC_TYPES
-                and isinstance(args[key], (int, float))
-                and not math.isfinite(float(args[key]))):
-            return f"{key} attendu {typ} fini, reçu {args[key]!r}"
-    unknown = [k for k in args if k not in spec]
-    if unknown and spec:
-        return f"argument(s) non déclaré(s) : {', '.join(unknown)}"
-    return ""
+    def decided(self, request: ActionRequest, decision: Any) -> None:
+        if decision.shadowed_args:
+            rt = self.runtime
+            rt.trace.log(
+                rt.state.tick, "POLICY",
+                f"{request.render()} : garde évaluée sur l'argument",
+                ", ".join(f"`{key}` masque la locale {fmt(value)}"
+                          for key, value
+                          in sorted(decision.shadowed_args.items())))
+
+    def pending(self, request: ActionRequest, decision: Any) -> None:
+        rt = self.runtime
+        rt.metrics["approvals"] += 1
+        rt.trace.log(rt.state.tick, "APPROVAL",
+                     f"{self.subject} en attente", decision.reason)
+
+    def approver_failed(self, request: ActionRequest, exc: BaseException) -> None:
+        rt = self.runtime
+        rt.trace.log(rt.state.tick, "ERROR", "approbateur en erreur",
+                     f"{type(exc).__name__}: {exc} — refus (fail-closed)")
 
 
 def _render_expr(node) -> str:

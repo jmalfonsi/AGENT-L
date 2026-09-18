@@ -19,29 +19,19 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .core import Symbol
-from .nodes import Agent, PolicyRule, ToolDecl
-from .state import Evaluator, State
+# `ActionRequest` et `action_from_tool` vivent dans le noyau depuis la v1.9 ;
+# réexportés ici, ils restent importables comme avant.
+from .kernel.action import ActionRequest
+from .kernel.gate import action_from_tool
+from .kernel import provenance as P
+from .kernel.provenance import UNKNOWN_LABEL, Prov
+from .nodes import Agent, PolicyRule
+from .state import Evaluator, State, label_key
 from .trivalent import UNKNOWN, applies_when_unknown, evaluate as _tri
 
 ALLOWED = "ALLOWED"
 DENIED = "DENIED"
 APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
-
-
-@dataclass
-class ActionRequest:
-    """Proposition d'action soumise au moteur de politiques."""
-
-    tool: str
-    args: Dict[str, Any] = field(default_factory=dict)
-    risk: str = "LOW"
-    side_effects: List[str] = field(default_factory=list)
-    origin: str = "plan"          # plan | llm | event | decide
-    confidence: Any = 1.0
-
-    def render(self) -> str:
-        rendered = ", ".join(f"{k}={v}" for k, v in self.args.items())
-        return f"{self.tool}({rendered})"
 
 
 @dataclass
@@ -172,6 +162,15 @@ class _ActionScope(State):
         self.tick = base.tick
         self.untrusted = dict(getattr(base, "untrusted", {}))
         self.locals = dict(base.locals)
+        # Étiquettes (v1.9) : celles de l'état, partagées sans copie, et par
+        # dessus celles de l'action — ses arguments, sa décision.
+        self.labels = getattr(base, "labels", {})
+        self.attestations = getattr(base, "attestations", {})
+        self._label_overlay: Dict[str, Prov] = {}
+        declared = Prov({P.RUNTIME})
+        confidence_label = (base.label_at(label_key("L", "confidence"))
+                            if "confidence" in base.locals
+                            and hasattr(base, "label_at") else declared)
         self.locals.update({
             "action.tool": Symbol(request.tool),
             "action.risk": Symbol(request.risk),
@@ -180,14 +179,30 @@ class _ActionScope(State):
             "confidence": base.get("confidence") if "confidence" in base.locals
             else request.confidence,
         })
+        for key in ("action.tool", "action.risk", "action.origin"):
+            self._label_overlay[label_key("L", key)] = declared
+        for key in ("action.confidence", "confidence"):
+            self._label_overlay[label_key("L", key)] = confidence_label
+        provenance = getattr(request, "provenance", None) or {}
         #: Locales qu'un argument de l'appel a recouvertes, avec leur ancienne
         #: valeur. Vide dans le cas courant.
         self.shadowed_args: Dict[str, Any] = {}
+        args_label = P.NONE
         for key, value in request.args.items():
+            # Un argument sans étiquette — requête construite à la main —
+            # est d'origine inconnue, donc non fiable.
+            label = provenance.get(key, UNKNOWN_LABEL)
+            args_label = args_label | label
             self.locals[f"action.args.{key}"] = value
+            self._label_overlay[label_key("L", f"action.args.{key}")] = label
             if key in self.locals and _differs(self.locals[key], value):
                 self.shadowed_args[key] = self.locals[key]
             self.locals[key] = value
+            self._label_overlay[label_key("L", key)] = label
+        #: Étiquette de l'action entière : ce qui l'a décidée, et ce qu'elle
+        #: emporte. C'est ce que lisent `UNTRUSTED(action)` et consorts.
+        self.action_label = provenance.get("$control", UNKNOWN_LABEL) \
+            | args_label
 
 
 def _differs(previous: Any, value: Any) -> bool:
@@ -199,10 +214,5 @@ def _differs(previous: Any, value: Any) -> bool:
         return True
 
 
-def action_from_tool(decl: Optional[ToolDecl], name: str,
-                     args: Dict[str, Any], origin: str,
-                     confidence: Any = 1.0) -> ActionRequest:
-    if decl is None:
-        return ActionRequest(name, args, "UNKNOWN", [], origin, confidence)
-    return ActionRequest(name, args, decl.risk, list(decl.side_effects),
-                         origin, confidence)
+__all__ = ["ALLOWED", "DENIED", "APPROVAL_REQUIRED", "ActionRequest",
+           "PolicyDecision", "PolicyEngine", "action_from_tool"]

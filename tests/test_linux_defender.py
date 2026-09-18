@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from agentl.kernel.testing import dispatch
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "examples"))
@@ -76,11 +78,11 @@ def test_capability_token_is_single_use_and_bound_to_the_exact_target(tmp_path):
     token = host.authorize_test_action("block_ip", "203.0.113.8")
 
     with pytest.raises(PermissionError):
-        host.invoke("block_ip", {"ip_address": "203.0.113.9", "evidence_token": token})
+        dispatch(host, "block_ip", {"ip_address": "203.0.113.9", "evidence_token": token})
 
-    host.invoke("block_ip", {"ip_address": "203.0.113.8", "evidence_token": token})
+    dispatch(host, "block_ip", {"ip_address": "203.0.113.8", "evidence_token": token})
     with pytest.raises(PermissionError):
-        host.invoke("block_ip", {"ip_address": "203.0.113.8", "evidence_token": token})
+        dispatch(host, "block_ip", {"ip_address": "203.0.113.8", "evidence_token": token})
 
 
 def test_prompt_injection_is_fail_closed_even_if_the_llm_misses_it(tmp_path):
@@ -110,11 +112,11 @@ def test_close_cycle_commits_cursor_and_prevents_duplicate_alerts(tmp_path):
     alerts = host.read("alerts")
     assert alerts
     alert = alerts[0]
-    host.invoke("block_ip", {
+    dispatch(host, "block_ip", {
         "ip_address": alert["attacker_ip"],
         "evidence_token": alert["evidence_token"],
     })
-    host.invoke("close_cycle", {})
+    dispatch(host, "close_cycle", {})
 
     restarted = module.LinuxDefenderHost(config)
     assert restarted.read("alerts") == []
@@ -140,7 +142,7 @@ def test_ssh_correlation_survives_safe_cycles_inside_the_window(tmp_path):
 
     first = module.LinuxDefenderHost(config)
     assert first.read("alerts") == []
-    first.invoke("close_cycle", {})
+    dispatch(first, "close_cycle", {})
 
     with auth_log.open("a", encoding="utf-8") as handle:
         handle.write("\n".join(

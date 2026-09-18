@@ -12,7 +12,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from .analyzer import Analyzer
 from .core import AgentLError
@@ -810,6 +810,14 @@ def main(argv=None) -> int:
                                 "secret, ou secret littéral. À défaut, la "
                                 "variable AGENTL_JOURNAL_KEY est utilisée. Le "
                                 "journal est chaîné dans tous les cas.")
+            p.add_argument("--durable", metavar="RÉPERTOIRE", default=None,
+                           help="exécution durable : intention journalisée et "
+                                "synchronisée avant chaque action. Relancer la "
+                                "même commande reprend après un crash sans "
+                                "doubler un effet déjà journalisé")
+            p.add_argument("--run-id", default=None,
+                           help="identifiant de l'exécution durable (défaut : "
+                                "tiré au hasard, puis relu du journal)")
 
     # `autoloop` ne suit pas le moule non plus : il doit voir la **source**,
     # pas l'arbre, puisqu'un programme illisible fait partie des états qu'il
@@ -862,6 +870,14 @@ def main(argv=None) -> int:
     rep.add_argument("--require-seal", action="store_true",
                      help="échoue si le journal n'est pas signé ou si son "
                           "sceau ne se vérifie pas")
+
+    # `durable` inspecte ou exporte une exécution durable sans la reprendre.
+    dur = sub.add_parser("durable", help="état ou export d'une exécution "
+                                         "durable")
+    dur.add_argument("action", choices=("status", "export"))
+    dur.add_argument("directory", help="répertoire passé à `run --durable`")
+    dur.add_argument("-o", "--out", metavar="FICHIER", default=None,
+                     help="export : journal de rejeu standard (JSON)")
 
     # `seal` inspecte un journal sans le rejouer : c'est le geste de
     # l'auditeur qui veut d'abord savoir si la pièce est authentique.
@@ -960,8 +976,9 @@ def main(argv=None) -> int:
             print("\n! interrompu", file=sys.stderr)
             return 130
 
-    if args.cmd in ("replay", "seal", "mcp"):
-        runner = {"replay": run_replay, "seal": run_seal, "mcp": run_mcp}[args.cmd]
+    if args.cmd in ("replay", "seal", "mcp", "durable"):
+        runner = {"replay": run_replay, "seal": run_seal, "mcp": run_mcp,
+                  "durable": run_durable_admin}[args.cmd]
         try:
             return runner(args)
         except AgentLError as exc:
@@ -1107,6 +1124,8 @@ def main(argv=None) -> int:
     except AgentLError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
+    if getattr(args, "durable", None):
+        return _run_durable(program, host, llm, args)
     # Programme multi-agents, ou hôte fournissant un Host par agent : c'est
     # une société. L'exécuter comme un agent isolé donnait un `dict` au
     # runtime, et chaque capteur échouait sur un AttributeError obscur.
@@ -1146,6 +1165,117 @@ def main(argv=None) -> int:
         print(f"→ journal visuel écrit : {args.html}")
     print("\n" + "  ".join(f"{k}={v}" for k, v in runtime.metrics.items()))
     _report_drift(runtime)
+    return 0
+
+
+def _run_durable(program, host, llm, args) -> int:
+    """`run --durable` : démarrer, ou reprendre, une exécution durable.
+
+    La même commande fait les deux : c'est le journal du répertoire qui dit si
+    l'exécution est neuve, interrompue ou terminée. Une reprise re-dérive
+    d'abord tout ce qui fut journalisé — sans effet, sans appel au modèle —
+    puis continue en direct.
+    """
+    from .durable import DurableError, DurableRun, FileStore
+    from .replay import ReplayDivergence
+
+    if getattr(args, "record", None):
+        print("✗ --durable et --record sont exclusifs : le journal durable "
+              "s'exporte (`agentl durable export`)", file=sys.stderr)
+        return 2
+    store = FileStore(args.durable)
+    try:
+        source = Path(args.file).read_text(encoding="utf-8")
+        run = DurableRun(program.agents, host, llm, store=store,
+                         run_id=args.run_id, echo=not args.quiet,
+                         source=(str(args.file), source))
+    except DurableError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 2
+    if run.resumed:
+        print(f"↻ reprise de l'exécution durable {run.run_id} : "
+              f"{len(run.journal.entries)} entrée(s) journalisée(s), "
+              f"re-dérivées sans effet", file=sys.stderr)
+        for pending in run.journal.pending():
+            print(f"  intention sans résultat : {pending['tool']} "
+                  f"({pending.get('action_id')}) — sera tranchée",
+                  file=sys.stderr)
+    else:
+        print(f"→ exécution durable {run.run_id} : {store.wal}",
+              file=sys.stderr)
+    try:
+        result = run.run(max_ticks=args.ticks)
+    except (ReplayDivergence, DurableError) as exc:
+        print(f"\n✗ reprise impossible : {exc}", file=sys.stderr)
+        return 1
+    finally:
+        store.close()
+    if args.quiet:
+        print(run.trace_text())
+    for resolution in run.journal.resolutions:
+        print(f"  ↻ {resolution['tool']} ({resolution.get('action_id')}) : "
+              f"{_RESOLUTION_LABEL.get(resolution['how'], resolution['how'])}")
+    metrics = result.metrics
+    print("\n" + "  ".join(f"{k}={v}" for k, v in metrics.items()))
+    return 0
+
+
+_RESOLUTION_LABEL = {
+    "retry": "relancée avec la même clé d'idempotence",
+    "reconciled": "réconciliée : l'effet avait eu lieu",
+    "not_executed": "réconciliée : l'effet n'avait pas eu lieu, exécutée",
+    "in_doubt": "INDÉTERMINÉE — non relancée, à trancher par un humain",
+}
+
+
+def run_durable_admin(args) -> int:
+    """`agentl durable status|export RÉPERTOIRE`."""
+    from .durable import DurableError, DurableJournal, FileStore
+    from .replay import Journal, decode
+
+    directory = Path(args.directory)
+    if not (directory / FileStore.WAL).exists():
+        print(f"✗ aucun journal durable dans {directory}", file=sys.stderr)
+        return 2
+    store = FileStore(directory)
+    try:
+        journal = DurableJournal.open(store)
+    except DurableError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 2
+    meta = journal.meta
+    if args.action == "status":
+        kinds: Dict[str, int] = {}
+        for entry in journal.entries:
+            kinds[entry.kind] = kinds.get(entry.kind, 0) + 1
+        print(f"exécution {meta.get('run_id')} · {meta.get('status')} · "
+              f"agents {', '.join(meta.get('agents', []))}")
+        print(f"  {len(journal.entries)} entrée(s) : " + ", ".join(
+            f"{k}={v}" for k, v in sorted(kinds.items())))
+        print(f"  chaîne intacte, tête {journal.entries[-1].hash[:12]}…"
+              if journal.entries else "  journal vide")
+        for pending in journal.pending():
+            print(f"  ⚠ intention sans résultat : {pending['tool']} "
+                  f"({pending.get('action_id')}) — la reprise la tranchera")
+        for entry in journal.entries:
+            if entry.kind == "resolution":
+                how = (decode(entry.args) or {}).get("how", "?")
+                print(f"  ↻ {entry.key} : {_RESOLUTION_LABEL.get(how, how)}")
+        return 0
+    if meta.get("status") != "completed":
+        print("✗ exécution non terminée : la reprendre avant de l'exporter "
+              "(le rejeu exige l'empreinte de la trace finale)", file=sys.stderr)
+        return 1
+    out = Path(args.out or (directory / "journal.json"))
+    exported = Journal(entries=list(journal.entries), meta={
+        key: meta[key] for key in ("trace_sha256", "source", "source_sha256",
+                                   "run_id") if key in meta})
+    exported.meta["agent"] = " · ".join(meta.get("agents", []))
+    exported.meta["ticks"] = meta.get("max_ticks") or meta.get("ticks")
+    exported.save(out)
+    print(f"→ journal de rejeu exporté : {out} ({len(journal.entries)} "
+          f"entrées, dont {sum(e.kind in ('intent', 'resolution', 'checkpoint') for e in journal.entries)} "
+          f"annotations que le rejeu saute)")
     return 0
 
 

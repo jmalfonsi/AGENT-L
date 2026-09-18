@@ -85,15 +85,24 @@ def chain_hashes(entries: List[Dict[str, Any]]) -> List[str]:
     out: List[str] = []
     previous = ""
     for raw in entries:
-        # L'entrée est hachée *sans* son propre condensat : il en est le
-        # résultat, il ne peut pas en être une entrée.
-        body = {k: v for k, v in raw.items() if k != "h"}
-        digest = hashlib.sha256(
-            CHAIN_DOMAIN + previous.encode("ascii") + canonical(body)
-        ).hexdigest()
-        out.append(digest)
-        previous = digest
+        previous = chain_step(previous, raw)
+        out.append(previous)
     return out
+
+
+def chain_step(previous: str, raw: Dict[str, Any]) -> str:
+    """Un maillon : le condensat de `raw` à la suite de `previous`.
+
+    Exposé pour le journal durable (v1.9), qui chaîne **au fil de l'eau** —
+    une entrée écrite sur disque avant l'appel qu'elle annonce — et doit
+    produire exactement les condensats que `chain_hashes` recalculera.
+    """
+    # L'entrée est hachée *sans* son propre condensat : il en est le
+    # résultat, il ne peut pas en être une entrée.
+    body = {k: v for k, v in raw.items() if k != "h"}
+    return hashlib.sha256(
+        CHAIN_DOMAIN + previous.encode("ascii") + canonical(body)
+    ).hexdigest()
 
 
 def chain_head(entries: List[Dict[str, Any]]) -> str:

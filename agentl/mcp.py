@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
 
 from .core import AgentLError
+from .kernel.permit import require_permit
 
 #: Version du format d'import, notée dans l'en-tête du fichier produit. Une
 #: traduction qui changerait de règles sans le dire rendrait les empreintes
@@ -284,6 +285,73 @@ class _LiveClient:                                          # pragma: no cover
             self._loop.run_until_complete(self._stack.aclose())
             self._loop.close()
             self._session = self._loop = self._stack = None
+
+
+def connect_async(config: ServerConfig) -> "_AsyncLiveClient":
+    """Session MCP réelle **dans la boucle de l'appelant** (extra `mcp`).
+
+    Pour `AsyncMCPHost` : aucune boucle privée, la session appartient à la
+    boucle qui pilote l'agent. À ouvrir et fermer depuis cette boucle.
+    """
+    try:
+        import mcp  # noqa: F401
+    except ImportError as exc:                              # pragma: no cover
+        raise MCPError(
+            "client MCP indisponible : installer l'extra "
+            "`pip install agentl[mcp]`.") from exc
+    return _AsyncLiveClient(config)                         # pragma: no cover
+
+
+class _AsyncLiveClient:                                     # pragma: no cover
+    """Même session que `_LiveClient`, sans la boucle privée."""
+
+    def __init__(self, config: ServerConfig) -> None:
+        self.config = config
+        self._session = None
+        self._stack = None
+
+    async def _ensure(self):
+        if self._session is not None:
+            return self._session
+        from contextlib import AsyncExitStack
+
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        self._stack = AsyncExitStack()
+        if self.config.url:
+            from mcp.client.streamable_http import streamablehttp_client
+            read, write, _ = await self._stack.enter_async_context(
+                streamablehttp_client(self.config.url))
+        else:
+            params = StdioServerParameters(command=self.config.command,
+                                           args=self.config.args,
+                                           env=self.config.env or None)
+            read, write = await self._stack.enter_async_context(
+                stdio_client(params))
+        self._session = await self._stack.enter_async_context(
+            ClientSession(read, write))
+        await self._session.initialize()
+        return self._session
+
+    async def list_tools(self) -> List[MCPTool]:
+        session = await self._ensure()
+        result = await session.list_tools()
+        return [MCPTool.from_json(t.model_dump(by_alias=True))
+                for t in result.tools]
+
+    async def call_tool(self, name: str, args: Dict[str, Any]) -> Any:
+        session = await self._ensure()
+        result = await session.call_tool(name, args)
+        if getattr(result, "isError", False):
+            raise MCPError(f"{name} : {_flatten(result)}")
+        data = getattr(result, "structuredContent", None)
+        return data if data is not None else _flatten(result)
+
+    async def aclose(self) -> None:
+        if self._stack is not None:
+            await self._stack.aclose()
+            self._session = self._stack = None
 
 
 def _flatten(result: Any) -> str:                           # pragma: no cover
@@ -564,7 +632,11 @@ class MCPHost:
         """Confronte le catalogue du serveur à l'empreinte scellée."""
         if self._checked:
             return
-        live = self._client.list_tools()
+        self._accept_catalog(self._client.list_tools())
+
+    def _accept_catalog(self, live: Sequence[MCPTool]) -> None:
+        """Le verdict d'empreinte, commun aux ponts synchrone et asynchrone."""
+        live = list(live)
         self._live = {tool_name(self._server, t.name): t for t in live}
         self._checked = True
         if self._digest is None:
@@ -599,11 +671,70 @@ class MCPHost:
             # Ne peut arriver qu'en l'absence d'empreinte : avec elle, la
             # dérive aurait déjà levé.
             raise MCPError(f"outil `{name}` absent du serveur `{self._server}`")
+        # Point de dispatch réel, au même titre que `Host.invoke` : l'appel
+        # au serveur ne part que sous un permis du noyau (v1.9).
+        require_permit("invoke", name, args)
         return self._client.call_tool(spec.name, args)
 
     # ------------------------------------- le reste appartient à l'hôte réel
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
+
+
+class AsyncMCPHost(MCPHost):
+    """Pont MCP **asynchrone** (v1.9), pour `agentl.aio.AsyncRuntime`.
+
+    `MCPHost` confine le protocole — asynchrone par nature — dans une boucle
+    privée, pour présenter au runtime synchrone un appel bloquant. Sous
+    `AsyncRuntime` ce détour n'a plus lieu d'être : la session vit dans la
+    boucle de l'agent, et un appel MCP lent ne bloque que l'agent qui
+    l'attend. Même empreinte de catalogue, même permis, même refus d'un
+    outil absent — seule la manière d'attendre change.
+
+    Le client est `AsyncMCPClient` : `list_tools()` et `call_tool()` en
+    `async def`. L'hôte enveloppé peut être un `AsyncHost` ou un `Host`.
+    """
+
+    async def verify_catalog(self) -> None:          # type: ignore[override]
+        if self._checked:
+            return
+        self._accept_catalog(await self._client.list_tools())
+
+    async def invoke(self, name: str,                # type: ignore[override]
+                     args: Dict[str, Any]) -> Any:
+        prefix = f"{self._server}{NAMESPACE_SEP}"
+        if not name.startswith(prefix):
+            result = self._inner.invoke(name, args)
+            return await result if hasattr(result, "__await__") else result
+        await self.verify_catalog()
+        spec = self._live.get(name)
+        if spec is None:
+            raise MCPError(f"outil `{name}` absent du serveur `{self._server}`")
+        require_permit("invoke", name, args)
+        return await self._client.call_tool(spec.name, args)
+
+
+class AsyncStaticClient:
+    """Catalogue fixe servi en `async` — tests et hors-ligne."""
+
+    def __init__(self, tools: Iterable[MCPTool],
+                 results: Optional[Dict[str, Any]] = None,
+                 delay: float = 0.0) -> None:
+        self._sync = StaticClient(tools, results)
+        self.delay = delay
+
+    @property
+    def calls(self) -> List[Any]:
+        return self._sync.calls
+
+    async def list_tools(self) -> List[MCPTool]:
+        return self._sync.list_tools()
+
+    async def call_tool(self, name: str, args: Dict[str, Any]) -> Any:
+        if self.delay:
+            import asyncio
+            await asyncio.sleep(self.delay)
+        return self._sync.call_tool(name, args)
 
 
 def catalog_from_json(raw: Any) -> List[MCPTool]:

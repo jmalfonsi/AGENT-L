@@ -45,10 +45,11 @@ rien n'agit. C'est seulement pour un `NEVER` que la même convention s'ouvre.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
-from .core import UNDEFINED, truthy
-from .nodes import BinOp, Literal, Node, PathExpr, UnOp
+from .core import UNDEFINED, Symbol, ordinal, truthy
+from .nodes import BinOp, CallExpr, ListExpr, Literal, Node, PathExpr, UnOp
 
 #: Troisième valeur. Une classe plutôt que `None` : `None` est une valeur
 #: d'état légitime, et les confondre rendrait indiscernables « absent » et
@@ -70,6 +71,23 @@ UNKNOWN = _Unknown()
 
 #: Comparaisons dont un opérande indéfini rend le résultat indéterminé.
 _COMPARISONS = {"==", "!=", ">", ">=", "<", "<=", "IN"}
+_ORDERING = {">", ">=", "<", "<="}
+_CONTAINERS = (list, tuple, set, frozenset, dict, str)
+
+
+def _orderable(left: Any, right: Any) -> bool:
+    """Deux valeurs que l'évaluateur sait ordonner — deux rangs ordinaux, ou
+    deux nombres finis. Tout le reste rend une comparaison d'ordre fausse à
+    l'évaluation, ce qui n'en fait pas une réponse."""
+    if ordinal(left) is not None and ordinal(right) is not None:
+        return True
+    if isinstance(left, Symbol) or isinstance(right, Symbol):
+        return False
+    try:
+        a, b = float(left), float(right)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(a) and math.isfinite(b)
 
 
 def evaluate(ev: Any, node: Optional[Node]) -> Any:
@@ -105,6 +123,8 @@ def evaluate(ev: Any, node: Optional[Node]) -> Any:
         return False
 
     if isinstance(node, BinOp) and node.op in _COMPARISONS:
+        if _epistemic_unknown(ev, node):
+            return UNKNOWN
         # Une sortie REASON invalide est posée explicitement à UNDEFINED. Un
         # identifiant nu absent sert aussi de constante symbolique dans le
         # langage ; distinguer la présence explicite évite de transformer
@@ -121,6 +141,17 @@ def evaluate(ev: Any, node: Optional[Node]) -> Any:
         except Exception:                              # noqa: BLE001
             return UNKNOWN
         if left is UNDEFINED or right is UNDEFINED:
+            return UNKNOWN
+        # Une comparaison que les types rendent **indécidable** n'est pas
+        # fausse : elle est indéterminée. L'évaluateur rend `False` pour
+        # `cpu.load > 90` quand le capteur répond `unavailable`, `"N/A"` ou
+        # `NaN` — et dans une garde de NEVER, ce faux **désarmait
+        # l'interdit**. Même famille que le P0 NaN de la v1.8.2, trouvée par
+        # le test de propriété P1 (v1.9) : une confusion de type ne doit
+        # jamais valoir permission.
+        if node.op in _ORDERING and not _orderable(left, right):
+            return UNKNOWN
+        if node.op == "IN" and not isinstance(right, _CONTAINERS):
             return UNKNOWN
         try:
             return bool(ev.eval(node))
@@ -145,11 +176,59 @@ def evaluate(ev: Any, node: Optional[Node]) -> Any:
 
     # Tout le reste — appels épistémiques `P(...)`, arithmétique — délègue.
     # Ce que l'évaluateur ne sait pas traiter est indéterminé, jamais faux.
+    if _epistemic_unknown(ev, node):
+        return UNKNOWN
     try:
         value = ev.eval(node)
     except Exception:                                  # noqa: BLE001
         return UNKNOWN
     return UNKNOWN if value is UNDEFINED else truthy(value)
+
+
+_BELIEF_FUNCS = frozenset({"CONFIDENCE", "UNCERTAINTY"})
+_POSTERIOR_FUNCS = frozenset({"P", "PROBABILITY", "POSTERIOR"})
+
+
+def _epistemic_unknown(ev: Any, node: Optional[Node]) -> bool:
+    """La garde interroge-t-elle une croyance ou une hypothèse **inconnue** ?
+
+    L'évaluateur rend `CONFIDENCE(x) = 0` pour une croyance absente et
+    `P(h) = 0` pour une hypothèse jamais publiée : une convention raisonnable
+    pour un plan (« je ne sais rien, donc je ne suis pas sûr »), un fail-open
+    pour une politique. `ALLOW wipe WHEN CONFIDENCE(x) < 0.8` s'ouvrait dès
+    qu'on *oubliait* `x`, et `NEVER restart WHEN P(benign) > 0.5` tombait si
+    la phase UPDATE_HYPOTHESES manquait à la boucle — moins d'information,
+    plus de permission. Trouvé par la propriété P2b (v1.9) : dans une garde
+    de politique, une telle question est indéterminée, et chaque effet en
+    décide dans son sens de sûreté.
+    """
+    state = getattr(ev, "state", None)
+    if state is None:
+        return False
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, CallExpr):
+            first = current.args[0] if current.args else None
+            if isinstance(first, PathExpr):
+                path = first.dotted
+                if current.name in _BELIEF_FUNCS and \
+                        path not in (getattr(state, "beliefs", None) or {}):
+                    return True
+                if current.name in _POSTERIOR_FUNCS:
+                    try:
+                        if state.get(f"{path}.posterior") is UNDEFINED:
+                            return True
+                    except Exception:                  # noqa: BLE001
+                        return True
+            stack.extend(current.args)
+        elif isinstance(current, BinOp):
+            stack.extend((current.left, current.right))
+        elif isinstance(current, UnOp):
+            stack.append(current.operand)
+        elif isinstance(current, ListExpr):
+            stack.extend(current.items)
+    return False
 
 
 def applies_when_unknown(effect: str) -> bool:

@@ -293,11 +293,16 @@ def _label(item: EvidenceItem, index: int) -> str:
         return f"e{index}"
 
 
-def publish(inference: Inference, state: State) -> None:
-    """Expose le résultat aux expressions : gardes, VERIFY, objectifs."""
+def publish(inference: Inference, state: State, prov=None) -> None:
+    """Expose le résultat aux expressions : gardes, VERIFY, objectifs.
+
+    `prov` : provenance du postérieur — `INFERRED`, plus celle des évidences
+    qu'il a lues (v1.9). Un postérieur nourri par un texte reçu n'est pas une
+    mesure du monde.
+    """
     for prefix in (inference.name, f"hypothesis.{inference.name}"):
-        state.set_world(f"{prefix}.prior", inference.prior)
-        state.set_world(f"{prefix}.posterior", inference.posterior)
-        state.set_world(f"{prefix}.supported", inference.supported)
-        state.set_world(f"{prefix}.bits", inference.shift_bits)
-        state.set_world(f"{prefix}.capped", inference.capped)
+        state.set_world(f"{prefix}.prior", inference.prior, prov)
+        state.set_world(f"{prefix}.posterior", inference.posterior, prov)
+        state.set_world(f"{prefix}.supported", inference.supported, prov)
+        state.set_world(f"{prefix}.bits", inference.shift_bits, prov)
+        state.set_world(f"{prefix}.capped", inference.capped, prov)
