@@ -220,9 +220,11 @@ oblige à **écrire pourquoi**.
 
 La levée couvre l'instruction entière (bornes AST — une compréhension à moitié
 levée serait le pire des cas), reste dans le code, s'affiche sous « levées
-assumées », et **sans motif ne lève rien**. Les gardes d'absence (`if not rows`,
-`is None`) ne sont jamais signalées : vérifier qu'une donnée existe n'est pas
-décider ce qu'elle vaut.
+assumées », et **sans motif ne lève rien**. Le marqueur doit être un véritable
+commentaire Python. Seuls les tests explicites d'absence (`x is None`,
+`x is not None`) bénéficient de l'exemption ; une vérité nue telle que
+`if not rows`, `if x.flag` ou `if predicate(x)` n'est pas automatiquement
+assimilée à de la plomberie.
 
 ---
 
@@ -607,15 +609,15 @@ SCENARIO actif_critique_jamais_d_isolement {
 
 ```
 $ agentl test examples/soc_analyst.agent
-  ✔ actif_critique_le_confinement_passe_par_le_compte — satisfaite au tick 2/6
+  ✔ actif_critique_le_confinement_passe_par_le_compte — satisfaite au tick 1/6
   ✔ actif_critique_jamais_d_isolement — invariant maintenu sur 6/6 tick(s)
 ```
 
 Le test s'exécute contre le **monde déclaré** : `GIVEN` pose l'état, chaque
 outil applique ses `EFFECT`, les politiques s'appliquent. Hermétique — ni
 réseau, ni disque, ni hôte à écrire — donc utilisable en CI dès le premier
-jour. Trois choses se **posent** au lieu d'être devinées : l'état du monde, la
-réponse de l'opérateur (`operator.approval`), et ce que le modèle a proposé.
+jour. Les entrées se **posent** au lieu d'être devinées : état du monde, réponse
+de l'opérateur (`operator.approval`), réponses OUTPUT et propositions du modèle.
 Sans la ligne d'approbation, l'opérateur **refuse** : un scénario ne suppose
 jamais un humain complaisant par accident.
 
@@ -647,7 +649,10 @@ reste satisfaite.
 Les scénarios acceptent `GIVEN EVENT source { ... }`,
 `GIVEN MESSAGE nom FROM acteur { ... }`, `EXPECT CALL outil`,
 `EXPECT NEVER CALL outil`, `EXPECT BLOCKED outil`, `EXPECT EVENT source`
-et `EXPECT NO ERROR`. Une suite vide retourne 2 (dérogation : `--allow-empty`).
+et `EXPECT NO ERROR`. W117/W118, une erreur dans GIVEN/EFFECT ou une trace
+ERROR rendent le scénario invalide, même si une attente est satisfaite.
+Une suite vide retourne 2 (dérogation : `--allow-empty`). T5 ne prouve pas
+les stimuli et assertions de trace : il les signale hors de son modèle (V128).
 Contrat complet et constats vérifiés : [suivi des audits](docs/audit-followup.md).
 
 ## Tenir sur d'autres données — `autoloop`
@@ -734,10 +739,13 @@ relue.
 
 ### La cinquième barrière
 
-`agentl test` juge l'attente, pas la façon d'y arriver. Un scénario peut donc
-être vert alors que l'exécution a levé une erreur ou parcouru une collection
-absente en chemin. La barrière **« invariants (monde déclaré) »** est la seule à
-le voir — et elle l'a vu dès le premier essai sur un exemple livré du dépôt.
+`agentl test` refuse désormais les erreurs d'exécution, y compris une
+collection absente parcourue en chemin. La barrière **« invariants (monde
+déclaré) »** d'autoloop ajoute notamment le contrôle des `VERIFY` en échec et
+les contrôles indépendants des interdits et approbations inconditionnels.
+Les cas dérivés d'autoloop ont leur propre runner : ils ne couvrent pas les
+stimuli et assertions de trace ajoutés à SCENARIO. Pour ces propriétés,
+exécuter les scénarios explicites avec `agentl test`.
 
 ---
 
@@ -1290,9 +1298,9 @@ qui rend l'appariement non ambigu. Sans `X.py`, `run` refuse de démarrer et
 | commande | options |
 |---|---|
 | `check` | — |
-| `test` | `--trace` affiche la trace complète de chaque scénario (indispensable pour comprendre *pourquoi* une attente n'advient pas) |
+| `test` | `--trace` affiche la trace complète · `--allow-empty` autorise explicitement les agents sans SCENARIO ; sans cette option, une suite vide retourne 2 |
 | `verify` | `--depth N` borne la recherche de route de T2/T5. La recherche s'arrête normalement bien avant, sur son point fixe ; augmenter `N` sert quand un verdict rend « ◐ BORNÉ » (`V113`, `V122`) |
-| `boundary` | — |
+| `boundary` | `--project-root DIR` fixe la racine des imports locaux · `--external-policy report\|error` liste ou refuse les dépendances externes hors analyse |
 | `autoloop` | `--model M` rédacteur des corrections (`gemini-*` ou `claude-*`) ; sans lui, diagnostic seul · `-o F` écrit le programme corrigé (**sans `-o`, rien n'est écrit**) · `--holdout R` part des cas retenus (défaut `0.3` ; `0` la désactive, et avec elle la seule mesure du par-cœur) · `--max-attempts N` · `--budget S` · `--patience N` tentatives sans progrès tolérées · `--max-cases N` · `--seed N` · `--host-pass` second temps contre l'hôte réel, en lecture seule · `--host-ticks N` |
 | `run` | `--ticks N` plafond de ticks (prime sur `LOOP … MAX n`) · `--quiet` supprime la trace en direct · `--html F` journal visuel autonome · `--events F` trace en JSON Lines (un événement par ligne : `seq`, `agent`, `tick`, `kind`, `text`, `detail`), vidée au fil de l'exécution · `--record F` journal de rejeu (JSON) · `--sign-key K` signe le journal (PEM Ed25519, fichier de secret ou secret littéral ; défaut `AGENTL_JOURNAL_KEY`) |
 | `replay` | `--source X.agent` rejoue contre un autre programme · `--force` rejoue même si le programme a changé · `--key K` vérifie le sceau · `--require-seal` échoue si le journal n'est pas valablement signé · `--ticks N` · `--quiet` · `--events F` trace rejouée en JSON Lines |

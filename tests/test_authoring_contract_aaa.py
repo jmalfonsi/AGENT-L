@@ -132,3 +132,34 @@ class TheArtefactsAreInSync(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_markdown_accepts_trace_call_assertions(tmp_path, monkeypatch):
+    """Le vrai parseur accepte EXPECT CALL ; le validateur ne doit pas le bannir."""
+    (tmp_path / 'references').mkdir()
+    (tmp_path / 'SKILL.md').write_text('''```agentl
+AGENT trace_demo {
+  TOOL act { RISK LOW }
+  SCENARIO s { EXPECT CALL act EXPECT NEVER CALL act }
+}
+```
+''')
+    monkeypatch.setattr(sync, 'SKILL', tmp_path)
+    assert sync.validate_markdown() == []
+
+
+def test_markdown_still_rejects_standalone_call(tmp_path, monkeypatch):
+    (tmp_path / 'references').mkdir()
+    (tmp_path / 'SKILL.md').write_text('```agentl\nCALL act\n```\n')
+    monkeypatch.setattr(sync, 'SKILL', tmp_path)
+    assert sync.validate_markdown()
+
+
+def test_markdown_does_not_treat_quoted_words_as_instructions(tmp_path, monkeypatch):
+    (tmp_path / 'references').mkdir()
+    (tmp_path / 'SKILL.md').write_text('''```agentl
+AGENT quoted { DESCRIPTION "CALL INVARIANT LLM_OUTPUTS" }
+```
+''')
+    monkeypatch.setattr(sync, 'SKILL', tmp_path)
+    assert sync.validate_markdown() == []

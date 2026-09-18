@@ -9,8 +9,9 @@ AGENT-L (dépôt `~/AGENT-L`) est un langage agentique **déclaratif et
 vérifié hors ligne** : un fichier `.agent` décrit objectif, croyances, outils,
 politiques, hypothèses bayésiennes, plans et critères d'acceptation ; un hôte
 Python relie ces contrats au monde réel. La thèse : *le LLM propose, le runtime
-décide* — une action interdite n'est jamais engendrée, et `agentl verify` le
-prouve sur l'AST avant toute exécution.
+décide*. Les politiques filtrent la planification et les appels au runtime ;
+`verify` analyse les propriétés de l'AST dans son modèle, avec des verdicts
+démontrés, réfutés ou indéterminés dont la portée doit être conservée.
 
 ## Préflight de compatibilité — avant toute rédaction
 
@@ -61,12 +62,13 @@ mauvais endroit. Extraire un domaine d'une adresse, lire une feuille, apparier
 un nom, composer un texte : légitime. Décider qu'un ticket est écarté, choisir
 une priorité, boucler sur les éléments à traiter : jamais.
 
-C'est la seule règle dont la violation ne produit **aucun signal** : le
-programme reste vert et la garantie a disparu, parce que le raisonnement est
-passé dans du Python que personne n'audite. `agentl boundary` la contrôle
-désormais sur l'AST de l'hôte. **Détail, contre-exemples, et l'angle mort de
-l'outil (une levée `# BOUNDARY-OK` défendable peut couvrir une perception
-fausse) : `references/business-workflows.md` §1 — à lire, pas à deviner.**
+`agentl boundary` recherche les motifs couverts dans l'AST de l'hôte et de
+ses imports locaux, sans exécuter Python. Un vert ne prouve pas l'absence de
+décisions cachées. Relire les fichiers analysés, les dépendances exclues et
+les commentaires `# BOUNDARY-OK: raison`. Une surface ou un registre
+`INCOMPLETE / UNVERIFIABLE` bloque le contrôle. Détails et exemples :
+[references/business-workflows.md](references/business-workflows.md) §1 et
+[references/security-authoring.md](references/security-authoring.md).
 
 ## Procédure — de zéro à un agent livrable
 
@@ -91,39 +93,28 @@ Dans cet ordre. Sauter une étape coûte plus cher que la faire.
 8. **Passer les portes** ci-dessous, dans l'ordre.
 9. **Jouer le run de panne et le contre-factuel**, sans exception.
 
-## `SCENARIO` — les critères d'acceptation dans le programme (v1.4)
+## `SCENARIO` — critères d'acceptation explicites
 
-Les théorèmes T1-T4 prouvent des propriétés *génériques*. `SCENARIO` est le
-seul endroit où s'écrit ce que **l'auteur** exige :
+Pour écrire ou modifier un scénario, lire
+[references/scenarios.md](references/scenarios.md) : oracles explicites,
+invariants, stimuli EVENT/MESSAGE, assertions de trace et exemple exécutable.
 
-```agentl
-SCENARIO actif_critique_jamais_d_isolement {
-    GIVEN {
-        asset.criticality = CRITICAL
-        operator.approval = yes        // défaut = REFUS : un scénario ne
-        suspected_host    = "web-07"   // suppose jamais un humain complaisant
-    }
-    EXPECT { isolated != confirmed } WITHIN 6
-}
-```
+- Poser l'état initial, les sorties obligatoires (`outil.champ`), les réponses
+  REASON et l'approbation. Plusieurs OUTCOME possibles exigent
+  `scenario.outcome.outil = branche` ; une sélection LLM exige `llm.plan`.
+- Une attente initialement vraie est surveillée après chaque effet simulé,
+  instruction et phase. Une éventualité reste acquise dès sa satisfaction.
+  UNKNOWN, même sous NOT, ne satisfait jamais une attente.
+- WITHIN borne l'exécution sans prolonger LOOP MAX ni ignorer UNTIL.
+  Les erreurs de simulation, traces ERROR et W117/W118 rendent TEST rouge.
+- Une suite vide échoue ; `--allow-empty` est une exception à déclarer comme
+  dette de couverture, jamais un moyen de faire passer un agent neuf.
+- Nommer une mutation de politique qui fait échouer le scénario de sûreté.
+  `EXPECT NEVER CALL outil` teste directement la non-exécution d'une action.
 
-- s'exécute contre le **monde déclaré** (`agentl test`) : ni hôte, ni réseau,
-  ni disque — mais ne prouve **rien sur l'hôte**, seulement que les
-  déclarations entraînent l'attente ;
-- trois choses se **posent**, ne se devinent pas : l'état du monde, la réponse
-  de l'opérateur (`operator.approval`, `operator.answer`), et ce que le modèle
-  a proposé (les noms produits par `REASON … PRODUCE`) ;
-- **éventualité** (attente fausse au tick 0) → doit *advenir* dans `WITHIN` ;
-  **invariant** (attente déjà vraie) → doit *tenir* à chaque tick. Sans cette
-  distinction, `EXPECT { isolated != confirmed }` serait vert sans qu'aucun
-  tick n'ait tourné ;
-- **T5 attaque les éventualités statiquement** ; un invariant lui est hors de
-  portée (`V124`) et revient à `agentl test`.
-
-**Un scénario qui passe dans tous les cas ne teste rien.** Écris-en au moins un
-qui *mord* — retirer un `NEVER` doit le faire tomber. C'est le test de
-mutation, et c'est ce qui transforme une observation en test. Référence :
-`examples/soc_analyst.agent`.
+TEST porte sur le modèle déclaré, pas sur l'hôte réel. T5 ne prouve ni les
+invariants ni les stimuli/assertions de trace ; V128 doit rester présenté
+comme indéterminé.
 
 ## Les portes de qualité, non négociables
 
@@ -139,7 +130,7 @@ python3 ~/AGENT-L/SKILLS/agentl-author/scripts/sync_grammar.py --check
 python3 -m agentl check    examples/xxx.agent     # bonne formation ; 0 erreur E
 python3 -m agentl test     examples/xxx.agent     # SCENARIO contre le monde déclaré
 python3 -m agentl verify   examples/xxx.agent     # 8 théorèmes ; 0 erreur
-python3 -m agentl boundary examples/xxx.agent     # frontière hôte/agent ; 0 décision
+python3 -m agentl boundary examples/xxx.agent     # motifs couverts et périmètre explicite
 python3 -m agentl autoloop examples/xxx.agent     # tient-il sur d'autres données ?
 python3 -m agentl run      examples/xxx.agent \
         --html /tmp/xxx.html --record /tmp/xxx.json   # (l'hôte xxx.py est implicite)
@@ -151,16 +142,18 @@ Ce que chacune doit montrer :
 - **`check`** — aucune erreur `E`. Les `W` se corrigent ou se justifient une
   par une. `E009` (appel d'outil dans une expression) est l'erreur la plus
   fréquente chez un modèle.
-- **`test`** — 100 % des scénarios satisfaits, **et** au moins un scénario dont
-  tu sais nommer la mutation qui le fait tomber.
+- **`test`** — une suite non vide, 100 % des scénarios satisfaits, **et** une
+  mutation nommée qui fait échouer le scénario de sûreté. Voir les règles
+  d'oracles et d'observation dans `references/scenarios.md`.
 - **`verify`** — 0 erreur sur les 8 théorèmes. Attention :
   - `V105` est une **erreur** quand un interdit rend le but inatteignable
     *sans escalade déclarée* → ajouter `IF planner.exhausted … THEN escalate`.
     Avec l'escalade, c'est `V112` (info) : conduite attendue, pas défaut.
   - `V110`, `V111`, `V112`, `V123` sont des **infos** — comportement correct.
   - `V113`/`V122` (« borné, non réfuté ») ne prouvent rien : augmente `--depth`.
-- **`boundary`** — 0 décision non justifiée **et** relecture des « levées
-  assumées » une par une. Un vert sans cette relecture ne vaut rien.
+- **`boundary`** — aucun diagnostic bloquant sur la surface affichée ; relire
+  les imports exclus et les « levées assumées ». B014/B016 incomplets ne sont
+  pas des succès. Le contrôle est heuristique, pas une preuve sémantique.
 - **`autoloop`** — les quatre commandes ci-dessus disent si le programme est
   recevable ; aucune ne dit s'il tient sur **d'autres données que celles que tu
   as écrites**. `autoloop` rejoue chaque `SCENARIO` sur des mondes dérivés du
@@ -171,9 +164,10 @@ Ce que chacune doit montrer :
   - une part des cas est **retenue** et n'est ouverte qu'à la fin. 100 % sur ce
     que la boucle a vu et moins sur le lot retenu se lit « appris par cœur »
     (code de sortie 3), pas « presque bon » ;
-  - la barrière **« invariants (monde déclaré) »** est la seule à voir un
-    scénario vert dont l'exécution a levé une erreur en chemin — `test` ne juge
-    que l'attente, pas la façon d'y arriver ;
+  - TEST refuse déjà les traces ERROR. La barrière **« invariants (monde
+    déclaré) »** ajoute notamment les échecs VERIFY et le contrôle indépendant
+    des interdits/approbations inconditionnels. Les cas dérivés ne rejouent pas
+    les nouveaux stimuli ni les assertions de trace : les tester avec TEST ;
   - avec `--model gemini-* | claude-*`, la boucle corrige elle-même et
     s'arrête sur trois freins (plafond, budget, absence de progrès). Sans `-o`,
     **rien n'est écrit** : la version que tu as relue n'est jamais écrasée.
@@ -207,7 +201,7 @@ Ce que chacune doit montrer :
 
 Outils d'inspection ponctuels : `agentl plan` (route synthétisée),
 `agentl infer` (postérieurs), `agentl ast`, `agentl viz` (graphe statique HTML)
-— tous acceptent `--ticks 0` pour percevoir sans agir.
+— seuls `plan` et `infer` acceptent `--ticks 0` pour percevoir sans agir.
 
 ## Le studio — voir l'agent tourner
 
@@ -242,6 +236,7 @@ vérifier un hôte ne doit pas exécuter de code arbitraire.
 | `references/generated/grammar-contract.md` | **toujours avant d'écrire** : versions/hashes et champs extraits de l'AST du parseur. Généré, jamais édité à la main. |
 | `references/generated/canonical.agent` + `.py` | couple minimal exécutable, régénéré et soumis à toutes les portes plus un test de mutation. Le copier, ne pas le réinventer. |
 | `references/security-authoring.md` | **obligatoire pour effets de bord, cibles ou texte non fiable** : `DEFAULT`, `ATTESTS`, approbation, réobservation, rollback, T6/T7 et W119–W125/B008–B014. |
+| [references/scenarios.md](references/scenarios.md) | **pour écrire ou corriger un test** : sorties et choix explicites, stimuli, assertions, portée de TEST/T5 et codes de sortie. |
 | `references/authoring.md` | **pour écrire** : procédure, formes fragiles et pièges appris en production. À lire en entier avant de coder. |
 | `references/business-workflows.md` | **données d'entreprise** (tickets, e-mails, feuilles, CRM) : règle de partage détaillée, `FOREACH`, `REASON` à domaine clos, motifs de `POLICY` qui portent, pièges des API réelles, liste de contrôle de livraison. |
 | `references/runtime-semantics.md` | **pour expliquer un run** : pourquoi N ticks, ordre d'évaluation de la politique, ligne bayésienne, séparation de canaux, **glossaire complet E/W/V/B**, métriques, rejeu. |
@@ -269,9 +264,9 @@ DELEGATE, autonomie) · `disk_sentinel.agent` (approbation) · `supervisor.agent
    ne s'applique plus.
 2. **Toute sortie LLM qui garde une politique doit être bornée** : domaine clos
    `IN [...]` ou intervalle `IN [0,1]`.
-3. **La politique borne la recherche, elle ne la corrige pas.** Un `NEVER`
-   n'est pas un garde-fou d'exécution : le planificateur l'interroge par
-   branche, l'action interdite n'entre dans aucun plan.
+3. **La politique s'applique à la recherche et à l'exécution.** Le
+   planificateur l'interroge par branche ; le runtime la réévalue avant chaque
+   action, y compris celles des plans manuscrits.
 4. **Ce qu'on déclare doit exister et être confronté au monde.** Un `EFFECT`
    sans re-perception corrompt les plans *et rend les `SCENARIO` menteurs* ;
    `VERIFY` re-perçoit, `effect_drift` compte les mensonges.

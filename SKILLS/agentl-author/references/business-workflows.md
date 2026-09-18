@@ -47,7 +47,8 @@ est morte : il ne reste qu'un script Python avec un `.agent` décoratif.
 python3 -m agentl boundary chemin/xxx.agent
 ```
 
-Il lit l'AST de `xxx.py` et signale ce qui ressemble à une décision :
+Il lit l'AST de `xxx.py` et des imports locaux transitifs, sans les exécuter,
+et signale les motifs couverts :
 
 | code | ce qu'il attrape |
 |---|---|
@@ -70,8 +71,12 @@ les tickets d'organisations bloquées » ont la même forme. **Il oblige donc à
 qui couvre l'**instruction entière**, reste dans le code et s'affiche dans le
 rapport sous « levées assumées ». Une levée sans motif ne lève rien.
 
-Les gardes d'absence (`if not rows`, `if x is None`) ne sont jamais
-signalées : vérifier qu'une donnée existe n'est pas décider ce qu'elle vaut.
+L'exemption d'absence concerne les tests explicites `x is None` ou
+`x is not None`. Une vérité nue (`if not rows`, `if x.flag`, appel de prédicat)
+n'est pas automatiquement exemptée. Seul un commentaire Python réel et motivé
+peut lever un diagnostic ; une chaîne contenant BOUNDARY-OK ne le peut pas.
+B014/B016 signalent les registres ou surfaces incomplets. Les dépendances
+externes restent hors analyse (`--external-policy error` les refuse).
 
 **Corollaire pour un agent écrit par un modèle** : si le modèle produit les
 deux fichiers, `agentl boundary` fait partie de la livraison au même titre
@@ -79,8 +84,9 @@ que `check` et `verify`.
 
 ### Relire ses propres levées — l'angle mort de l'outil
 
-`boundary` prouve que l'hôte ne **décide** pas. Il ne prouve pas qu'il
-**perçoit juste**. Un `# BOUNDARY-OK` irréprochable peut couvrir une
+`boundary` recherche des motifs de décision ; son succès ne prouve ni
+l'absence de logique métier cachée ni la justesse de la perception.
+Un `# BOUNDARY-OK` irréprochable peut couvrir une
 perception fausse, et celle-là ne produit aucun diagnostic — ni à la
 vérification, ni à l'exécution.
 
@@ -401,13 +407,13 @@ a rien. Ce qui remplace le barème :
 ## 8. Liste de contrôle avant de livrer un agent « premium »
 
 - [ ] `check` : 0 erreur, W justifiés.
-- [ ] `agentl test` : 100 % des `SCENARIO` satisfaits, dont **au moins un qui
+- [ ] `agentl test` : suite non vide, oracles explicites, 100 % des `SCENARIO` satisfaits, dont **au moins un qui
       mord** — la mutation qui le fait tomber est nommée dans la revue.
-- [ ] `verify` : 0 erreur sur les **5** théorèmes ; aucun verdict « ◐ BORNÉ »
+- [ ] `verify` : 0 erreur sur les huit théorèmes par agent (T1–T7, T9), plus T8 pour une société ; aucun verdict « ◐ BORNÉ »
       (`V113`/`V122`) présenté comme un succès.
 - [ ] Chaque `NEVER` a été **déclenché au moins une fois** dans un run de test.
 - [ ] Le test de neutralisation passe : interdits tenus, programme cassé.
-- [ ] `agentl boundary` : 0 décision non justifiée ; chaque levée
+- [ ] `agentl boundary` : aucun diagnostic bloquant sur la surface affichée ; chaque levée
       `BOUNDARY-OK` porte un motif qu'un relecteur accepterait.
 - [ ] **Les « levées assumées » ont été relues une par une** (§1) : pour
       chacune, la valeur rendue quand le monde ne répond pas est distincte de

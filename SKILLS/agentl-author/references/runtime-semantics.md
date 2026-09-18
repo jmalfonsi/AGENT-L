@@ -152,6 +152,9 @@ Erreurs `E` (refus d'exécuter) :
 | `E008` | écriture `INTO SHARED.<clé>` non déclarée dans `MEMORY { SHARED }` |
 | `E009` | **appel d'outil dans une expression** — il contournerait le moteur de politiques par l'évaluateur (l'erreur la plus fréquente chez un modèle) |
 | `E010` | `SCENARIO` dont le `WITHIN` ne laisse pas un tick à l'agent |
+| `E012` | nom d'AGENT dupliqué, sans distinction de casse |
+| `E013` | signature d'appel TOOL invalide : manquant, inconnu, excès ou double liaison |
+| `E014` | assertion de scénario portant sur un outil ou événement inconnu |
 | `W127` | `DELEGATE` vers un sous-agent qu'aucun `TOOL` ne décrit — risque supposé `CRITICAL` |
 | `W128` | garde `NEVER`/`DENY`/`APPROVAL` portant sur un identifiant **nu** que rien ne renseigne : lu comme constante symbolique, la règle ne s'appliquerait pas — préférer un chemin pointé |
 | `V150` | `EFFECT` sur le monde qu'aucune `OBSERVE` ne recouvre : la postcondition ne peut **jamais** être démentie (T9). Ajouter l'observation, ou marquer l'effet `INTERNAL` s'il porte sur la comptabilité de l'agent |
@@ -163,11 +166,10 @@ Erreurs `E` (refus d'exécuter) :
 | `W132` | `ON UNKNOWN DEGRADE` sur un chemin dont dépend un interdit : la règle sera jugée sur une valeur **déclarée**, pas mesurée. Vérifier que le repli est celui qui **bloque** — sinon c'est la faille §7.1 rouverte avec la bénédiction du programme |
 | `W133` | `REASON` déclarant plus de huit champs `PRODUCE` : au-delà, un modèle à raisonnement épuise son budget de sortie avant d'avoir fermé le JSON, la réponse est tronquée et **tous** les champs retombent sur leur défaut — des zéros parfaitement plausibles. Découper le `REASON`, réduire le schéma, et garder les seuils par `reason.degraded` |
 | `W134` | champ `PRODUCE` dont le `DEFAULT`, une fois lié, **ne déclenche pas** l'interdit qu'il garde. Troncature, JSON invalide et oracle muet mènent tous au défaut : si l'interdit ne s'y applique pas, la panne *ouvre* l'action. Le contrôle est une simulation — champ lié à son défaut, reste indéterminé — et se tait quand la garde ressort indéterminée, puisqu'un `NEVER` indéterminé s'applique |
-| `W135` | garde de **déclenchement** — `WHEN` de plan, `IF`, règle `DECIDE` — comparant `!=` un chemin pointé que rien dans le programme ne renseigne. Ces gardes-là passent par l'évaluateur ordinaire, pas par Kleene : une absence y rend `UNDEFINED != valeur`, donc **vrai**, et le plan se déclenche sur l'ignorance à chaque tick. Le sens du défaut fait sa gravité — une typo dans un `==` ne déclenche rien et se voit au premier essai, dans un `!=` elle déclenche tout et ressemble à un agent qui marche. Les gardes de *politique* sont hors périmètre : Kleene les couvre déjà (§7.1) |
+| `W135` | garde de **déclenchement** — `WHEN` de plan, `IF`, règle `DECIDE` — comparant `!=` un chemin pointé sans définition préalable garantie à ce site. Un SET ultérieur ou dans une seule branche ne suffit pas. Ces gardes-là passent par l'évaluateur ordinaire, pas par Kleene : une absence y rend `UNDEFINED != valeur`, donc **vrai**, et le plan se déclenche sur l'ignorance à chaque tick. Le sens du défaut fait sa gravité — une typo dans un `==` ne déclenche rien et se voit au premier essai, dans un `!=` elle déclenche tout et ressemble à un agent qui marche. Les gardes de *politique* sont hors périmètre : Kleene les couvre déjà (§7.1) |
 
 Avertissements `W` (à corriger ou justifier un par un) : `W101` outil
-HIGH/CRITICAL non couvert par une politique · `W102` plan à effet de bord sans
-`VERIFY` · `W103` chemin observé jamais utilisé · `W104` croyance jamais
+HIGH/CRITICAL non couvert par une politique · `W102` action à effet sans VERIFY postérieur lié sur tous les chemins examinés · `W103` chemin observé jamais utilisé · `W104` croyance jamais
 rafraîchie · `W105` aucun `GOAL` · `W106` plan inatteignable · `W107`
 hypothèse dont le postérieur n'est jamais consulté · `W108` planificateur actif
 mais aucun `EFFECT` · `W109` opérateur dont l'`EFFECT` ne peut être déclenché
@@ -176,9 +178,9 @@ satisfait · `W111` `MESSAGE` que personne ne reçoit · `W112` `ON MESSAGE` que
 personne n'émet · `W113` `OUTCOME` ne totalisant pas 1 · `W114` probabilité non
 calibrée alimentant une garde · `W115` sortie LLM non bornée alimentant un
 seuil · `W116` `THRESHOLD` hors amplitude atteignable · `W117` `GIVEN` posant
-un chemin inexistant · `W118` attente ne portant sur aucun chemin qu'un
-`EFFECT` produit · `W135` garde de déclenchement comparant `!=` un chemin que
-rien ne renseigne.
+un chemin inexistant · `W118` attente sans chemin produit par EFFECT, OUTPUT,
+SET, REASON ou DELEGATE · `W135` garde comparant `!=` un chemin sans définition
+préalable au site. W117/W118 restent des avertissements CHECK mais bloquent TEST.
 
 ### `agentl verify` — cinq théorèmes prouvés sur l'AST
 
@@ -222,25 +224,32 @@ rien ne renseigne.
   attente atteignable, avec la route ; `V121` **erreur** : aucune combinaison
   d'`EFFECT` permise n'entraîne l'attente — politique trop stricte ou attente
   fausse ; `V122` (avert.) « ◐ BORNÉ », la profondeur a arrêté la recherche ;
-  `V124` (info) invariant, hors de portée du théorème → renvoyé à `agentl test`.
+  `V124` (info) invariant, hors de portée du théorème → renvoyé à `agentl test` ;
+  V127 signale un GIVEN invalide ; V128 rend les stimuli et assertions de trace
+  explicitement hors du modèle de T5 (verdict indéterminé).
 
-**Direction de sûreté** : le vérificateur ne se trompe que dans un sens — il
-peut manquer un défaut, il n'en invente pas (le solveur ne déclare
-insatisfiable que sur démonstration). Un `verify` qui se tait sur un site
-d'appel l'a donc *prouvé* sûr. Corollaire : un verdict « borné, non réfuté »
-(`V113`, `V122`) ne prouve **rien** et ne doit jamais être présenté comme un
-succès.
+**Portée des verdicts** : le solveur symbolique ne déclare une condition
+insatisfiable que sur démonstration dans son modèle. Cette propriété ne fait
+pas des heuristiques de provenance ni de l'analyse de l'hôte une preuve
+complète. Lire le verdict et les diagnostics de chaque théorème ; le silence
+ou un code de sortie nul ne suffisent pas. Un verdict borné ou hors modèle
+reste indéterminé. Augmenter --depth peut aider V113/V122, pas V128.
 
-### `agentl boundary` — frontière hôte/agent
+### `agentl boundary` — linter architectural de l'hôte
 
-`B000` hôte introuvable (la norme de nommage n'est pas respectée) · `B001`
-comparaison à une valeur métier · `B002` filtrage d'une collection · `B003`
-`break`/`continue` dans une boucle de l'hôte · `B004` tri ou extremum (donc
-priorisation) · `B005` seuil chiffré appliqué dans l'hôte · `B006` nom de
-fonction qui décide (`should_`, `classify_`, `select_`…) · `B007` hôte
-volumineux servant un `.agent` sans aucune garde. Levée par
-`# BOUNDARY-OK: <motif>` couvrant l'instruction entière ; sans motif, rien
-n'est levé. Voir `business-workflows.md` §1.
+B000 : hôte absent ; B001–B007 : motifs de décision, filtrage, priorisation,
+seuils et disproportion hôte/agent ; B008–B013 : signaux de protection aux
+sites d'action ; B014 : contrat des registres ; B015 : mutation d'état hors
+contrat ; B016 : surface d'analyse non résolue.
+
+L'analyse suit les imports locaux sans exécuter Python. Les dépendances
+externes sont listées hors analyse ; --external-policy error les refuse et
+--project-root fixe la racine locale. B014/B016 incomplets bloquent le contrôle.
+Une levée exige un véritable commentaire Python `# BOUNDARY-OK: motif`,
+local à l'instruction. Elle ne transforme pas un inventaire incomplet en succès.
+Un vert signifie qu'aucun motif bloquant couvert n'a été détecté sur la surface
+affichée. Voir [security-authoring.md](security-authoring.md) et
+[business-workflows.md](business-workflows.md) §1.
 
 ---
 
@@ -338,13 +347,10 @@ réseau**. Ce qu'il faut savoir pour l'expliquer :
   T8 ne couvre que `MESSAGE` (`V137`).
 
 
-### Suite des audits CHECK/TEST
+### Scénarios et diagnostics d'audit
 
-E012 : doublon d'AGENT ; E013 : signature d'appel TOOL ; E014 : assertion de
-scénario sur une cible inconnue. W135 porte sur la définition préalable au
-site de garde, W102 sur une vérification postérieure liée, W120 sur une
-approbation inconditionnelle. TEST partage la boucle runtime, applique la
-logique trivalente à EXPECT et exige des sorties et choix explicites dans
-GIVEN. Les stimuli et assertions de trace sont décrits dans
-`docs/audit-followup.md`. Les avertissements CHECK restent non bloquants ;
+W102/W135 analysent l'ordre et les branches, W120 exige une approbation
+inconditionnelle pour se taire. Les contrats TEST (oracles explicites,
+UNKNOWN, bornes, stimuli, assertions, suite vide) sont détaillés dans
+[scenarios.md](scenarios.md). Les avertissements CHECK restent non bloquants ;
 W117/W118 rendent en revanche un scénario invalide pour TEST.

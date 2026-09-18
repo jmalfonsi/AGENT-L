@@ -14,8 +14,9 @@ python3 -m agentl autoloop examples/xxx.agent --host-pass
 ## Ce qu'elle fait, dans l'ordre
 
 1. **La barrière** — analyse, preuve, frontière, scénarios déclarés, puis une
-   cinquième que rien ne posait jusqu'ici : les **invariants du monde
-   déclaré**. Tant qu'elle n'est pas franchie, aucun cas dérivé n'est produit :
+   cinquième sur les **invariants du monde déclaré**. TEST refuse déjà
+   les traces ERROR ; cette barrière ajoute notamment les VERIFY en échec et
+   les contrôles indépendants des politiques inconditionnelles. Tant qu'elle n'est pas franchie, aucun cas dérivé n'est produit :
    corriger sur des données inventées un programme qui ne se tient pas déjà
    debout n'a pas de sens.
 2. **Les cas dérivés** — chaque `SCENARIO` est rejoué sur des mondes obtenus en
@@ -135,6 +136,15 @@ sa politique tient hors du monde déclaré.
   et le registre de dérive d'effet qui traitent cette question.
 - Elle n'invente pas d'attente. Un programme sans `SCENARIO` ne produit aucun
   cas dérivé : il n'y a pas de `GIVEN` à faire varier, et le rapport le montre
-  par un compte de cas nul plutôt que par un vert trompeur.
+  comme une suite non testable ; la porte TEST échoue également.
 - Elle ne remplace pas le run de panne ni le contre-factuel : elle raisonne sur
   des données, pas sur des pannes d'infrastructure.
+
+
+### Portée des nouveaux scénarios
+
+Les cas dérivés utilisent un runner distinct de TEST : ils n'injectent pas
+les stimuli GIVEN EVENT/MESSAGE et n'évaluent pas les assertions EXPECT CALL,
+NEVER CALL, BLOCKED, EVENT ou NO ERROR. Leur surveillance se fait en fin de
+tick. Un résultat autoloop vert ne remplace donc pas les scénarios explicites
+qui vérifient ces propriétés entre les actions ; voir [scenarios.md](scenarios.md).

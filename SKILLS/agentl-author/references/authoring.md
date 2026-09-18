@@ -35,8 +35,10 @@ ont produit des erreurs réelles chez des agents de codage :
   d'un `SCENARIO`. Il n'existe ni bloc `LLM_OUTPUTS`, ni mot-clé `INVARIANT` :
   une attente vraie au tick 0 devient automatiquement un invariant ;
 - un appel s'écrit `outil(arg)` ou `outil(x = arg)`, jamais `CALL outil` ;
+  `EXPECT CALL outil` est en revanche une assertion de scénario valide ;
 - `BIND` sert au **planificateur**. Un appel écrit explicitement doit encore
-  fournir tous ses `INPUT` ;
+  fournir tous ses INPUT (E013 : manquant, inconnu, excès ou double liaison).
+  Répéter un argument nommé est une erreur de parsing ;
 - dans un `SCENARIO`, les types sont réels : une valeur `Number` se pose comme
   `2`, une `String` comme `"2"`.
 
@@ -271,8 +273,9 @@ signal. Voir la règle de partage dans `business-workflows.md`.
     - un `GIVEN` qui pose un chemin inexistant est signalé `W117` et
       bloque TEST — c'est presque toujours une faute de frappe ;
     - une attente qui ne porte sur **aucun chemin produit par EFFECT, OUTPUT, SET, REASON ou DELEGATE**
-      (`W118`) ne peut devenir vraie : soit l'outil manque, soit l'attente
-      vise une croyance que rien ne met à jour.
+      (W118) ne teste aucune évolution produite par l'agent ; même vraie dans
+      GIVEN, elle rend TEST invalide. Décrire une postcondition ou une assertion
+      sur les appels. Voir [scenarios.md](scenarios.md).
 
 17. **Tester explicitement une non-action.** `EXPECT NEVER CALL outil`
     interdit un appel à l’hôte simulé. Un `EXPECT { x ==
@@ -301,12 +304,8 @@ de la fraîcheur, de l’usage unique et de la revalidation juste avant effet.
 `check`, T6/T7 et `boundary` rendent désormais ces omissions visibles.
 
 
-## Scénarios après audit CHECK/TEST
+## Scénarios
 
-Poser les sorties externes dans GIVEN (`outil.champ = valeur`) et les choix
-ambigus (`scenario.outcome.outil = branche`, `llm.plan = plan`). Aucun OUTPUT
-n'est inventé. Injecter les stimuli avec `GIVEN EVENT source { ... }` ou
-`GIVEN MESSAGE nom FROM acteur { ... }`. Assertions de trace : `EXPECT CALL`,
-`EXPECT NEVER CALL`, `EXPECT BLOCKED`, `EXPECT EVENT`, `EXPECT NO ERROR`.
-Les suites vides échouent par défaut. WITHIN respecte l'arrêt LOOP.
-Voir `docs/audit-followup.md` pour le contrat complet et les limites.
+Lire [scenarios.md](scenarios.md) pour le contrat d'exécution, les stimuli,
+les assertions de trace et un exemple exécutable. Le contrat généré expose la
+syntaxe reconnue ; les réponses externes doivent rester explicites dans GIVEN.

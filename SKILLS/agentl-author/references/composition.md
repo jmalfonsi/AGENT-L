@@ -31,7 +31,14 @@ supposé avoir rendus :
 
 ```agentl
 SCENARIO verdict_malveillant_mise_en_quarantaine {
-    GIVEN { malicious = yes, threat_class = credential_phishing }
+    GIVEN {
+        forensic.done = yes
+        malicious = yes
+        threat_class = credential_phishing
+        mailbox.criticality = normal
+        incident.status = open
+        quarantine_mail.moved = yes
+    }
     EXPECT { incident.status == handled } WITHIN 5
 }
 ```
@@ -78,13 +85,16 @@ oubli silencieux. Un `Host` simple reste accepté — il est alors partagé.
 Ce que les portes de qualité deviennent sur une société :
 
 - `agentl check` ajoute les contrôles **inter-agents** (`check_program`) :
+  `E012` noms d'AGENT dupliqués sans distinction de casse,
   `E007` message adressé à un agent absent, `W111` message que personne ne
   reçoit, `W112` `ON MESSAGE` que personne n'émet. Ce sont les seules erreurs
   qu'aucune relecture d'un fichier isolé ne peut trouver.
 - `agentl test` exécute les `SCENARIO` **agent par agent**, jamais la société :
-  un scénario ne teste pas un échange de messages.
-- `agentl boundary` contrôle **l'hôte unique du programme** (`xxx.py`), donc
-  la frontière de tous les agents à la fois.
+  GIVEN MESSAGE teste un gestionnaire avec un message injecté, mais ne teste
+  pas le transport ni un échange entre plusieurs runtimes. Voir [scenarios.md](scenarios.md).
+- `agentl boundary` analyse `xxx.py` et ses imports locaux. Si ces imports
+  assemblent plusieurs hôtes distincts, B014 reste explicitement incomplet :
+  contrôler chaque couple et relire leur composition.
 - `agentl run --record` / `replay` **couvrent les sociétés**, échanges compris.
 
 ## 3. `MEMORY { SHARED }` — état partagé versionné par clé (v1.2)
@@ -145,8 +155,9 @@ Points de conception :
   `supervisor.py` l'**importe** pour construire le sous-agent.
 - **Chaque étage se vérifie seul** — et cela vaut pour les **cinq** portes,
   pas seulement `check` et `verify` : `boundary` et `test` s'exécutent aussi
-  fichier par fichier. `supervisor.agent` et `forensic.agent` passent 5/5
-  théorèmes chacun, avec leur hôte propre.
+  fichier par fichier. Ne pas déduire leur réussite du nom des exemples :
+  `forensic.agent` reste notamment un exemple historique sans SCENARIO,
+  exempté explicitement en CI ; ajouter ses critères pour une nouvelle livraison.
 - **Le déterminisme reste possible.** Ici les deux agents sont sans LLM
   (inférence pure), donc `run` est reproductible et sans réseau. Remplacer par
   `GeminiLLM` là où un vrai jugement en langage est nécessaire.
