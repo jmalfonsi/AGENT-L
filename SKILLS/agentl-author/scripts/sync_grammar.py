@@ -62,7 +62,10 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # contrat liste maintenant les fonctions reconnues, extraites de l'analyseur,
 # pour qu'une fonction ajoutée au runtime ne puisse plus être absente du
 # contrat sans que `--check` le voie.
-AUTHORING_CONTRACT_VERSION = "2.10.0"
+# 2.10.1 : scellé contre le paquet 1.9.0 (il l'était contre 1.8.2) ; l'EBNF,
+# passée en v1.9, nomme les fonctions de provenance comme elle nommait déjà
+# les fonctions épistémiques. Rien de ce qu'un auteur écrit ne change.
+AUTHORING_CONTRACT_VERSION = "2.10.1"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

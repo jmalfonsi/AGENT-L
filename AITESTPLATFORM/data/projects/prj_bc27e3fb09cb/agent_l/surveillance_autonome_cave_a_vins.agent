@@ -737,6 +737,8 @@ AGENT surveillance_autonome_cave_a_vins {
 
   SCENARIO conditions_nominales_statut_conforme {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      record_conforme.recorded = yes
       source.read_ok = yes
       event.id = "evt-001"
       event.zone = "ZONE_A"
@@ -760,6 +762,9 @@ AGENT surveillance_autonome_cave_a_vins {
 
   SCENARIO derive_thermique_mineure_regulee {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      adjust_regulation.accepted = yes
+      record_alerte.recorded = yes
       source.read_ok = yes
       event.id = "evt-002"
       event.zone = "ZONE_A"
@@ -779,6 +784,10 @@ AGENT surveillance_autonome_cave_a_vins {
 
   SCENARIO temperature_critique_active_secours {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      activate_backup.activated = yes
+      notify_regisseur.delivered = yes
+      record_deteriore.recorded = yes
       source.read_ok = yes
       event.id = "evt-003"
       event.zone = "ZONE_B"
@@ -799,6 +808,12 @@ AGENT surveillance_autonome_cave_a_vins {
 
   SCENARIO intrusion_confirmee_protege_et_alerte {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      activate_deterrence.activated = yes
+      command_internal_lock.commanded = yes
+      alert_security_center.delivered = yes
+      alert_public_authorities.delivered = yes
+      record_deteriore.recorded = yes
       source.read_ok = yes
       event.id = "evt-004"
       event.zone = "ZONE_C"
@@ -826,6 +841,8 @@ AGENT surveillance_autonome_cave_a_vins {
 
   SCENARIO signal_unique_ne_verrouille_jamais {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      record_degraded.recorded = yes
       source.read_ok = yes
       event.id = "evt-005"
       event.zone = "ZONE_C"
@@ -846,6 +863,11 @@ AGENT surveillance_autonome_cave_a_vins {
   // métier distincte manque. Retirer ce NEVER fait tomber le scénario.
   SCENARIO jamais_d_alerte_publique_sans_confirmation_humaine {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      activate_deterrence.activated = yes
+      command_internal_lock.commanded = yes
+      alert_security_center.delivered = yes
+      record_deteriore.recorded = yes
       source.read_ok = yes
       event.id = "evt-006"
       event.zone = "ZONE_D"
@@ -867,6 +889,8 @@ AGENT surveillance_autonome_cave_a_vins {
 
   SCENARIO source_indisponible_aucune_action_physique {
     GIVEN {
+      // Accusés des outils : une sortie n'est jamais fabriquée (TST-05).
+      record_degraded.recorded = yes
       source.read_ok = no
       event.id = "evt-007"
       event.zone = "ZONE_A"

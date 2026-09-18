@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.8.2)
+# AGENT-L — sémantique de référence (v1.9.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation

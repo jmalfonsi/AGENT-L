@@ -120,11 +120,18 @@ AGENT HR_TRIAGE {
                     // Une note de service en vigueur l'emporte sur la table
                     // de routage : c'est la donnée la plus récente, et c'est
                     // le programme qui arbitre, pas le modèle.
+                    //
+                    // `destination` est réaffectée à chaque tour. Écrire
+                    // `SET route_to` ici figerait l'adresse : depuis la
+                    // v1.8.2, la sortie de `route_for` au tour suivant ne
+                    // masque plus une valeur posée par le programme, et
+                    // toutes les demandes suivantes partaient vers la paie.
+                    SET destination = route_to
                     IF category == payroll AND policy.payroll_route != none THEN {
-                        SET route_to = policy.payroll_route
+                        SET destination = policy.payroll_route
                     }
 
-                    send_routing_email(to             = route_to,
+                    send_routing_email(to             = destination,
                                        requester      = requester_name,
                                        source_subject = r.subject,
                                        source_body    = r.body,

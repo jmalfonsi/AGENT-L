@@ -7,9 +7,9 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.8.2** —
-la v1.9 (noyau à permis, exécution durable, provenance portée par les valeurs,
-exécution asynchrone) est dans la branche principale, non encore publiée.
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.9.0** —
+noyau à permis, exécution durable, provenance portée par les valeurs,
+exécution asynchrone.
 
 ```bash
 git clone https://github.com/jmalfonsi/AGENT-L.git && cd AGENT-L
@@ -1385,7 +1385,7 @@ réussi. Les journaux publiés avec la v1.8.2 se rejouent à l'octet, en
 synchrone comme en asynchrone.
 
 Sémantique : SPEC §34–§38. Pour les auteurs : le skill `agentl-author`
-(contrat 2.10.0).
+(contrat 2.10.1).
 
 ## Référence des commandes
 
@@ -1581,7 +1581,7 @@ WEBSITE/                site de présentation
 | **v1.8.0** | **`NEVER SEND`, `ON UNKNOWN` et `autoloop`** |
 | **v1.8.1** | **résilience : reprise LLM bornée, disjoncteur d'outil, diagnostics `W133`/`W134`** |
 | **v1.8.2** | **deux P0 de sûreté fermés (la sortie d'un outil ne forge plus l'état, une valeur non finie ne désarme plus une politique), vérificateur sensible au flot d'écritures, `V114`/`W135`, autorisation unifiée outil/délégation** |
-| **v1.9** (non publiée) | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
+| **v1.9.0** | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
 
 Les `VERSION "…"` des exemples indiquent le niveau de langage illustré, pas la
 version du paquet — celle-ci est `agentl.__version__`.

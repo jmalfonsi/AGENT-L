@@ -31,8 +31,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from unittest import mock
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -465,6 +467,55 @@ class TestRunStreamContract(unittest.TestCase):
         s.run(ticks=1)
         msgs = _pump(s, q)
         self.assertEqual(msgs[0]["runId"], "r2")
+
+    def test_a_run_can_restart_as_soon_as_it_announces_its_end(self):
+        """`run.finished` est émis depuis le thread du run, encore vivant :
+        relancer à cet instant précis était refusé (« un run est déjà en
+        cours ») — une course que la CI perdait de temps en temps."""
+        s = _repo_session(self)
+        q = s.subscribe()
+        outcome: dict = {}
+
+        def relaunch(msg):
+            if msg["type"] == "run.finished" and "second" not in outcome:
+                outcome["second"] = None
+                try:
+                    outcome["second"] = s.run(ticks=1)
+                except AgentLError as exc:
+                    outcome["second"] = exc
+
+        s.on_event = relaunch
+        s.run(ticks=1)
+        _pump(s, q)
+        deadline = time.monotonic() + DEADLINE
+        while outcome.get("second") is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        s.on_event = None
+        s.stop()
+        self.assertEqual(outcome.get("second"), "r2")
+
+    def test_no_second_run_slips_in_before_the_first_thread_starts(self):
+        """Entre la création du thread et son `start()`, `is_alive()` est
+        faux : un second `run()` passait, et deux runs partageaient la
+        session."""
+        s = _repo_session(self)
+        s.subscribe()
+        real_start = threading.Thread.start
+        refused: list = []
+
+        def start(thread):
+            if thread.name.startswith("studio-run-") and not refused:
+                try:
+                    s.run(ticks=1)
+                    refused.append(False)
+                except AgentLError:
+                    refused.append(True)
+            return real_start(thread)
+
+        with mock.patch.object(threading.Thread, "start", start):
+            s.run(ticks=1)
+        s.stop()
+        self.assertEqual(refused, [True])
 
     def test_concurrent_run_is_refused(self):
         s = _hitl_session(self, timeout=60.0)

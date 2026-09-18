@@ -19,7 +19,7 @@ export function Footer() {
             <div className="mt-3 flex items-center gap-3 text-[10px] uppercase tracking-widest text-white/40">
               <span>Licence AGPL-3.0-or-later</span>
               <span>•</span>
-              <span>v1.9 (en développement) · paquet 1.8.2 · contrat d'écriture 2.10.0</span>
+              <span>v1.9.0 · contrat d'écriture 2.10.1</span>
             </div>
           </div>
 

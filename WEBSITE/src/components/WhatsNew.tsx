@@ -363,7 +363,7 @@ export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
         {[
           { value: '9', label: 'Théorèmes prouvés hors ligne', hint: 'T1–T7 + T9 par agent, T8 sur la société' },
           { value: '6', label: 'Portes de qualité', hint: 'check · test · verify · boundary · autoloop · run' },
-          { value: '119', label: 'Mots réservés au contrat', hint: 'contrat d\'écriture 2.10.0, scellé par empreinte' },
+          { value: '119', label: 'Mots réservés au contrat', hint: 'contrat d\'écriture 2.10.1, scellé par empreinte' },
           { value: '0', label: 'Dépendance du cœur', hint: 'stdlib Python 3.10+ · extras studio/sign/mcp/anthropic' }
         ].map((m, i) => (
           <div key={i} className="bg-white/5 border border-white/10 p-5 text-center">

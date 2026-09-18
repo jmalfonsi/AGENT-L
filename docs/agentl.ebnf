@@ -1,5 +1,5 @@
 (* =========================================================================
-   AGENT-L v1.8 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+   AGENT-L v1.9 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
 
    Convention lexicale fondamentale :
      les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une
@@ -254,12 +254,22 @@ additive         = multiplicative , { ( "+" | "-" ) , multiplicative } ;
 multiplicative   = unary , { ( "*" | "/" ) , unary } ;
 unary            = [ "-" ] , primary ;
 primary          = number | percent | duration | string | datetime
-                 | list | epistemic | call_stmt | path | "(" , expr , ")" ;
+                 | list | epistemic | provenance | call_stmt | path
+                 | "(" , expr , ")" ;
 
 (* Fonctions épistémiques : elles portent sur le *chemin*, pas sur sa valeur.
    Utilisables partout, notamment dans les gardes de politique.            *)
 epistemic        = ( "CONFIDENCE" | "UNCERTAINTY" | "P" | "PROBABILITY"
                    | "POSTERIOR" ) , "(" , path , ")" ;
+
+(* Fonctions de provenance (v1.9) : elles portent sur l'origine de la valeur
+   que désigne le chemin — ou, avec `action`, sur l'action en cours de
+   jugement. Une valeur absente les rend indéfinies : la garde reste
+   indéterminée. ATTESTED nomme en option l'outil validateur, et ne vaut
+   pas pour `action`.                                                     *)
+provenance       = ( "ORIGIN" | "UNTRUSTED" | "TRUSTED" | "LLM_DERIVED" )
+                 , "(" , path , ")"
+                 | "ATTESTED" , "(" , path , [ ident ] , ")" ;
 list             = "[" , { expr } , "]" ;
 
 arguments        = { ( ident , ( ":" | "=" ) , expr | expr ) } ;

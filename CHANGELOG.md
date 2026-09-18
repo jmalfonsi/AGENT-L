@@ -8,8 +8,8 @@ même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
 Cinq chantiers, un fil : garder le caractère déclaratif et fail-closed du
 langage tout en le rendant exploitable là où LangGraph et PydanticAI étaient
-en avance. Le paquet reste numéroté 1.8.2 tant que la version n'est pas
-publiée ; le contrat d'auteur passe à **2.10.0**. La trace est inchangée : les
+en avance. Le paquet est numéroté 1.9.0 ; le contrat d'auteur passe à
+**2.10.1**. La trace est inchangée : les
 journaux dorés de la v1.8.2 (`tests/golden/v1.8.2`) se rejouent à l'octet, en
 synchrone comme en asynchrone.
 
@@ -86,6 +86,31 @@ synchrone comme en asynchrone.
 - **Fidélité du rejeu** : une exception journalisée est reconstruite dans sa
   classe d'origine (y compris `KeyError`) ; le verdict « réponse absente »
   de l'oracle est journalisé, et `reason.degraded` se rejoue à l'identique.
+- **Studio : deux courses sur « run en cours ».** L'état suivait
+  `thread.is_alive()` : faux entre la création du thread et son démarrage
+  (un second `run()` concurrent passait, deux runs partageaient la session),
+  encore vrai après l'émission de `run.finished` (une relance immédiate était
+  refusée — l'échec intermittent de la CI). Un indicateur explicite, posé et
+  levé sous verrou, les ferme ; deux tests déterministes les reproduisent.
+- **CI rouge depuis la publication du dépôt.** Starlette 1.x ne retombe plus
+  sur un `httpx` transitif pour `TestClient` : 24 tests du Studio échouaient
+  et la couverture passait sous 90 %. Nouvel extra `test` (`pytest`,
+  `pytest-cov`, `httpx2`, `httpx`), utilisé par la CI.
+- **EBNF** : la grammaire, passée en v1.9, nomme les fonctions de provenance
+  (`ORIGIN`, `UNTRUSTED`, `TRUSTED`, `LLM_DERIVED`, `ATTESTED`) comme elle
+  nommait les fonctions épistémiques. Contrat d'auteur 2.10.1.
+- **Agents de banc mis au niveau des durcissements antérieurs.**
+  `hr_employee_request_routing` figeait l'adresse par `SET route_to` : depuis
+  la v1.8.2 la sortie de `route_for` ne la masquait plus, et toute demande
+  suivant une demande de paie partait vers la paie (RIB et accès IT compris).
+  L'agent de cave d'AITESTPLATFORM déclare désormais les accusés de ses
+  outils dans `GIVEN` (TST-05) et justifie ses levées `boundary`.
+
+### Ajouté — outillage de livraison
+
+- **Porte CI du modèle formel** : un job lance `tools/check_formal.py` (TLC
+  épinglé par empreinte) — le modèle et ses cinq mutants sont vérifiés à
+  chaque commit.
 
 ### Limites connues
 
@@ -95,6 +120,12 @@ synchrone comme en asynchrone.
   corruption, pas un faussaire qui recalcule toute la chaîne.
 - Tout appel d'outil réussi atteste ses arguments : un validateur doit lever
   pour refuser.
+- Un `SET` sur un chemin qu'un `OUTPUT` d'outil écrit aussi fige ce chemin :
+  les sorties suivantes ne le masquent plus (v1.8.2), et aucun diagnostic ne
+  le signale encore.
+- La propagation des étiquettes de provenance (`_label_args`, contexte de
+  contrôle) vit dans `runtime.py`, hors de la TCB mesurée : une politique de
+  provenance dépend aussi de ce code.
 
 ## [1.8.2] — non publié · la preuve cesse de se taire
 

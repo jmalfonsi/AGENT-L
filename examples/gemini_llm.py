@@ -47,11 +47,15 @@ def api_base() -> str:
 def pace(rpm: int = 0) -> None:
     """Bloque le temps qu'il faut pour ne pas dépasser `rpm` requêtes/minute."""
     limit = rpm or RPM
+    # BOUNDARY-OK: réglage technique du connecteur (aucun plafond de débit
+    # configuré) ; aucune règle métier, aucun choix de plan ni d'action.
     if limit <= 0:
         return
     interval = 60.0 / limit
     with _PACE_LOCK:
         wait = _last_call[0] + interval - time.monotonic()
+        # BOUNDARY-OK: régulation du quota de l'API (requêtes par minute) ;
+        # un délai technique, jamais une décision sur le monde.
         if wait > 0:
             time.sleep(wait)
         _last_call[0] = time.monotonic()
@@ -126,6 +130,9 @@ class GeminiLLM(LLM):  # pragma: no cover - nécessite le réseau
         self.last_reason_missing = missing_from(parsed, produce)
         return _coerce(parsed, produce)
 
+    # BOUNDARY-OK: méthode imposée par le protocole LLM d'AGENT-L — le runtime
+    # appelle `llm.select_plan` et n'accepte qu'un plan déclaré parmi
+    # `candidates` ; le modèle propose, le runtime décide.
     def select_plan(self, context, candidates):
         self.calls.append({"kind": "select_plan", "candidates": list(candidates)})
         if not candidates:

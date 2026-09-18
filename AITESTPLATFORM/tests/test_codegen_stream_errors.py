@@ -30,7 +30,10 @@ class _FailedStreamProcess:
         self._returncode = -9
 
 
-def test_stream_restitue_le_quota_et_sa_reinitialisation(tmp_path):
+def test_stream_restitue_le_quota_et_sa_reinitialisation(tmp_path, monkeypatch):
+    # `Popen` est simulé : le binaire n'a pas à exister, mais `executable()`
+    # le cherche avant l'appel — sans lui, le test dépendait de la machine.
+    monkeypatch.setenv("AGENT_FACTORY_CLAUDE_BIN", "claude")
     process = _FailedStreamProcess([
         {
             "type": "rate_limit_event",

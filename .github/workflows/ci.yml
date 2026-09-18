@@ -18,8 +18,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # L'extra `test` porte le client HTTP de `TestClient` : sans lui,
+      # Starlette 1.x fait échouer les tests du Studio (et la couverture).
       - name: Installation
-        run: python -m pip install -e ".[studio]" pytest pytest-cov
+        run: python -m pip install -e ".[studio,test]"
 
       - name: Tests du cœur
         run: >-
@@ -89,6 +91,25 @@ jobs:
       - name: Verdicts (deux répétitions)
         working-directory: bench/frameworks
         run: .venv/bin/python run.py --check --repeat 2
+
+  # Le modèle TLA+ du noyau n'est une garantie que s'il est vérifié à chaque
+  # commit : TLC explore tous les états, puis chaque mutant de
+  # tools/check_formal.py doit être attrapé. TLC est téléchargé et refusé si
+  # son empreinte SHA-256 diffère.
+  formal:
+    name: Modèle formel du noyau (TLA+)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: TLC — modèle et mutants
+        run: python tools/check_formal.py
 
   automationbench:
     name: AutomationBench / AITESTPLATFORM (Python 3.13)
@@ -183,7 +204,7 @@ jobs:
 
       - name: Installation
         run: |
-          python -m pip install -e "." pytest
+          python -m pip install -e ".[test]"
           python -m pip install -r STUDIO/requirements.txt
           npm --prefix STUDIO/frontend ci
 

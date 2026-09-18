@@ -97,7 +97,5 @@ Ce que cela ne dit pas :
 
 ## Versions supportées
 
-Seule la dernière version publiée reçoit des correctifs. La branche de
-développement courante cible `1.9.0` (le paquet reste numéroté `1.8.2`
-jusqu'à la publication) ; il n'existe pas de branche de
-maintenance longue.
+Seule la dernière version publiée reçoit des correctifs. Le paquet est
+numéroté `1.9.0` ; il n'existe pas de branche de maintenance longue.

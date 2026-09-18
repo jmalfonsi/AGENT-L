@@ -82,7 +82,7 @@ function Sidebar({ view, onNavigate, health, collapsed, onCollapse }: { view: Vi
     <div className="sidebar-spacer" />
     {!collapsed && <div className="runtime-card">
       <div className="runtime-row"><span><StatusDot status="passed" />Runtime local</span><Pill tone="teal">ACTIF</Pill></div>
-      <strong>AGENT-L {health?.agentlVersion || '1.8.2'}</strong>
+      <strong>AGENT-L {health?.agentlVersion || '1.9.0'}</strong>
       <small>contrat {health?.contractVersion || '2.5.3'}</small>
       <div className="runtime-line"><span>Auteurs IA</span><b className={health?.codexAvailable || health?.claudeCodeAvailable ? 'ok' : ''}>{health?.codexAvailable && health?.claudeCodeAvailable ? '2 disponibles' : health?.codexAvailable || health?.claudeCodeAvailable ? '1 disponible' : 'absents'}</b></div>
     </div>}

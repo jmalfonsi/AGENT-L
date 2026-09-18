@@ -97,6 +97,8 @@ def build(fixture_overrides=None):
 
     def bounded_text(name, maximum=256):
         value = fixture.get(name)
+        # BOUNDARY-OK: validation défensive du schéma du connecteur — un
+        # identifiant non vide et de longueur bornée ; aucun choix de plan.
         return isinstance(value, str) and 0 < len(value) <= maximum
 
     def closed_symbol(name, values):

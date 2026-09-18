@@ -239,6 +239,12 @@ class StudioSession:
         self._emitting = False
 
         self._thread: Optional[threading.Thread] = None
+        # Un run est « en cours » de son acceptation par `run()` jusqu'à ce
+        # qu'il annonce sa fin — pas tant que son thread vit. `is_alive()`
+        # était faux entre la création et `start()` (deux runs pouvaient
+        # passer) et encore vrai après `run.finished` (une relance immédiate
+        # était refusée). Lu et écrit sous `_lock`.
+        self._active = False
         self._runtime: Optional[Runtime] = None
         self._run_id: Optional[str] = None
         self._run_count = 0
@@ -468,8 +474,7 @@ class StudioSession:
     # --------------------------------------------------------------- snapshots
     @property
     def running(self) -> bool:
-        thread = self._thread
-        return bool(thread and thread.is_alive())
+        return self._active
 
     @property
     def paused(self) -> bool:
@@ -724,11 +729,17 @@ class StudioSession:
             self._thread = threading.Thread(
                 target=self._run_body, args=(runtime, society, limit),
                 name=f"studio-run-{run_id}", daemon=True)
+            self._active = True
         names = ([a.name for a in self.program.agents]
                  if society is not None and self.program else [self.agent.name])
         self._emit(E.RunStarted(runId=run_id, agent=" · ".join(names),
                                 maxTicks=limit))
-        self._thread.start()
+        try:
+            self._thread.start()
+        except BaseException:
+            with self._lock:
+                self._active = False
+            raise
         return run_id
 
     def _run_body(self, runtime: Optional[Runtime], society: Optional[Any],
@@ -759,6 +770,11 @@ class StudioSession:
             self._paused = False
             metrics = dict(society.metrics if society is not None
                            else runtime.metrics)
+            # Libéré avant l'annonce : un client qui relance dès
+            # `run.finished` ne doit pas être refusé. Hors verrou pour
+            # l'émission — `_emit` appelle le rappel du serveur.
+            with self._lock:
+                self._active = False
             self._emit(E.RunFinished(runId=run_id, status=status,
                                      metrics=metrics, error=error))
 
