@@ -168,7 +168,7 @@ class MockLLM(LLM):
 class AnthropicLLM(LLM):  # pragma: no cover - nécessite le réseau
     """Adaptateur Claude. Impose une réponse JSON stricte, puis la valide."""
 
-    def __init__(self, model: str = "claude-sonnet-4-6",
+    def __init__(self, model: str = "claude-sonnet-5",
                  api_key: Optional[str] = None,
                  max_tokens: Optional[int] = None):
         self.model = model

@@ -167,6 +167,14 @@ normatives :
 Types reconnus : `Number`, `Int`, `String`, `Bool`, `Symbol`, plus tout nom
 de type applicatif (non contraint, mais conservé dans l'AST).
 
+4. **Une clé `OUTPUT` est déclarée, pas fiable.** Le contrat dit la forme de
+   la réponse, jamais qui l'a écrite : un outil qui rapporte une page, un
+   ticket ou un courriel rapporte du texte d'un tiers. Les clés admises sont
+   donc liées sous leurs formes **préfixées** — `result.<outil>.<clé>` dans
+   les locales, `<outil>.<clé>` dans le monde — et sous leur nom **nu** dans
+   `state.untrusted`, consulté en dernier (§7.3). Une réponse d'outil ne peut
+   ainsi pas masquer une observation ni une croyance homonyme.
+
 ---
 
 ## 7. `POLICY` — couche de sécurité indépendante du LLM
@@ -311,6 +319,20 @@ d'autre ne renseigne. Le comportement utile est préservé — un événement
 apporte toujours ses données au plan qu'il déclenche — et la collision est
 tracée quand elle survient. Le retour d'un `DELEGATE` suit la même règle : il
 est de provenance externe au même titre.
+
+Depuis la v1.8.2, le retour d'un **outil** aussi. C'était la dernière entrée
+qui liait un nom nu dans les locales, alors que c'est la porte par laquelle
+arrive l'injection **indirecte** — page web, ticket, corps de courriel, RAG :
+
+```
+monde observé   : criticality = CRITICAL
+retour d'outil  : criticality = LOW        ← rédigé par un tiers
+→ NEVER wipe WHEN criticality == CRITICAL tirait de nouveau
+```
+
+Le contrat `OUTPUT` borne la **forme** de la réponse et jette les clés non
+déclarées ; il ne dit rien de sa **provenance**. Les trois frontières —
+charge utile, sous-agent, outil — sont désormais traitées pareil.
 
 ### 7.4 `USING` borne réellement la surface exposée au modèle (v1.6)
 

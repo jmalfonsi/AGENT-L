@@ -101,17 +101,25 @@ WITHIN. Une valeur devenue inconnue ne maintient pas un invariant. Les
   une dette de couverture, pas une preuve d'acceptation.
 - Les diagnostics Boundary historiques restent suivis individuellement dans
   `boundary-example-debt.json` ; cet audit ne les efface pas.
+- L'espace non fiable couvre les trois entrées externes — charge utile,
+  `DELEGATE`, et depuis la v1.8.2 retour de `TOOL` — mais ce n'est pas un
+  marquage de teinte porté par les valeurs : une donnée externe recopiée par un
+  `SET` ou un `EFFECT` déclaré redevient fiable, et une garde peut lire
+  explicitement une forme préfixée. Voir `SECURITY.md`.
 
 
 ## Validation de cette révision
 
-- Suite core : **1 070 tests et 231 sous-tests réussis**, Python 3.12.3.
+- Suite core : **1 072 tests et 231 sous-tests réussis**, Python 3.12.3.
 - Couverture de `agentl` : **90,44 %**, seuil requis de 90 % atteint.
 - Nouvelles régressions CHECK/TEST : **68 cas** ; corpus Boundary : **98 cas**.
 - Exemples : **57 scénarios réussis** et **57 commandes check/verify/test**
   réussies. Les sept fichiers sans scénario utilisent l'exception nommée.
 - Inventaire Boundary : aucun nouveau diagnostic par rapport à la dette suivie.
-- Contrat auteur **2.8.1** régénéré et validé, grammaire et documentation à jour.
+- Contrat auteur **2.9.0** régénéré et validé, grammaire et documentation à jour.
+- CI publiée : `.github/workflows/ci.yml` n'est plus ignoré par `.gitignore`,
+  et `tools/check_boundary_examples.py` rend de nouveau 0 après
+  resynchronisation des lignes de `examples/gemini_llm.py`.
 
 Commandes reproductibles :
 

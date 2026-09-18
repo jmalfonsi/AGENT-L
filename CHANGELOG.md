@@ -6,6 +6,50 @@ même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
 ## [1.8.2] — non publié · la preuve cesse de se taire
 
+### Suite de l'audit général comparatif — contrat auteur 2.9.0
+
+Cinq constats d'un audit externe, vérifiés puis corrigés. Un seul touchait la
+sémantique.
+
+**Le retour d'un outil était la dernière frontière externe traitée comme de la
+donnée fiable.** Les charges utiles d'événement et le retour d'un `DELEGATE`
+allaient déjà dans `state.untrusted` — consulté en dernier — depuis la v1.6 ;
+les clés `OUTPUT` d'un `TOOL`, elles, étaient liées sous leur **nom nu** dans
+les locales, c'est-à-dire en tête de résolution. Or c'est par là qu'arrive
+l'injection **indirecte** : page web, ticket, corps de courriel, RAG. Un outil
+qui rapportait une clé `criticality` valant `LOW` éteignait donc un
+`NEVER … WHEN criticality == CRITICAL` gardé par une observation contraire.
+Le contrat `OUTPUT` bornait la forme de la réponse, jamais sa provenance. Les
+formes préfixées restent inchangées — `result.<outil>.<clé>` dans les locales,
+`<outil>.<clé>` dans le monde — et gardent leur provenance lisible ; seul le
+nom nu change d'espace. Test de mutation joint : rétablir l'ancienne liaison
+ramène l'exploit. Contrat d'auteur `2.9.0` : la grammaire ne bouge pas, mais
+une garde écrite sur le nom nu d'une sortie d'outil ne lit plus la même chose.
+
+**La CI n'était pas publiée.** `.gitignore` contenait `.github/` : le workflow
+existait en local, complet, et n'avait donc jamais tourné sur la révision
+publiée. Il est publié. Les étapes qui visaient `AGENTIC_SIMULATOR`, absent du
+dépôt, sont retirées — une CI ne contrôle que ce que la révision contient.
+
+**La dette de revue Boundary était désynchronisée** : `examples/gemini_llm.py`
+avait bougé de quatorze lignes, ce qui faisait sortir
+`tools/check_boundary_examples.py` en erreur sur 33 « régressions » qui
+n'étaient que des décalages, et signalait 33 diagnostics résolus à retirer.
+Les mêmes diagnostics, aux lignes actuelles : aucune dette n'est levée.
+
+**Défaut découvert en publiant la CI, non corrigé et nommé** : le gabarit
+`runtime_llm.py` du Studio ne passe pas `agentl boundary` depuis que Boundary
+suit les modules locaux (12 diagnostics `B001`/`B006` d'aiguillage de
+fournisseur). La porte `boundary` du brouillon rend donc `failed` et trois
+tests du Studio échouent. Ils sont écartés de la CI par un `--deselect`
+explicite, daté et documenté dans `docs/QUALITY.md` — une dette, pas une
+acceptation.
+
+`SECURITY.md` dit maintenant ce que l'espace non fiable couvre **et ce qu'il
+ne couvre pas** : ce n'est pas un marquage de teinte porté par les valeurs, et
+`W119`/`W125` restent des heuristiques de noms. Le modèle Anthropic par défaut
+passe à `claude-sonnet-5`.
+
 ### Suite des audits CHECK et TEST — contrat auteur 2.8.1
 
 Constats vérifiés par reproduction : E012/E013, kwargs dupliqués, analyses de

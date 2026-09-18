@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core-python:
+    name: Core Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Installation
+        run: python -m pip install -e ".[studio]" pytest pytest-cov
+
+      - name: Tests du cœur
+        run: >-
+          python -m pytest -q tests
+          --cov=agentl --cov-report=term-missing --cov-fail-under=90
+
+      # Le vrai test de non-régression public : les exemples doivent passer la
+      # chaîne complète check → verify → boundary.
+      - name: Chaîne de contrôle sur les exemples
+        run: python tools/check_examples.py
+
+      # Chaque diagnostic connu est suivi précisément, y compris ceux des
+      # helpers désormais analysés. Un hôte déjà rouge ne peut plus absorber
+      # silencieusement un nouveau défaut via une exemption par nom de fichier.
+      # Ce suivi ne modifie pas le verdict de `agentl boundary`.
+      - name: Frontière hôte/agent
+        run: python tools/check_boundary_examples.py
+
+      # Le rejeu n'est une garantie que s'il est vérifié à chaque commit :
+      # `replay` rend non nul dès que la trace rejouée diffère de la scellée.
+      - name: Rejeu déterministe
+        run: |
+          set -e
+          for f in examples/soc_analyst.agent examples/disk_sentinel.agent \
+                   examples/service_medic.agent examples/soc_team.agent; do
+            echo "== $f"
+            agentl run "$f" --ticks 3 --quiet --record /tmp/j.json > /dev/null
+            agentl replay /tmp/j.json --quiet > /dev/null
+          done
+
+      - name: Les exemples fautifs doivent bien échouer
+        run: |
+          ! agentl check examples/broken.agent
+          ! agentl verify examples/unsafe.agent
+          ! agentl verify examples/gmail_butler_naif.agent
+
+  automationbench:
+    name: AutomationBench / AITESTPLATFORM (Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      # Les deux dépôts sont voisins, comme dans l'environnement documenté.
+      # AutomationBench exige Python >= 3.13 et ne doit jamais être importé
+      # depuis la matrice 3.10–3.12 du cœur.
+      - uses: actions/checkout@v4
+        with:
+          path: AGENT-L
+      - uses: actions/checkout@v4
+        with:
+          repository: zapier/AutomationBench
+          ref: a321764ace3cfbe42289e6a13abef2f0f4f56fad
+          path: AutomationBench
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - name: Environnement AutomationBench verrouillé
+        run: |
+          uv sync --directory AutomationBench --python 3.13 --group dev
+          uv pip install --python AutomationBench/.venv/bin/python -e "AGENT-L[studio]"
+      - name: Tests AITESTPLATFORM
+        working-directory: AGENT-L
+        run: ../AutomationBench/.venv/bin/python -m pytest -q AITESTPLATFORM/tests
+      - name: Politique AutomationBench hors ligne
+        working-directory: AGENT-L
+        run: ../AutomationBench/.venv/bin/python bench/test_policy_holds.py
+
+  typescript:
+    name: Applications TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            WEBSITE/package-lock.json
+            agentl-vscode/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      # AGENTIC_SIMULATOR n'est pas publié dans ce dépôt : une CI ne doit
+      # prétendre contrôler que ce que la révision publiée contient.
+      - name: AITESTPLATFORM
+        working-directory: AITESTPLATFORM
+        run: |
+          bun install --frozen-lockfile
+          bun run lint
+          bun run build
+      - name: Site
+        working-directory: WEBSITE
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+      - name: Extension VS Code
+        working-directory: agentl-vscode
+        run: |
+          npm ci
+          npm run selftest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+
+  # Le Studio vivait hors du dépôt et hors CI : ses portes, son isolation de
+  # chemins et la propagation de son gabarit runtime n'étaient vérifiées par
+  # personne. Il compte désormais.
+  studio:
+    name: STUDIO
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Installation
+        run: |
+          python -m pip install -e "." pytest
+          python -m pip install -r STUDIO/requirements.txt
+          npm --prefix STUDIO/frontend ci
+
+      # Dette nommée du 17 septembre 2026, non levée : ces trois tests
+      # échouent parce que le gabarit `runtime_llm.py` du Studio ne passe pas
+      # `agentl boundary` depuis que Boundary suit les modules locaux (contrat
+      # d'auteur 2.7.0) — le verdict des quatre portes est donc rouge, et rien
+      # n'est appliqué derrière. Le défaut est réel et reste à corriger : il
+      # est nommé ici, jamais masqué. Voir docs/QUALITY.md.
+      - name: Tests du Studio
+        working-directory: STUDIO
+        run: >-
+          python -m pytest -q tests
+          --deselect STUDIO/tests/test_api.py::test_real_quality_suite_run_and_replay
+          --deselect STUDIO/tests/test_api.py::test_draft_is_validated_by_the_four_gates
+          --deselect STUDIO/tests/test_api.py::test_project_creation_invokes_selected_authoring_agent
+
+      - name: Build de l'interface
+        run: npm --prefix STUDIO/frontend run build

@@ -125,6 +125,12 @@ C'est la propriété de sûreté centrale, et la bonne façon de l'expliquer :
   a tenu, c'est une frontière qui n'existe pas entre les deux canaux.
 - Corollaire d'implémentation : ne **jamais** faire lire une politique sur une
   sortie LLM non bornée — ce serait rouvrir le canal.
+- Même chose pour le **retour d'outil**, qui est l'autre porte du texte
+  extérieur : depuis la v1.8.2 ses clés ne sont plus liées sous leur nom nu
+  dans les locales mais dans l'espace non fiable, consulté en dernier. Une
+  garde qui doit lire une donnée rapportée par un outil l'écrit donc sous sa
+  forme préfixée — `<outil>.<clé>` — et assume par écrit qu'elle décide sur
+  de la donnée externe.
 
 ---
 

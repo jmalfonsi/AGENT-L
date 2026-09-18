@@ -52,7 +52,7 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # 2.7.0 : Boundary suit les modules locaux, expose B016 et les politiques
 # de périmètre ; la grammaire ne change pas.
 # 2.7.1 : alias de méthodes liées et argv partiellement dynamiques contrôlés.
-AUTHORING_CONTRACT_VERSION = "2.8.1"
+AUTHORING_CONTRACT_VERSION = "2.9.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

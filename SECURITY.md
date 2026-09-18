@@ -31,6 +31,27 @@ Trois zones concentrent le risque, et il vaut mieux les nommer :
    compris — `USING` ne bornait que `REASON`. Ce que l'**hôte** envoie de
    son côté reste hors de portée du moteur : c'est la frontière du §28.
 
+## Ce que l'espace non fiable couvre — et ce qu'il ne couvre pas
+
+Trois entrées de données externes sont liées sous leur nom **nu** dans
+`state.untrusted`, consulté **en dernier** : la charge utile d'un événement ou
+d'un message, le retour d'un `DELEGATE`, et — depuis la v1.8.2 — le retour
+d'un `TOOL`. Aucune ne peut donc masquer une observation, une croyance ou une
+entrée de mémoire homonyme, ni éteindre par ce biais un `NEVER` (SPEC §7.3).
+
+Ce que cela ne dit pas :
+
+- ce n'est **pas** un marquage de teinte porté par les valeurs. Une donnée
+  externe recopiée dans une croyance par un `SET` ou par un `EFFECT` déclaré
+  devient de la donnée fiable : c'est l'auteur qui l'a voulu, et c'est à lui
+  d'assumer la garde ;
+- une garde qui lit explicitement une forme préfixée (`payload.x`,
+  `<outil>.<clé>`) décide **sur de la donnée externe**, en connaissance de
+  cause. Le runtime ne l'interdit pas ;
+- `W119` et `W125` restent des heuristiques de **noms** à l'analyse statique
+  (`raw`, `log`, `message`, `body`, `content`) : elles signalent des cas
+  probables, elles n'établissent pas une provenance.
+
 ## Ce qui est dans le périmètre
 
 - Contournement du moteur de politiques : une action exécutée sans qu'un

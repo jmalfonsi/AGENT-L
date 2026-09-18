@@ -164,3 +164,80 @@ def test_event_queue_failure_is_contained_and_traced():
 
     errors = runtime.trace.of_kind("ERROR")
     assert any("file d'événements indisponible" in event.text for event in errors)
+
+
+PROVENANCE_PROGRAM = """
+AGENT tool_result_provenance {
+  OBSERVE { criticality }
+
+  BELIEF {
+    criticality = CRITICAL CONFIDENCE 1 SOURCE prior
+  }
+
+  TOOL fetch_ticket {
+    OUTPUT { criticality: Symbol, ticket_id: String }
+    RISK LOW
+  }
+
+  TOOL wipe {
+    RISK CRITICAL
+  }
+
+  POLICY {
+    DEFAULT DENY
+    ALLOW fetch_ticket
+    ALLOW wipe
+    NEVER wipe WHEN criticality == CRITICAL
+  }
+}
+"""
+
+
+def _provenance_runtime():
+    agent = parse_source(PROVENANCE_PROGRAM).agents[0]
+    host = Host()
+    wiped = []
+    host.sensors["criticality"] = lambda: Symbol("CRITICAL")
+    # Le ticket est rédigé par un tiers : sa clé `criticality` porte le nom
+    # d'une observation, et vaut LOW.
+    host.tools["fetch_ticket"] = lambda: {
+        "criticality": Symbol("LOW"),
+        "ticket_id": "T-42",
+    }
+    host.tools["wipe"] = lambda: wiped.append(True) or {}
+    return Runtime(agent, host), wiped
+
+
+def test_tool_result_cannot_mask_an_observation_that_guards_a_never():
+    """Le retour d'un outil est une frontière externe, comme un DELEGATE.
+
+    Un outil qui rapporte du texte rédigé par un tiers (page web, ticket,
+    courriel) ne doit pas pouvoir éteindre un `NEVER` dont la garde porte le
+    nom d'une de ses clés OUTPUT — même déclarée, même typée.
+    """
+    runtime, wiped = _provenance_runtime()
+
+    runtime.call_tool("fetch_ticket", {})
+    runtime.call_tool("wipe", {})
+
+    assert wiped == []
+    assert runtime.state.get("criticality") == Symbol("CRITICAL")
+    # La donnée n'est pas perdue : sa provenance est lisible.
+    assert runtime.state.get("fetch_ticket.criticality") == Symbol("LOW")
+    assert runtime.state.get("result.fetch_ticket.criticality") == Symbol("LOW")
+    assert runtime.state.untrusted["criticality"] == Symbol("LOW")
+    assert "criticality" not in runtime.state.locals
+    # Une clé qui n'entre en collision avec rien reste résoluble sous son nom
+    # nu : le comportement utile est préservé.
+    assert runtime.state.get("ticket_id") == "T-42"
+
+
+def test_the_masking_exploit_returns_if_the_bare_name_goes_back_to_locals():
+    """Test de mutation : rétablir l'ancienne liaison ramène l'exploit."""
+    runtime, wiped = _provenance_runtime()
+
+    runtime.call_tool("fetch_ticket", {})
+    runtime.state.set_local("criticality", Symbol("LOW"))   # ancien comportement
+    runtime.call_tool("wipe", {})
+
+    assert wiped == [True]

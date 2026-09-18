@@ -89,6 +89,20 @@ Ils passent CHECK/VERIFY mais n'ont pas de critères SCENARIO : cette exception
 nommée est une dette de couverture. Tous les autres exemples livrables passent
 TEST sans cette option. Les oracles des 57 scénarios existants sont explicites.
 
+Deuxième exception nommée, ouverte le 17 septembre 2026 : trois tests du
+Studio (`test_real_quality_suite_run_and_replay`,
+`test_draft_is_validated_by_the_four_gates`,
+`test_project_creation_invokes_selected_authoring_agent`) sont écartés de la
+CI par `--deselect`. Cause unique et réelle : le gabarit `runtime_llm.py` du
+Studio ne passe pas `agentl boundary` depuis que Boundary suit les modules
+locaux (12 diagnostics `B001`/`B006` d'aiguillage de fournisseur), la porte
+`boundary` du brouillon rend donc `failed` et rien n'est appliqué derrière.
+C'est une dette datée, pas une acceptation : soit le gabarit cesse de comparer
+des valeurs métier, soit le Studio se dote d'un suivi de dette explicite comme
+`boundary-example-debt.json`.
+
 La commande suivie par Git `python3 tools/check_examples.py` exécute cette
-chaîne et porte la liste exacte des exceptions. Le workflow `.github` local
-est ignoré par la configuration Git du dépôt ; il appelle la même commande.
+chaîne et porte la liste exacte des exceptions. Le workflow
+`.github/workflows/ci.yml` est publié avec le dépôt depuis la v1.8.2 — il
+était auparavant ignoré par `.gitignore`, donc jamais exécuté — et il appelle
+la même commande.

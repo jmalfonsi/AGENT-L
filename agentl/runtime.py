@@ -1109,7 +1109,12 @@ class Runtime:
             # Indéterminé n'est pas vide : on le dit, on ne l'ignore pas. Et
             # un diagnostic qui nomme le défaut sans nommer les issues oblige
             # à deviner : on énumère donc les collections réellement liées.
-            available = sorted(k for k, v in self.state.locals.items()
+            # Les deux espaces : une collection rapportée par un outil ou par
+            # une charge utile est liée sous son nom nu dans l'espace non
+            # fiable (§7.3). L'omettre ici ferait mentir le diagnostic.
+            visible = {**self.state.locals,
+                       **(getattr(self.state, "untrusted", None) or {})}
+            available = sorted(k for k, v in visible.items()
                                if isinstance(v, (list, tuple)))
             detail = (f"collections disponibles : {', '.join(available)}"
                       if available else "aucune collection liée à cet instant")
@@ -1780,7 +1785,18 @@ class Runtime:
         self.state.set_local(f"result.{name}", safe_result)
         self.state.set_local("result", safe_result)
         for key, value in safe_result.items():
-            self.state.set_local(key, value)
+            # Provenance, et non confiance. Un outil est une frontière externe
+            # (SPEC §28) : ce qu'il rapporte peut avoir été écrit par un tiers
+            # — page web, ticket, corps de courriel. Les formes **préfixées**
+            # disent d'où vient la donnée et restent dans l'état vivant
+            # (`result.<outil>.<clé>`, `<outil>.<clé>` dans le monde) ; le nom
+            # **nu**, lui, va dans l'espace non fiable, consulté en dernier.
+            # Il comble donc ce que rien d'autre ne renseigne, mais ne masque
+            # plus une observation ni une croyance homonyme — c'est ce qui
+            # pouvait désactiver un `NEVER` dont la garde porte ce nom.
+            # Même traitement que le retour d'un sous-agent (`_exec_delegate`)
+            # et qu'une charge utile d'événement (`_bind_payload`).
+            self.state.untrusted[key] = value
             self.state.set_world(f"{name}.{key}", value)
         # Les EFFECT déclarés sont enregistrés comme *attendus*, avec une
         # confiance inférieure à celle d'une observation : le modèle utilisé

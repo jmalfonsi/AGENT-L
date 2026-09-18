@@ -23,17 +23,17 @@
       "examples/disk_sentinel.py:47 B010 cible destructive sans revalidation locale vérifiable",
       "examples/disk_sentinel.py:47 B012 action sans enregistrement de rollback local vérifiable",
       "examples/disk_sentinel.py:63 B002 filtrage d'une collection : if p.is_file()",
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0"
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0"
     ],
     "forensic.agent": [
       "examples/forensic.py:0 B014 capteurs hôte non déclarés : mail.sender_age_days"
     ],
     "gmail_butler.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/gmail_butler.py:1121 B013 données vers LLM externe sans opt-in local vérifiable",
       "examples/gmail_butler.py:219 B002 filtrage d'une collection : if m",
       "examples/gmail_butler.py:220 B005 seuil appliqué dans l'hôte : len(morceaux) < 2",
@@ -48,9 +48,9 @@
       "examples/gmail_butler.py:978 B005 seuil appliqué dans l'hôte : i_role < 0"
     ],
     "gmail_butler_naif.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/gmail_butler.py:1121 B013 données vers LLM externe sans opt-in local vérifiable",
       "examples/gmail_butler.py:219 B002 filtrage d'une collection : if m",
       "examples/gmail_butler.py:220 B005 seuil appliqué dans l'hôte : len(morceaux) < 2",
@@ -66,9 +66,9 @@
       "examples/gmail_butler_naif.py:0 B014 outils hôte non déclarés : close_cycle, read_hr_hours, send_hr_alert"
     ],
     "idor_hunter.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/idor_hunter.py:175 B002 filtrage d'une collection : if s.strip()",
       "examples/idor_hunter.py:195 B005 seuil appliqué dans l'hôte : st > 0",
       "examples/idor_hunter.py:244 B005 seuil appliqué dans l'hôte : len(body) > 0",
@@ -76,9 +76,9 @@
       "examples/idor_hunter.py:326 B013 données vers LLM externe sans opt-in local vérifiable"
     ],
     "linux_defender.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/linux_defender.py:189 B001 comparaison à une valeur métier : parsed['process_comm'] in {'sh', 'bash', 'nc', 'python', 'python3'}",
       "examples/linux_defender.py:278 B008 primitive destructive sans dry-run par défaut vérifiable",
       "examples/linux_defender.py:278 B010 cible destructive sans revalidation locale vérifiable",
@@ -107,9 +107,9 @@
       "examples/linux_defender.py:68 B001 comparaison à une valeur métier : mode not in {'dry-run', 'production'}"
     ],
     "llm_soc.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/llm_soc.py:19 B008 primitive destructive sans dry-run par défaut vérifiable",
       "examples/llm_soc.py:19 B010 cible destructive sans revalidation locale vérifiable",
       "examples/llm_soc.py:19 B012 action sans enregistrement de rollback local vérifiable",
@@ -128,16 +128,16 @@
     ],
     "maintenance.agent": [],
     "meridian_player.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/meridian_player.py:285 B013 données vers LLM externe sans opt-in local vérifiable",
       "examples/meridian_player.py:41 B001 comparaison à une valeur métier : os.environ.get('MERIDIAN_ALLOW_EXTERNAL_LLM') == '1'"
     ],
     "service_medic.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/service_medic.py:100 B008 primitive destructive sans dry-run par défaut vérifiable",
       "examples/service_medic.py:100 B010 cible destructive sans revalidation locale vérifiable",
       "examples/service_medic.py:100 B012 action sans enregistrement de rollback local vérifiable",
@@ -163,9 +163,9 @@
       "examples/supervisor.py:0 B014 capteurs hôte manquants : incident.status"
     ],
     "valmont_alarmes.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/valmont_alarmes.py:120 B001 comparaison à une valeur métier : os.environ.get('VALMONT_MOCK_LLM', '').strip() not in ('', '0')",
       "examples/valmont_alarmes.py:130 B013 données vers LLM externe sans opt-in local vérifiable",
       "examples/valmont_alarmes.py:43 B005 seuil appliqué dans l'hôte : now - view['at'] < PERCEPTION_TTL_S",
@@ -196,9 +196,9 @@
       "examples/valmont_sim.py:88 B001 comparaison à une valeur métier : env not in ('0', 'false', 'non', 'no')"
     ],
     "valmont_production.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/valmont_production.py:115 B001 comparaison à une valeur métier : os.environ.get('VALMONT_MOCK_LLM', '').strip() not in ('', '0')",
       "examples/valmont_production.py:125 B013 données vers LLM externe sans opt-in local vérifiable",
       "examples/valmont_production.py:37 B005 seuil appliqué dans l'hôte : now - view['at'] < PERCEPTION_TTL_S",
@@ -231,9 +231,9 @@
       "examples/valmont_sim.py:88 B001 comparaison à une valeur métier : env not in ('0', 'false', 'non', 'no')"
     ],
     "valmont_supervision.agent": [
-      "examples/gemini_llm.py:115 B006 `select_plan()` — le nom annonce une décision",
-      "examples/gemini_llm.py:36 B005 seuil appliqué dans l'hôte : limit <= 0",
-      "examples/gemini_llm.py:41 B005 seuil appliqué dans l'hôte : wait > 0",
+      "examples/gemini_llm.py:129 B006 `select_plan()` — le nom annonce une décision",
+      "examples/gemini_llm.py:50 B005 seuil appliqué dans l'hôte : limit <= 0",
+      "examples/gemini_llm.py:55 B005 seuil appliqué dans l'hôte : wait > 0",
       "examples/valmont_alarmes.py:120 B001 comparaison à une valeur métier : os.environ.get('VALMONT_MOCK_LLM', '').strip() not in ('', '0')",
       "examples/valmont_alarmes.py:130 B013 données vers LLM externe sans opt-in local vérifiable",
       "examples/valmont_alarmes.py:43 B005 seuil appliqué dans l'hôte : now - view['at'] < PERCEPTION_TTL_S",

@@ -528,7 +528,7 @@ qu'on lui donne à voir. `boundary` aide à revoir cette règle, sans la démont
 from agentl import AnthropicLLM, Runtime, parse_file
 
 agent = parse_file("examples/soc_analyst.agent").agents[0]
-Runtime(agent, host, AnthropicLLM(model="claude-sonnet-4-6")).run()
+Runtime(agent, host, AnthropicLLM(model="claude-sonnet-5")).run()
 ```
 
 L'adaptateur impose un JSON strict et **coerce** la réponse au schéma
@@ -808,7 +808,11 @@ C'est très exactement ce que le langage prétend rendre impossible. Les noms nu
 d'une charge utile vont désormais dans un espace **consulté en dernier** : un
 message ne masque plus rien, il ne comble que ce que rien d'autre ne
 renseigne. Les formes préfixées (`payload.x`, `event.source`) restent
-disponibles, avec leur provenance lisible.
+disponibles, avec leur provenance lisible. Depuis la v1.8.2, la règle couvre
+les **trois** frontières externes : charge utile, retour de `DELEGATE` et
+**retour d'outil** — c'est par ce dernier qu'arrive l'injection indirecte
+(page web, ticket, courriel). Un `OUTPUT` déclaré borne la forme de la
+réponse, pas sa provenance.
 
 Chaque correctif porte un **test de mutation** : on rétablit l'ancien
 comportement et on vérifie que l'exploit revient. Un test de sécurité qui
