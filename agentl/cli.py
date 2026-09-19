@@ -579,12 +579,16 @@ def run_autoloop(args) -> int:
                  else f"{passed}/{total} cas")
         print(f"  tentative {attempt.index} — {state}", file=sys.stderr)
 
-    report = autoloop(source, filename=args.file, rewrite=rewrite,
-                      max_attempts=args.max_attempts, max_cases=args.max_cases,
-                      holdout_ratio=args.holdout, seed=args.seed,
-                      patience=args.patience, budget_seconds=args.budget,
-                      host=host, llm=llm, host_ticks=args.host_ticks,
-                      on_attempt=announce)
+    try:
+        report = autoloop(source, filename=args.file, rewrite=rewrite,
+                          max_attempts=args.max_attempts,
+                          max_cases=args.max_cases,
+                          holdout_ratio=args.holdout, seed=args.seed,
+                          patience=args.patience, budget_seconds=args.budget,
+                          host=host, llm=llm, host_ticks=args.host_ticks,
+                          on_attempt=announce)
+    except ValueError as exc:
+        raise AgentLError(str(exc))
     print(report.render())
 
     if args.out and report.source and report.source != source:
@@ -788,6 +792,10 @@ def main(argv=None) -> int:
                            help="borne de la recherche de route (T2/T5) ; "
                                 "la recherche s'arrête normalement bien avant, "
                                 "sur son point fixe")
+            p.add_argument("--require-proved", action="store_true",
+                           help="code 2 si un théorème reste ◐ BORNÉ / NON "
+                                "PROUVÉ (par défaut seul un ✘ RÉFUTÉ échoue) ;"
+                                " à mettre en CI pour une vraie porte de preuve")
         if name in ("plan", "infer"):
             p.add_argument("--ticks", type=int, default=1,
                            help="ticks avant de figer l'état ; 0 = percevoir "
@@ -1053,10 +1061,12 @@ def main(argv=None) -> int:
             return refusal
 
         failed = False
+        unproved = False
         for candidate in program.agents:
             report = verify(candidate, depth=args.depth)
             print(report.render())
             failed |= bool(report.refuted)
+            unproved |= any(t.holds is None for t in report.theorems)
 
         if len(program.agents) > 1:
             # T1–T7 se démontrent agent par agent ; T8 est le seul théorème du
@@ -1070,7 +1080,14 @@ def main(argv=None) -> int:
             print(liveness.render())
             print("╚" + "═" * 60)
             failed |= liveness.refuted
-        return 1 if failed else 0
+            unproved |= liveness.holds is None
+        if failed:
+            return 1
+        if unproved and args.require_proved:
+            print("\n! preuve incomplète (◐) : --require-proved exige "
+                  "que tout théorème soit démontré", file=sys.stderr)
+            return 2
+        return 0
 
     if args.cmd == "test":
         from .scenario import run_scenarios

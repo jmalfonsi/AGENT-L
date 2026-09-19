@@ -65,7 +65,11 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # 2.10.1 : scellé contre le paquet 1.9.0 (il l'était contre 1.8.2) ; l'EBNF,
 # passée en v1.9, nomme les fonctions de provenance comme elle nommait déjà
 # les fonctions épistémiques. Rien de ce qu'un auteur écrit ne change.
-AUTHORING_CONTRACT_VERSION = "2.10.1"
+# 2.11.0 : suite aux audits VERIFY et AUTOLOOP. `verify --require-proved` (code
+# 2 sur preuve bornée) ; `autoloop` refuse zéro SCENARIO, une preuve bornée,
+# des épreuves retouchées par la réécriture ; le solveur distingue les listes
+# de `IN`. La grammaire ne bouge pas : mineur pour la commande et les portes.
+AUTHORING_CONTRACT_VERSION = "2.11.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

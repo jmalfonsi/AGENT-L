@@ -1,0 +1,23 @@
+{
+  "name": "cave-autonomy-lab",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Banc d'essai continu d'agents IA autonomes sur une cave à vin simulée — React + SQLite",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning server/index.js & vite --config client/vite.config.js",
+    "build": "vite build --config client/vite.config.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
+    "check": "npm test && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.7"
+  }
+}

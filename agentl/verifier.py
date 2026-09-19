@@ -183,6 +183,7 @@ class Verifier:
         self.never_rules = [r for r in agent.policies if r.effect == "NEVER"]
         self.operators = [t for t in agent.tools if t.is_operator]
         self._entries: Optional[Dict[str, List[Tuple[List[Node], str]]]] = None
+        self._frozen_facts: Optional[List[Node]] = None
         # Partition essentielle : un chemin qu'un EFFECT peut produire est
         # sous le contrôle de l'agent ; les autres relèvent du monde. Pour
         # l'atteignabilité, seuls les premiers doivent être *établis* par une
@@ -228,14 +229,28 @@ class Verifier:
     # ------------------------------------------------------------------ API
     def run(self) -> Report:
         report = Report(self.agent.name)
-        report.theorems.append(self.theorem_forbidden())
-        report.theorems.append(self.theorem_reachability())
-        report.theorems.append(self.theorem_dead_capabilities())
-        report.theorems.append(self.theorem_llm_surface())
-        report.theorems.append(self.theorem_scenarios())
-        report.theorems.append(self.theorem_provenance())
-        report.theorems.append(self.theorem_termination_liveness())
-        report.theorems.append(self.theorem_effect_falsifiability())
+        for build in (self.theorem_forbidden, self.theorem_reachability,
+                      self.theorem_dead_capabilities, self.theorem_llm_surface,
+                      self.theorem_scenarios, self.theorem_provenance,
+                      self.theorem_termination_liveness,
+                      self.theorem_effect_falsifiability):
+            with watch_overflow() as abandon:
+                theorem = build()
+            # Un abandon du solveur ne peut qu'ajouter des « satisfiable » : il
+            # ne fabrique pas de réfutation, mais il peut fabriquer une preuve
+            # (route permise à tort, garde jugée franchissable). Quel que soit
+            # le théorème, DÉMONTRÉ ne survit donc pas à un abandon.
+            if abandon and theorem.holds is True:
+                theorem.holds = None
+                theorem.findings.append(Finding(
+                    "V114", "warning",
+                    "preuve dégradée : le solveur a renoncé",
+                    f"une condition dépasse {MAX_CLAUSES} clauses en forme "
+                    f"normale disjonctive ; au-delà le solveur répond "
+                    f"« satisfiable » sans l'avoir établi. Le verdict n'est "
+                    f"pas démontré."))
+                theorem.summary += " · non démontré (abandon du solveur)"
+            report.theorems.append(theorem)
         return report
 
     def _security_theorem(self, key: str, title: str,
@@ -705,7 +720,7 @@ class Verifier:
         # scénario). Contrairement à `assumed`, il compte aussi pour établir
         # le but — sans quoi une attente déjà satisfaite par l'énoncé
         # passerait pour inatteignable.
-        initial = list(initial)
+        initial = list(initial) + self._frozen_belief_facts()
         start: Tuple[Tuple[str, Any], ...] = ()
         if initial and all(entails(initial, g) for g in goals):
             return [], True
@@ -728,6 +743,8 @@ class Verifier:
                     if not self._preconditions_met(tool, facts, assumed):
                         continue
                     for branch in tool.branches:
+                        if branch.probability <= 0:
+                            continue       # issue impossible : pas une route
                         updated = dict(assignments)
                         for effect in branch.effects:
                             updated[effect.path] = _literal_of(effect.value)
@@ -744,6 +761,30 @@ class Verifier:
                 return None, True          # frontière vide → espace épuisé
             frontier = nxt
         return None, False                 # arrêt sur la borne de profondeur
+
+    def _frozen_belief_facts(self) -> List[Node]:
+        """Valeurs initiales de BELIEF que rien ne peut plus changer.
+
+        Un BELIEF ni perçu, ni produit par un EFFECT, ni écrit par un `SET`
+        garde sa valeur déclarée : la supposer « librement favorable » ferait
+        démontrer une route que le runtime ne franchira jamais.
+        """
+        if self._frozen_facts is None:
+            written = _all_written_paths(self.agent)
+            observed = {o.path for o in self.agent.observers}
+            facts: List[Node] = []
+            for belief in self.agent.beliefs:
+                if (belief.path in observed
+                        or belief.path in self.controlled
+                        or belief.path in written):
+                    continue
+                if isinstance(belief.value, Literal) or (
+                        isinstance(belief.value, PathExpr)
+                        and len(belief.value.parts) == 1):
+                    facts += _as_conditions(
+                        [(belief.path, _literal_of(belief.value))])
+            self._frozen_facts = facts
+        return self._frozen_facts
 
     def _preconditions_met(self, tool: ToolDecl, facts: Sequence[Node],
                            assumed: Sequence[Node]) -> bool:
@@ -1111,6 +1152,27 @@ class _FlowCtx:
             for block in _sub_blocks(stmt):
                 found |= self.written_within(block)
         return frozenset(found)
+
+
+def _all_written_paths(agent: Agent) -> Set[str]:
+    """Tout chemin qu'une instruction quelconque de l'agent peut écrire."""
+    import dataclasses
+
+    found: Set[str] = set()
+    ctx = _FlowCtx(agent)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+        elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+            if isinstance(value, Stmt):
+                found.update(ctx.written_by(value))
+            for f in dataclasses.fields(value):
+                walk(getattr(value, f.name))
+
+    walk(agent)
+    return found
 
 
 def _sub_blocks(stmt: Stmt) -> List[Sequence[Stmt]]:

@@ -203,7 +203,13 @@ def _signature(node: Node) -> str:
         return f"({node.op}{_signature(node.operand)})"
     if isinstance(node, CallExpr):
         return f"{node.name}({','.join(_signature(a) for a in node.args)})"
-    return type(node).__name__
+    if isinstance(node, ListExpr):
+        # Le contenu compte : `r IN ["EU"]` et `r IN ["US"]` ne sont pas le
+        # même atome, sans quoi φ ∧ ¬φ serait « trouvé » entre deux listes
+        # différentes — une fausse contradiction, donc une fausse preuve.
+        return "[" + ",".join(_signature(i) for i in node.items) + "]"
+    # Nœud inconnu : jamais égal à un autre, donc jamais contradictoire.
+    return f"{type(node).__name__}@{id(node)}"
 
 
 # --------------------------------------------------------------------------

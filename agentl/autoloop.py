@@ -82,6 +82,7 @@ pouvoir de choisir ses propres épreuves.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import hashlib
 import json
@@ -260,6 +261,8 @@ class Case:
     tier: str                       # "données" | "contexte"
     changes: Tuple[Tuple[str, Any], ...]
     holdout: bool = False
+    #: Agent d'origine (société multi-agents) ; vide = l'agent passé à `run_cases`.
+    agent: str = ""
 
     def world(self, base: Dict[str, Any]) -> Dict[str, Any]:
         world = dict(base)
@@ -297,7 +300,8 @@ def generate_cases(agent: Agent, *, seed: int = 7, max_cases: int = 200,
                     label = f"{scenario.name}·{tier}·{path}={_render(value)}"
                     cases.append(Case(scenario.name, label, tier,
                                       ((path, value),),
-                                      _holdout(label, holdout_ratio)))
+                                      _holdout(label, holdout_ratio),
+                                      agent.name))
 
         # Quelques combinaisons : une faute peut ne se révéler qu'au croisement
         # de deux valeurs inhabituelles, qu'aucune mutation isolée n'atteint.
@@ -310,7 +314,7 @@ def generate_cases(agent: Agent, *, seed: int = 7, max_cases: int = 200,
             label = (f"{scenario.name}·contexte·"
                      + "+".join(f"{p}={_render(v)}" for p, v in changes))
             cases.append(Case(scenario.name, label, "contexte", changes,
-                              _holdout(label, holdout_ratio)))
+                              _holdout(label, holdout_ratio), agent.name))
 
     # Dédoublonnage puis échantillonnage déterministe : deux mutations
     # distinctes peuvent produire le même monde.
@@ -363,6 +367,13 @@ def unconditional_bans(agent: Agent) -> Tuple[Set[str], Set[str]]:
         # Sous DEFAULT DENY, un outil qu'aucune règle n'autorise — même sous
         # condition — ne peut jamais s'exécuter.
         forbidden |= {t.name for t in agent.tools if t.name not in allowed}
+    # `NEVER *` / `REQUIRE APPROVAL FOR *` visent tous les outils : on développe
+    # le joker au lieu de le jeter, sans quoi U3/U4 ne jugeraient rien.
+    every = {t.name for t in agent.tools}
+    if "*" in forbidden:
+        forbidden |= every
+    if "*" in approval:
+        approval |= every
     forbidden.discard("*")
     approval.discard("*")
     return forbidden, approval
@@ -466,12 +477,49 @@ def run_case(agent: Agent, scenario: Scenario, case: Case,
                       trace=runtime.trace.render())
 
 
-def run_cases(agent: Agent, cases: Sequence[Case]) -> List[CaseResult]:
-    by_name = {s.name: s for s in agent.scenarios}
+def _fingerprint(scenario: Scenario) -> str:
+    """Empreinte d'un scénario, numéros de ligne exclus."""
+    def flat(value: Any) -> Any:
+        if isinstance(value, (list, tuple)):
+            return [flat(v) for v in value]
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return (type(value).__name__,
+                    [(f.name, flat(getattr(value, f.name)))
+                     for f in dataclasses.fields(value) if f.name != "line"])
+        return value
+
+    return repr(flat(scenario))
+
+
+def freeze_scenarios(agent: Agent) -> Dict[str, Scenario]:
+    """Copie canonique des scénarios, prise avant toute réécriture."""
+    return {s.name: copy.deepcopy(s) for s in agent.scenarios}
+
+
+def run_cases(agent: Agent, cases: Sequence[Case],
+              frozen: Optional[Dict[str, Scenario]] = None
+              ) -> List[CaseResult]:
+    """Rejoue des cas dérivés.
+
+    Avec `frozen`, les épreuves sont celles de la copie canonique : un
+    rédacteur qui garde le nom d'un scénario mais retouche son `GIVEN` ou
+    affaiblit son `EXPECT` ne déplace pas les poteaux — le cas est compté
+    perdu, et l'exécution se fait quand même sur l'énoncé d'origine.
+    """
+    current = {s.name: s for s in agent.scenarios}
+    by_name = dict(frozen) if frozen is not None else current
     baselines: Dict[str, List[str]] = {}
     results: List[CaseResult] = []
     for case in cases:
         scenario = by_name.get(case.scenario)
+        if scenario is not None and frozen is not None:
+            live = current.get(case.scenario)
+            if live is not None and _fingerprint(live) != _fingerprint(scenario):
+                results.append(CaseResult(
+                    case, False,
+                    error=f"scénario `{case.scenario}` modifié par la "
+                          f"réécriture : les épreuves sont figées"))
+                continue
         if scenario is None:
             # Le rédacteur a supprimé ou renommé le scénario d'origine : le cas
             # ne veut plus rien dire, mais l'escamoter ferait monter le score
@@ -520,7 +568,9 @@ def run_gates(program: Program, *, filename: Optional[str] = None,
     refuted: List[str] = []
     for agent in program.agents:
         report = verify(agent, **({"depth": depth} if depth else {}))
-        refuted += [f"{t.key} {t.title} — {t.summary}" for t in report.refuted]
+        # Une preuve bornée (◐) n'est pas une preuve : `holds is not True`.
+        refuted += [f"{t.key} {t.title} — {t.summary}"
+                    for t in report.theorems if t.holds is not True]
     gates.append(Gate("preuve", not refuted, "; ".join(refuted[:5])))
 
     if filename:
@@ -547,6 +597,10 @@ def run_gates(program: Program, *, filename: Optional[str] = None,
         report = run_scenarios(agent, echo=False)
         declared += len(report.results)
         failed += [r.render().strip() for r in report.results if not r.passed]
+    if declared == 0:
+        # Comme `agentl test` : zéro scénario n'est pas un succès, c'est
+        # l'absence d'épreuve. Sans lui, la boucle n'a rien à dériver.
+        failed.append("aucun SCENARIO déclaré : rien à éprouver")
     gates.append(Gate(f"scénarios ({declared})", not failed, "\n".join(failed[:5])))
 
     # Cinquième barrière, qu'aucune commande existante ne pose : un scénario
@@ -771,7 +825,9 @@ class AutoloopReport:
 
     @property
     def ok(self) -> bool:
-        return (self.gates_ok and self.seen_ok and self.holdout_ok
+        # Zéro cas éprouvé n'est pas « tout passe » : c'est ne rien avoir testé.
+        return (self.gates_ok and self.seen_total + self.holdout_total > 0
+                and self.seen_ok and self.holdout_ok
                 and (self.host.passed if self.host.ran else True))
 
     def render(self) -> str:
@@ -804,6 +860,9 @@ class AutoloopReport:
         elif self.ok:
             lines.append("✓ l'agent tient sur ses invariants, y compris sur le "
                          "lot retenu.")
+            if any(g.skipped for g in (self.last.gates if self.last else [])):
+                lines.append("  ! réserve : la frontière hôte n'a pas été "
+                             "contrôlée (hôte .py absent)")
         else:
             lines.append("✘ l'agent ne tient pas.")
         lines.append(f"  arrêt : {self.stopped_by}")
@@ -830,10 +889,16 @@ def autoloop(source: str, *, filename: Optional[str] = None,
     """
     from .parser import parse_source
 
+    if max_cases < 1:
+        raise ValueError("max_cases doit être ≥ 1 : zéro cas ne prouve rien")
+    if not 0 <= holdout_ratio < 1:
+        raise ValueError("holdout_ratio doit être dans [0, 1[")
+
     report = AutoloopReport()
     started = time.monotonic()
     cases: Optional[List[Case]] = None
     seen: List[Case] = []
+    frozen: Dict[str, Dict[str, Scenario]] = {}
     best = -1
     stale = 0
     current = source
@@ -850,23 +915,34 @@ def autoloop(source: str, *, filename: Optional[str] = None,
             if rewrite is None:
                 report.stopped_by = "programme illisible et aucun rédacteur"
                 break
+            stale += 1
+            stopped = _stop_reason(index, max_attempts, stale, patience,
+                                   started, budget_seconds)
+            if stopped:
+                # Pas de dernière réécriture : elle ne serait ni analysée ni
+                # testée, et `report.source` la livrerait telle quelle.
+                report.stopped_by = stopped
+                break
             current = _rewrite(rewrite, build_prompt(current, [], [], index))
             continue
 
-        agent = program.agents[0]
-        report.agent = agent.name
+        report.agent = ", ".join(a.name for a in program.agents)
         attempt.gates = run_gates(program, filename=filename)
 
         if attempt.gates_ok:
             if cases is None:
                 # Une seule fois, depuis la première version recevable : la
-                # boucle ne choisit pas ses propres épreuves.
-                cases = generate_cases(agent, seed=seed, max_cases=max_cases,
-                                       holdout_ratio=holdout_ratio)
+                # boucle ne choisit pas ses propres épreuves — ni leur énoncé.
+                cases = []
+                for agent in program.agents:
+                    frozen[agent.name] = freeze_scenarios(agent)
+                    cases += generate_cases(agent, seed=seed,
+                                            max_cases=max_cases,
+                                            holdout_ratio=holdout_ratio)
                 seen = [c for c in cases if not c.holdout]
                 report.seen_total = len(seen)
                 report.holdout_total = len(cases) - len(seen)
-            attempt.results = run_cases(agent, seen)
+            attempt.results = _run_all(program, seen, frozen)
 
         report.attempts.append(attempt)
         report.source = current
@@ -874,7 +950,8 @@ def autoloop(source: str, *, filename: Optional[str] = None,
             on_attempt(attempt)
 
         if attempt.gates_ok and not attempt.failures():
-            report.stopped_by = "réussite"
+            report.stopped_by = ("réussite" if cases
+                                 else "aucun cas dérivé : rien n'a été éprouvé")
             break
 
         score = attempt.passed if attempt.gates_ok else -1
@@ -884,14 +961,10 @@ def autoloop(source: str, *, filename: Optional[str] = None,
         if rewrite is None:
             report.stopped_by = "aucun rédacteur : diagnostic seul"
             break
-        if stale >= patience:
-            report.stopped_by = f"aucun progrès sur {patience} tentatives"
-            break
-        if budget_seconds and time.monotonic() - started >= budget_seconds:
-            report.stopped_by = f"budget de {budget_seconds:g} s épuisé"
-            break
-        if index == max_attempts:
-            report.stopped_by = f"plafond de {max_attempts} tentatives"
+        stopped = _stop_reason(index, max_attempts, stale, patience,
+                               started, budget_seconds)
+        if stopped:
+            report.stopped_by = stopped
             break
         current = _rewrite(rewrite, build_prompt(current, attempt.gates,
                                                  attempt.failures(), index + 1))
@@ -902,8 +975,9 @@ def autoloop(source: str, *, filename: Optional[str] = None,
     if cases and report.gates_ok:
         from .parser import parse_source as _parse
 
-        agent = _parse(report.source, filename or "<autoloop>").agents[0]
-        report.holdout = run_cases(agent, [c for c in cases if c.holdout])
+        final = _parse(report.source, filename or "<autoloop>")
+        report.holdout = _run_all(final, [c for c in cases if c.holdout],
+                                  frozen)
 
     if host is not None and report.gates_ok:
         agent = parse_source(report.source, filename or "<autoloop>").agents[0]
@@ -912,6 +986,32 @@ def autoloop(source: str, *, filename: Optional[str] = None,
         report.host = HostPass(False, True,
                                detail="la barrière n'est pas franchie")
     return report
+
+
+def _stop_reason(index: int, max_attempts: int, stale: int, patience: int,
+                 started: float, budget_seconds: Optional[float]) -> str:
+    if stale >= patience:
+        return f"aucun progrès sur {patience} tentatives"
+    if budget_seconds and time.monotonic() - started >= budget_seconds:
+        return f"budget de {budget_seconds:g} s épuisé"
+    if index >= max_attempts:
+        return f"plafond de {max_attempts} tentatives"
+    return ""
+
+
+def _run_all(program: Program, cases: Sequence[Case],
+             frozen: Dict[str, Dict[str, Scenario]]) -> List[CaseResult]:
+    """Rejoue les cas de chaque agent contre ses propres épreuves figées."""
+    results: List[CaseResult] = []
+    for agent in program.agents:
+        mine = [c for c in cases if c.agent == agent.name]
+        results += run_cases(agent, mine, frozen.get(agent.name))
+    known = {a.name for a in program.agents}
+    for case in cases:
+        if case.agent not in known:
+            results.append(CaseResult(
+                case, False, error=f"agent `{case.agent}` disparu"))
+    return results
 
 
 def _rewrite(rewrite: Rewriter, prompt: str) -> str:

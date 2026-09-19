@@ -415,9 +415,53 @@ class Triche(unittest.TestCase):
                           max_cases=200, holdout_ratio=0.0)
         # ASSERT
         self.assertFalse(report.ok)
-        disparus = [r for r in report.attempts[-1].results
-                    if "disparu" in (r.error or "")]
-        self.assertTrue(disparus)
+        # Sans SCENARIO, la barrière `scénarios (0)` ferme : la boucle ne
+        # peut plus conclure sur zéro épreuve (comme `agentl test`).
+        derniere = {g.name: g for g in report.attempts[-1].gates}
+        self.assertFalse(derniere["scénarios (0)"].passed)
+
+    def test_retoucher_un_scenario_sans_le_supprimer_est_compte_perdu(self):
+        # ARRANGE — même nom, mais l'attente est affaiblie : les poteaux
+        # bougent sans que le scénario ait disparu.
+        affaibli = BASE % {"garde": " AND dir.batch > 0", "scenario": SCENARIO
+                           .replace("dir.files != 0", "dir.files != 999")}
+
+        # ACT
+        report = autoloop(FAUTIF, rewrite=lambda _: affaibli, max_attempts=3,
+                          patience=9, max_cases=200, holdout_ratio=0.0)
+
+        # ASSERT
+        self.assertFalse(report.ok)
+        modifies = [r for r in report.attempts[-1].results
+                    if "modifié" in (r.error or "")]
+        self.assertTrue(modifies)
+
+    def test_zero_cas_n_est_pas_une_reussite(self):
+        # ACT / ASSERT
+        with self.assertRaises(ValueError):
+            autoloop(CORRIGE, max_cases=0)
+        with self.assertRaises(ValueError):
+            autoloop(CORRIGE, holdout_ratio=1.0)
+
+    def test_joker_never_developpe_pour_u3(self):
+        # ARRANGE
+        source = CORRIGE.replace("NEVER purge WHEN dir.protected == yes",
+                                 "NEVER *")
+
+        # ACT
+        interdits, _ = unconditional_bans(_agent(source))
+
+        # ASSERT
+        self.assertEqual(interdits, {"purge", "prevenir"})
+
+    def test_derniere_reecriture_illisible_n_est_pas_livree(self):
+        # ARRANGE — le rédacteur rend du bruit à chaque tour
+        report = autoloop("AGENT (((", rewrite=lambda _: "AGENT (((",
+                          max_attempts=2, patience=9)
+
+        # ASSERT — la dernière source n'a pas été réécrite sans être évaluée
+        self.assertEqual(report.stopped_by, "plafond de 2 tentatives")
+        self.assertEqual(len(report.attempts), 2)
 
     def test_la_consigne_le_dit_au_redacteur(self):
         # ACT
