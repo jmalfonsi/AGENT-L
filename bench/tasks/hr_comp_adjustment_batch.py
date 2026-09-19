@@ -252,9 +252,7 @@ def build(info: dict, world) -> "ab.Host":
             "yes" if state["cursor_advanced"] else "no"),
         "row.processed": lambda: outcome_is("processed"),
         "row.routed": lambda: outcome_is("routed"),
-        "batch.acted": lambda: Symbol("yes" if any(
-            value in ("processed", "routed")
-            for value in state["outcomes"].values()) else "no"),
+        "row.skipped": lambda: outcome_is("skipped"),
         "batch.remaining": remaining_rows,
         "report.posted": report_posted,
         "workflow.blocked": lambda: Symbol("yes" if state["blocked"] else "no"),

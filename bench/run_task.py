@@ -17,21 +17,28 @@ from agentl.analyzer import Analyzer  # noqa: E402
 
 
 def make_llm(model: str = ""):
-    """Oracle réel : Gemini. Le LLM ne voit qu'une projection en lecture
-    seule de l'état et ne peut produire qu'un dict conforme au schéma
-    `PRODUCE` — il ne choisit jamais d'agir."""
+    """Oracle réel : Gemini, ou Jev selon `AGENTL_ORACLE`. Le LLM ne voit
+    qu'une projection en lecture seule de l'état et ne peut produire qu'un
+    dict conforme au schéma `PRODUCE` — il ne choisit jamais d'agir."""
     import os
 
     sys.path.insert(0, "/home/ubuntu/AGENT-L/examples")
-    from gemini_llm import GeminiLLM
+    from jev_llm import oracle_from_env
 
     if not os.environ.get("GEMINI_API_KEY"):
         env = Path("/home/ubuntu/HAL/.env")
         for line in env.read_text().splitlines():
             if line.startswith("GEMINI_API_KEY="):
                 os.environ["GEMINI_API_KEY"] = line.split("=", 1)[1].strip().strip('"\'')
-    return GeminiLLM(model=model or os.environ.get("AGENTL_BENCH_MODEL",
-                                                   "gemini-3.1-flash-lite"))
+    repo_env = Path(__file__).resolve().parent.parent / ".env"
+    if repo_env.exists() and not os.environ.get("TYPESAFE_API_KEY"):
+        for line in repo_env.read_text().splitlines():
+            if line.startswith(("TYPESAFE_API_KEY=", "TYPESAFE_AI_KEY=")):
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key, value.strip().strip('"\''))
+    # `AGENTL_ORACLE=hybrid` : Jev (TypeSafe) pour les champs clos, Gemini
+    # pour le texte libre ; `jev` : Jev seul. Défaut : Gemini seul.
+    return oracle_from_env(model)
 
 
 def run(domain: str, name: str, ticks: int = 0, echo: bool = False,
