@@ -1,5 +1,5 @@
 (* =========================================================================
-   AGENT-L v1.9 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+   AGENT-L v1.10 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
 
    Convention lexicale fondamentale :
      les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une
@@ -118,7 +118,8 @@ foreach_stmt     = "FOREACH" , ident , "IN" , expression
                  , [ "MAX" , number ] , "{" , stmt_list , "}" ;
 
 statement        = call_stmt | set_stmt | if_stmt | verify_stmt
-                 | reason_stmt | ask_stmt | delegate_stmt | message_stmt
+                 | reason_stmt | judge_stmt | ask_stmt | delegate_stmt
+                 | message_stmt
                  | loop_stmt | foreach_stmt | control_stmt | plan_ref ;
 
 call_stmt        = path , "(" , [ arguments ] , ")" ;
@@ -141,6 +142,21 @@ reason_field     = "TASK"    , [ sep ] , string
 domained_fields  = "{" , { ident , [ ":" , ident ]
                          , [ "IN" , "[" , { literal | ident } , "]" ]
                          , [ "DEFAULT" , ( literal | ident ) ] } , "}" ;
+
+(* v1.10 — le jugement fermé. La question et le sens de chaque réponse
+   partent avec le champ ; `judge.<champ>.p` rend la probabilité au
+   programme, et `ABSTAIN BELOW` dit sous quel seuil elle ne vaut pas
+   décision. *)
+judge_stmt       = "JUDGE" , [ string ] , "{" , { judge_field } , "}" ;
+judge_field      = "TASK"  , [ sep ] , string
+                 | "USING" , [ sep ] , name_list
+                 | judge_question ;
+judge_question   = ident , [ ":" ]
+                 , ( "NOUL"   , string
+                   | "CHOICE" , string , "{" , { ident , [ ":" ] , string } , "}"
+                   | "SCORE"  , string , "[" , string , { "," , string } , "]" )
+                 , { "ABSTAIN" , "BELOW" , number
+                   | "DEFAULT" , expr } ;
 
 ask_stmt         = "ASK" , ident , "{" , { ask_field } , "}" ;
 ask_field        = "QUESTION" , [ sep ] , string

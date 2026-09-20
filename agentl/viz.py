@@ -221,7 +221,7 @@ def _build_agent(agent, prefix, nodes, edges, reg):
                     called.add(b.call.name)
                 elif isinstance(b, N.ReasonStmt):
                     prod = ", ".join(b.produce.keys()) if isinstance(b.produce, dict) else ""
-                    acts.append(f"🧠 REASON → {prod}")
+                    acts.append(f"🧠 {b.keyword} → {prod}")
                 elif isinstance(b, N.SetStmt):
                     acts.append(f"= SET {getattr(b, 'path', getattr(b, 'target', ''))}")
                 elif isinstance(b, N.AskStmt):

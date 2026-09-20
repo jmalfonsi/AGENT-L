@@ -74,7 +74,7 @@ KNOWN_FUNCS = frozenset(PURE_FUNCS) | frozenset(EPISTEMIC_FUNCS) \
 from .nodes import (
     Agent, CallExpr, CallStmt, ControlStmt, Decide, DelegateStmt, IfStmt,
     ForEachStmt, ListExpr, LoopStmt, MessageStmt, Node, PathExpr, Plan, Program,
-    ReasonStmt, SetStmt, Stmt, ThenPlan, UnOp, BinOp, VerifyStmt,
+    JudgeStmt, ReasonStmt, SetStmt, Stmt, ThenPlan, UnOp, BinOp, VerifyStmt,
 )
 
 
@@ -131,6 +131,7 @@ class Analyzer:
         self._check_declared_durations()
         self._check_delegate_contracts()
         self._check_reason_surface()
+        self._check_judge()
         self._check_redactions()
         self._check_sensor_unknown()
         self._check_policy_guard_names()
@@ -459,8 +460,7 @@ class Analyzer:
             if isinstance(stmt, SetStmt):
                 known.add(stmt.target)
             elif isinstance(stmt, ReasonStmt):
-                known |= set(stmt.produce)
-                known |= {f"reason.{key}" for key in stmt.produce}
+                known |= _llm_output_paths(stmt)
             elif isinstance(stmt, DelegateStmt):
                 known |= set(stmt.expect)
         return known
@@ -503,10 +503,97 @@ class Analyzer:
             if isinstance(stmt, ReasonStmt) and not stmt.using:
                 self.diags.append(Diagnostic(
                     "W129", "warning",
-                    "REASON sans USING : tout l'état (croyances, buts, plans, "
+                    f"{stmt.keyword} sans USING : tout l'état (croyances, buts, "
+                    "plans, "
                     "outils) est transmis au modèle — lister les chemins "
                     "nécessaires borne l'exposition",
                     stmt.line))
+
+    def _check_judge(self) -> None:
+        """E017 / W136 — un jugement doit être décidable, et son doute traité.
+
+        `E017` porte sur la question elle-même : une option sans description,
+        un `CHOICE` à une seule branche ou un `SCORE` à un seul niveau ne
+        demandent rien — l'oracle n'a pas de jugement à rendre, et la valeur
+        produite ne veut rien dire. C'est une erreur et non un avertissement
+        parce que le programme, tel qu'écrit, ne peut pas être exécuté
+        honnêtement.
+
+        `W136` porte sur ce qui vient après la réponse. Un jugement qui garde
+        un interdit et dont le programme ne lit **ni** la probabilité **ni**
+        un seuil d'abstention traite un 0,51 exactement comme un 0,99 : la
+        garde se referme ou s'ouvre sur une réponse que l'oracle lui-même
+        tenait pour un pile ou face. Les bancs d'injection donnent la mesure
+        du risque — une consigne piégée dans du texte non fiable fait basculer
+        la réponse en gardant une probabilité basse, et c'est précisément là
+        que l'abstention rattrape ce que la valeur seule laisse passer.
+        """
+        referenced = self._referenced_paths()
+        dangerous = [rule for rule in self.agent.policies
+                     if applies_when_unknown(rule.effect) and rule.guard]
+        for stmt, where in self._all_statements():
+            if not isinstance(stmt, JudgeStmt):
+                continue
+            for name, question in stmt.questions.items():
+                place = f"`{name}` dans {where}"
+                if not question.instructions.strip():
+                    self.diags.append(Diagnostic(
+                        "E017", "error",
+                        f"{place} : question vide — un nom de champ n'est pas "
+                        f"une question", stmt.line))
+                if question.kind == "CHOICE":
+                    if len(question.criteria) < 2:
+                        self.diags.append(Diagnostic(
+                            "E017", "error",
+                            f"{place} : CHOICE à {len(question.criteria)} "
+                            f"option(s) — sans alternative, rien n'est jugé",
+                            stmt.line))
+                    for option, description in question.criteria.items():
+                        if not str(description).strip():
+                            self.diags.append(Diagnostic(
+                                "E017", "error",
+                                f"{place} : l'option `{option}` n'a pas de "
+                                f"description — l'oracle ne peut la choisir "
+                                f"que sur son nom", stmt.line))
+                if question.kind == "SCORE":
+                    if len(question.levels) < 2:
+                        self.diags.append(Diagnostic(
+                            "E017", "error",
+                            f"{place} : SCORE à {len(question.levels)} "
+                            f"niveau(x) — une échelle demande au moins deux "
+                            f"repères décrits", stmt.line))
+                    for level in question.levels:
+                        if not str(level).strip():
+                            self.diags.append(Diagnostic(
+                                "E017", "error",
+                                f"{place} : niveau vide — chaque repère doit "
+                                f"décrire une situation concrète", stmt.line))
+                seuil = question.abstain_below
+                if seuil is not None and not 0.0 < seuil <= 1.0:
+                    self.diags.append(Diagnostic(
+                        "E017", "error",
+                        f"{place} : ABSTAIN BELOW {seuil:g} hors ]0, 1] — un "
+                        f"seuil d'abstention est une probabilité", stmt.line))
+                if seuil is not None:
+                    continue
+                reads_probability = any(
+                    f"judge.{name}.{suffix}" in referenced
+                    for suffix in ("p", "confidence"))
+                if reads_probability:
+                    continue
+                guarded = [rule for rule in dangerous
+                           if self._guard_mentions(rule.guard, name)]
+                if guarded:
+                    targets = ", ".join(
+                        f"{rule.effect} {rule.target} ligne {rule.line}"
+                        for rule in guarded)
+                    self.diags.append(Diagnostic(
+                        "W136", "warning",
+                        f"{place} garde {targets} sans ABSTAIN BELOW et sans "
+                        f"garde sur `judge.{name}.p` : une réponse à 0,51 pèse "
+                        f"alors autant qu'une réponse à 0,99 — déclarer le "
+                        f"seuil sous lequel le jugement ne vaut pas décision",
+                        stmt.line))
 
     def _redacts(self, path: str) -> bool:
         """Le chemin tombe-t-il sous un `NEVER SEND` ? (même règle qu'au
@@ -785,7 +872,7 @@ class Analyzer:
                 if isinstance(stmt, SetStmt):
                     produced.add(stmt.target)
                 elif isinstance(stmt, ReasonStmt):
-                    produced |= set(stmt.produce) | {f"reason.{k}" for k in stmt.produce}
+                    produced |= _llm_output_paths(stmt)
                 elif isinstance(stmt, DelegateStmt):
                     produced |= set(stmt.expect) | {f"{stmt.agent}.{k}" for k in stmt.expect}
             for assertion in scenario.assertions:
@@ -1087,7 +1174,8 @@ class Analyzer:
         Un `PRODUCE` pose un local sous son nom seul ; un chemin pointé
         désigne autre chose et ne doit pas déclencher le contrôle.
         """
-        aliases = ([field], ["reason", field])
+        aliases = ([field], ["reason", field],
+                   ["judge", field], ["judge", field, "value"])
         if field == "confidence":
             aliases += (["action", "confidence"],)
         return any(isinstance(node, PathExpr) and node.parts in aliases
@@ -1430,6 +1518,23 @@ def _guarded_calls(stmts, guards=()):
             yield from _guarded_calls(stmt.body, guards)
         elif isinstance(stmt, VerifyStmt):
             yield from _guarded_calls(stmt.on_fail, guards)
+
+def _llm_output_paths(stmt: ReasonStmt) -> Set[str]:
+    """Chemins qu'un `REASON`/`JUDGE` fait exister dans l'état.
+
+    Un `JUDGE` en pose quatre de plus par champ : `judge.<champ>` et sa
+    valeur, sa probabilité et sa confiance. Les contrôles qui cherchent « ce
+    que le programme renseigne » doivent les voir, sinon une garde de
+    politique parfaitement légitime — c'est le mode d'emploi de la primitive
+    — passerait pour un identifiant inconnu.
+    """
+    out = set(stmt.produce) | {f"reason.{key}" for key in stmt.produce}
+    if isinstance(stmt, JudgeStmt):
+        for key in stmt.questions:
+            out |= {f"judge.{key}", f"judge.{key}.value",
+                    f"judge.{key}.p", f"judge.{key}.confidence"}
+    return out
+
 
 def _stmt_exprs(stmt: Stmt):
     if isinstance(stmt, CallStmt):

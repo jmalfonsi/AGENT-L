@@ -391,6 +391,80 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
         self.last_reason_missing = [f for f in produce if f not in out]
         return _coerce(out, produce)
 
+    # --------------------------------------------------------------- JUDGE
+    def judge(self, task, context, questions):
+        """`JUDGE` : les questions du programme, posées telles quelles.
+
+        C'est le seul point où l'adaptateur n'a **rien à inventer**. Pour un
+        `REASON`, il doit deviner la question à partir du nom du champ et de
+        la consigne globale (`_instructions`) — et les bancs montrent où cela
+        casse : `holds_negative` lu comme « concerne les mentions négatives »,
+        `current_decision` pris sur le message du mauvais manager. Un `JUDGE`
+        porte la question et la description de chaque réponse possible : elles
+        partent sans réécriture, et la probabilité revient au programme.
+
+        L'abstention, elle, reste au runtime : c'est le `.agent` qui déclare
+        `ABSTAIN BELOW`, pas l'adaptateur. `abstain_below` du constructeur ne
+        s'applique donc qu'aux `REASON`, où aucun seuil n'est déclarable.
+        """
+        record: Dict[str, Any] = {"kind": "judge", "task": task,
+                                  "fields": list(questions)}
+        self.calls.append(record)
+        payload: Dict[str, Any] = {}
+        for name, question in questions.items():
+            kind = str(question.get("kind", "")).upper()
+            instructions: Dict[str, Any] = {
+                "question": question.get("instructions", "")}
+            if task:
+                instructions["context"] = task
+            if kind == "NOUL":
+                payload[name] = {"type": "noul", "instructions": instructions}
+            elif kind == "CHOICE":
+                payload[name] = {"type": "choice", "instructions": instructions,
+                                 "criteria": dict(question.get("criteria") or {})}
+            elif kind == "SCORE":
+                payload[name] = {"type": "score", "instructions": instructions,
+                                 "criteria": list(question.get("levels") or [])}
+        if not payload:
+            return {}
+        try:
+            answers = self.ask(context, payload)
+        except Exception as exc:                      # noqa: BLE001
+            record["jevError"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+            if self.fallback is None:
+                raise
+            # Jev muet : le repli génératif répond aux mêmes questions, sans
+            # probabilité — le runtime fermera ce qui exigeait un seuil.
+            record["fallback"] = True
+            from agentl.llm import judge_via_reason
+            return judge_via_reason(self.fallback, task, context, questions)
+        out: Dict[str, Any] = {}
+        for name, answer in (answers or {}).items():
+            kind = str((questions.get(name) or {}).get("kind", "")).upper()
+            if kind == "NOUL":
+                p_yes = float(answer.get("noul", 0.5))
+                out[name] = {"value": p_yes >= 0.5,
+                             "p": max(p_yes, 1.0 - p_yes),
+                             "confidence": max(p_yes, 1.0 - p_yes)}
+            elif kind == "CHOICE":
+                choice = answer.get("choice")
+                probs = answer.get("probabilities") or {}
+                out[name] = {"value": choice,
+                             "p": float(probs.get(choice, 0.0)),
+                             "confidence": float(answer.get("confidence", 0.0))}
+            elif kind == "SCORE":
+                # `score` est une position pondérée sur les niveaux ; la
+                # probabilité du niveau le plus proche est ce qui se compare
+                # à un seuil d'abstention.
+                score = float(answer.get("score", 0.0))
+                probs = {int(k): float(v)
+                         for k, v in (answer.get("probabilities") or {}).items()}
+                nearest = probs.get(int(round(score)), 0.0)
+                out[name] = {"value": score, "p": nearest,
+                             "confidence": float(answer.get("confidence", 0.0))}
+        record["answers"] = answers
+        return out
+
     # -------------------------------------------------------- SELECT_PLAN
     # BOUNDARY-OK: méthode imposée par le protocole LLM d'AGENT-L — le runtime
     # n'accepte qu'un plan déclaré parmi `candidates` ; le modèle propose.

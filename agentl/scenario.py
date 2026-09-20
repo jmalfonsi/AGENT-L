@@ -210,6 +210,30 @@ class ScenarioLLM(MockLLM):
         self.last_reason_missing = [key for key in produce if key not in posed]
         return out
 
+    def judge(self, task, context, questions):
+        """`JUDGE` en scénario : la réponse **et** sa probabilité se posent.
+
+            GIVEN { kind = question, judge.kind.p = 0.94 }
+
+        Poser la seule valeur revient à dire « l'oracle a répondu ceci », donc
+        `p = 1`. C'est le cas nominal, et il n'oblige pas l'auteur à connaître
+        le seuil pour écrire son premier test. Le cas incertain — celui qui
+        exerce `ABSTAIN BELOW` et les gardes sur `judge.<champ>.p` — s'écrit
+        en posant la probabilité, et il se lit dans le scénario au lieu de
+        dépendre d'un oracle réel.
+        """
+        out: Dict[str, Any] = {}
+        for name in questions:
+            if name not in self.world:
+                continue
+            answer: Dict[str, Any] = {"value": self.world[name], "p": 1.0}
+            for key, path in (("p", f"judge.{name}.p"),
+                              ("confidence", f"judge.{name}.confidence")):
+                if path in self.world:
+                    answer[key] = self.world[path]
+            out[name] = answer
+        return out
+
 
 class _ScenarioSubagents(dict):
     """Les sous-agents d'un scénario : le pendant de `ScenarioLLM` pour

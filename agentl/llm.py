@@ -116,12 +116,79 @@ def missing_from(payload: Any, produce: Dict[str, str]) -> List[str]:
     return [key for key in produce if key not in payload]
 
 
+def render_question(name: str, question: Dict[str, Any]) -> str:
+    """La question d'un `JUDGE`, écrite pour un oracle qui ne fait que du texte.
+
+    Un oracle System One reçoit la question telle quelle ; un modèle
+    génératif, lui, n'a qu'un prompt. Les deux doivent poser **la même**
+    question, sinon comparer leurs réponses ne veut rien dire.
+    """
+    kind = str(question.get("kind", "")).upper()
+    lines = [f"- {name} : {question.get('instructions', '')}"]
+    if kind == "NOUL":
+        lines.append("    réponse : true si la condition tient, false sinon")
+    elif kind == "CHOICE":
+        lines.append("    réponse : exactement une de ces valeurs")
+        for option, description in (question.get("criteria") or {}).items():
+            lines.append(f"      * {option} — {description}")
+    elif kind == "SCORE":
+        levels = question.get("levels") or []
+        lines.append(f"    réponse : un nombre entre 0 et {max(len(levels) - 1, 0)}, "
+                     "position sur ces niveaux ordonnés")
+        for index, level in enumerate(levels):
+            lines.append(f"      * {index} — {level}")
+    return "\n".join(lines)
+
+
+def judge_via_reason(llm: Any, task: str, context: Dict[str, Any],
+                     questions: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Répond à un `JUDGE` avec un oracle qui ne sait que raisonner en texte.
+
+    `JUDGE` est une primitive du **langage**, pas de TypeSafe : un programme
+    qui l'utilise doit tourner avec n'importe quel oracle. La traduction est
+    fidèle sur les valeurs et honnête sur ce qu'elle ne peut pas rendre : un
+    modèle génératif n'a pas de probabilité calibrée à offrir, donc `p` et
+    `confidence` restent **indéterminés** plutôt qu'inventés. Une politique
+    qui lit `judge.x.p >= 0.9` se ferme alors, ce qui est le bon défaut : on
+    ne franchit pas un seuil de calibration avec un nombre écrit à la main.
+    """
+    prompt = (f"{task}\n\n" if task else "") + (
+        "Réponds à chaque question ci-dessous, une valeur par champ :\n\n"
+        + "\n".join(render_question(name, question)
+                    for name, question in questions.items()))
+    produce = {name: question.get("schema", "Any")
+               for name, question in questions.items()}
+    try:
+        llm.last_reason_missing = None
+    except Exception:                               # noqa: BLE001
+        pass                                        # adaptateur tiers
+    produced = llm.reason(prompt, context, produce)
+    if not isinstance(produced, dict):
+        produced = {}
+    missing = set(getattr(llm, "last_reason_missing", None)
+                  or missing_from(produced, produce))
+    return {name: {"value": produced[name]}
+            for name in questions
+            if name in produced and name not in missing}
+
+
 class LLM:
     """Interface minimale attendue par le runtime."""
 
     def reason(self, task: str, context: Dict[str, Any],
                produce: Dict[str, str]) -> Dict[str, Any]:
         raise NotImplementedError
+
+    def judge(self, task: str, context: Dict[str, Any],
+              questions: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Répond à des questions fermées : `{champ: {value, p, confidence}}`.
+
+        Le défaut traduit en `reason()` : un adaptateur n'a rien à écrire
+        pour qu'un `JUDGE` tourne. Un adaptateur qui sait rendre des
+        probabilités calibrées (System One) redéfinit cette méthode — c'est
+        la seule façon pour un programme d'obtenir `judge.<champ>.p`.
+        """
+        return judge_via_reason(self, task, context, questions)
 
     def select_plan(self, context: Dict[str, Any],
                     candidates: List[str]) -> Optional[str]:
@@ -157,6 +224,25 @@ class MockLLM(LLM):
         # exactement une réponse absente.
         self.last_reason_missing = list(produce)
         return _coerce(_defaults(produce), produce)
+
+    def judge(self, task, context, questions):
+        """Jugements scriptés. Une valeur nue vaut `{"value": …}` sans
+        probabilité : pour tester un seuil d'abstention, écrire
+        `{"kind": {"value": "billing", "p": 0.97}}`."""
+        self.calls.append({"kind": "judge", "task": task,
+                           "questions": list(questions)})
+        for key, payload in self.scripted.items():
+            if key.lower() not in task.lower():
+                continue
+            out: Dict[str, Any] = {}
+            for name in questions:
+                if name not in payload:
+                    continue
+                answer = payload[name]
+                out[name] = (dict(answer) if isinstance(answer, dict)
+                             and "value" in answer else {"value": answer})
+            return out
+        return {}
 
     def select_plan(self, context, candidates):
         self.calls.append({"kind": "select_plan", "candidates": list(candidates)})

@@ -19,7 +19,9 @@ Arborescence produite par le parseur :
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
+
+from .core import Symbol
 
 
 # --------------------------------------------------------------------------
@@ -127,6 +129,82 @@ class ReasonStmt(Stmt):
     produce: Dict[str, str] = field(default_factory=dict)
     domains: Dict[str, Domain] = field(default_factory=dict)
     defaults: Dict[str, Node] = field(default_factory=dict)
+
+    #: Mot-clé écrit dans le programme. `JUDGE` est un `REASON` dont les
+    #: champs sont des jugements fermés : tout contrôle qui vise une sortie
+    #: de modèle doit le voir, d'où l'héritage plutôt qu'un nœud parallèle.
+    keyword: ClassVar[str] = "REASON"
+
+
+@dataclass
+class Question(Node):
+    """Une question fermée posée à l'oracle (v1.10, `JUDGE`).
+
+    Un `PRODUCE` déclare un **type** ; il ne dit pas ce que le champ veut
+    dire. `kind: Symbol IN [question, enterprise_inquiry]` laisse le sens
+    entier au nom du champ et à la consigne globale — le modèle doit deviner
+    lequel des deux est visé, et les bancs montrent qu'il se trompe
+    précisément là (`bench/jev_failures.md` : `holds_negative` lu comme
+    « concerne les mentions négatives »). Une `Question` porte donc les deux
+    choses que le type ne porte pas : la question (`instructions`) et le sens
+    de chaque réponse possible (`criteria`, `levels`).
+
+    Trois formes, et trois seulement, parce que ce sont celles qu'un oracle
+    peut répondre **sans rien générer** :
+
+      * `NOUL`   — une condition tient-elle ? (probabilité du oui)
+      * `CHOICE` — laquelle de ces options, décrites une à une ?
+      * `SCORE`  — où, sur ces niveaux ordonnés et décrits ?
+    """
+
+    name: str
+    kind: str                                   # NOUL | CHOICE | SCORE
+    instructions: str = ""
+    criteria: Dict[str, str] = field(default_factory=dict)   # CHOICE
+    levels: List[str] = field(default_factory=list)          # SCORE
+    #: Sous cette probabilité, la réponse n'est **pas** retenue : le champ
+    #: est déclaré absent et le `DEFAULT` du programme s'applique. Les bancs
+    #: d'injection tranchent en faveur de l'abstention plutôt que d'un renvoi
+    #: vers un modèle génératif, qui cède plus souvent au texte piégé.
+    abstain_below: Optional[float] = None
+
+    def type_name(self) -> str:
+        return {"NOUL": "Bool", "CHOICE": "Symbol"}.get(self.kind, "Number")
+
+    def domain(self) -> Optional["Domain"]:
+        """Le domaine que le type seul ne donne pas — borne du runtime."""
+        if self.kind == "CHOICE":
+            return Domain("SET", values=[Symbol(v) for v in self.criteria],
+                          line=self.line)
+        if self.kind == "SCORE":
+            return Domain("RANGE", 0.0, float(max(len(self.levels) - 1, 0)),
+                          line=self.line)
+        return None
+
+    def payload(self) -> Dict[str, Any]:
+        """Ce que l'oracle reçoit : la question, jamais le nom du champ seul."""
+        out: Dict[str, Any] = {"kind": self.kind,
+                               "instructions": self.instructions}
+        if self.kind == "CHOICE":
+            out["criteria"] = dict(self.criteria)
+        elif self.kind == "SCORE":
+            out["levels"] = list(self.levels)
+        return out
+
+
+@dataclass
+class JudgeStmt(ReasonStmt):
+    """`JUDGE { … }` — un `REASON` à questions fermées (v1.10).
+
+    `produce`, `domains` et `defaults` sont dérivés des questions par le
+    parseur : les contrôles statiques et le runtime qui bornent déjà les
+    sorties de `REASON` s'appliquent sans changement, et une politique lit
+    `judge.<champ>.p` comme elle lisait `confidence`.
+    """
+
+    questions: Dict[str, Question] = field(default_factory=dict)
+
+    keyword: ClassVar[str] = "JUDGE"
 
 
 @dataclass

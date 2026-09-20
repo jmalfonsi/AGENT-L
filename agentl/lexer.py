@@ -42,6 +42,8 @@ KEYWORDS = {
     "VERIFY", "CONDITION", "ON", "FAIL", "RETRY", "ROLLBACK", "ESCALATE",
     # raisonnement LLM
     "REASON", "TASK", "USING", "PRODUCE",
+    # v1.10 : jugement fermé — questions typées posées à l'oracle
+    "JUDGE", "NOUL", "CHOICE", "SCORE", "ABSTAIN", "BELOW",
     # humain dans la boucle
     "ASK", "QUESTION", "TIMEOUT",
     # multi-agents

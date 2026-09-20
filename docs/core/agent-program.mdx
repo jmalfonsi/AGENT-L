@@ -81,6 +81,35 @@ PLAN diagnose WHEN incident.open == yes {
 
 La clause `PRODUCE` borne la forme et, ici, les valeurs possibles de la sortie LLM.
 
+## Jugement fermé : `JUDGE` (v1.10)
+
+`REASON` envoie un type ; `JUDGE` envoie la **question** et le sens de chaque
+réponse possible, puis fait entrer la probabilité dans l’état.
+
+```text
+JUDGE "Trier la mention" {
+    USING { m.content }
+
+    kind: CHOICE "De quoi cette mention parle-t-elle ?" {
+        question:           "elle pose une question sur le produit"
+        enterprise_inquiry: "elle exprime un besoin d'entreprise"
+        other:              "aucune des deux"
+    } ABSTAIN BELOW 0.80 DEFAULT other
+
+    frustration: SCORE "À quel point l'auteur est-il mécontent ?" [
+        "calme et factuel", "agacé mais courtois", "très mécontent"
+    ]
+}
+```
+
+Le programme lit ensuite `judge.kind`, `judge.kind.p` et
+`judge.kind.confidence` — donc une politique peut garder sur la calibration :
+`ALLOW send_reply WHEN judge.kind.p >= 0.90`. Sous le seuil déclaré par
+`ABSTAIN BELOW`, la réponse n’est pas retenue et le `DEFAULT` s’applique. Un
+oracle qui ne sait pas calibrer laisse `p` indéterminé : la garde se referme
+plutôt que de franchir un seuil avec un chiffre inventé. Détail : `SPEC.md`
+§39.
+
 ## Événements et sociétés
 
 `EVENT` réveille un plan sur une charge utile. `SEND`, `RECEIVE` et `DELEGATE` permettent la coordination, toujours sous les contrats et la politique de chaque agent.

@@ -1,48 +1,48 @@
 {
-  "authoring_contract_version": "2.11.0",
+  "authoring_contract_version": "2.12.0",
   "authoring_surface": {
-    "combined_sha256": "b965f758ff43cda583b0bc28fcdf514c17843f27d1fe1ae863bfa6d68c0ab17c",
+    "combined_sha256": "973375182e356e71a816dae2eeb547c73ff73e00c8c3f2bb1305bb2d24cda9f3",
     "files": {
-      "SKILLS/agentl-author/SKILL.md": "9f2651c490b0c253ad9aaff5446177774542b06f5d9fecc164363e43c7a26b77",
+      "SKILLS/agentl-author/SKILL.md": "2aff51d011b0850efd2179dc831f7de67e14f9594fa81d811a90546857a20ac6",
       "SKILLS/agentl-author/agents/openai.yaml": "77d03386d40b24dbb2216ee80870d3248fc4f509c3299f69edf1079049f78f25",
       "SKILLS/agentl-author/references/authoring.md": "88eb508809ee0620ba212bb95ba1971e232f49880aeca2976f62fe06f8e1bb48",
       "SKILLS/agentl-author/references/autoloop.md": "4e44f3209d7c94e0e8f40198a54a7eb3ca19524c7ffaf74a31ce3f9d1ce796f2",
       "SKILLS/agentl-author/references/business-workflows.md": "62af2c7964d206604516d5c144d46a8c114c1dde830ab1526b3992a9b46ccfba",
       "SKILLS/agentl-author/references/composition.md": "161d8d91d096589c2d4102801c345470097764a059080267139f17329d3b5e36",
       "SKILLS/agentl-author/references/runtime-semantics.md": "7e36234f38e5708e1517b8d3c33969171cc0521a961f45b39f4b31e94836205e",
-      "SKILLS/agentl-author/references/scenarios.md": "37d06e50eeeaa006910312d87fbc74acb83f1a0c933df68b1dd52bacc78e0852",
+      "SKILLS/agentl-author/references/scenarios.md": "124da0f56b79d9528b985439fb46c23b93cdb3a4a2ab154cd927e45872b5c2bf",
       "SKILLS/agentl-author/references/security-authoring.md": "ee5a649d0f4ef51746120b53ded0523886d9f6a274d27e03221745eaa184a4bf",
       "SKILLS/agentl-author/references/visual-trace.md": "0f220164120f985a62724ebadb080a65532989e0dc9fcb9cb57516999c17226a",
-      "SKILLS/agentl-author/scripts/sync_grammar.py": "9410c68c61dfd2725cbf53c7a4888b495e691c62119e31f853b0a17edcb6223a"
+      "SKILLS/agentl-author/scripts/sync_grammar.py": "9defa6a5ccb70ef1dbeac489eb0db63948e75f4179329adb37a07bcc55505d7a"
     }
   },
   "canonical_examples": {
-    "canonical.agent": "b3aefc1db63a46e0fa42656059d86228163b400559b1ae3a9c7149d0eb77afea",
+    "canonical.agent": "78a00c1b6eeda690e2d5cfdfc752fbb6a63c1f745d7cf6c515f14fdf63c4924e",
     "canonical.py": "0732da0962aaffd462dd12d095b00e42d18e4a07fb2ca74cf6ea2458e0f623ce"
   },
   "compatibility": {
-    "agentl_package_version": "1.9.0",
-    "ebnf_version": "1.9",
-    "language_version": "1.9"
+    "agentl_package_version": "1.10.0",
+    "ebnf_version": "1.10",
+    "language_version": "1.10"
   },
   "grammar": {
-    "combined_sha256": "c6f1209f029a51a0ab2d610dcb4fde867bf8e0a0a8369abf13c4eaa857858ff1",
+    "combined_sha256": "ddb69f4befe68fcada97cbd5a2ed7ae2e8fba83e48c84a01b022e5bcfaef1fb2",
     "files": {
-      "agentl/lexer.py": "44c447e12e7ca816df1d6cc4a6789e8b7d83d44c94c305f922abf3b8113d1bf2",
-      "agentl/nodes.py": "7a34931aeb66dfc8dc2819459d292a693bfe440d7216fa0498cd8263a1b5a944",
-      "agentl/parser.py": "a6ceebdd68c6380e62df73ed61b881ddbeebfb9d7ebc313e5b44740943037e0b",
-      "docs/agentl.ebnf": "05b6a0003cb1b399d70e6382bc021345cb8b919ee45971c7fc23a2ea2c539076"
+      "agentl/lexer.py": "a9c68530271ff611e50e19eb24369ba914d087eff008484654c5aca505658612",
+      "agentl/nodes.py": "1f32047e931a0c5c268a512938f472cd524916f57a2d4aed8db92544e683ca45",
+      "agentl/parser.py": "73ccd1fa7e5db1177f7ae64760cb441fae4bebdd970e145572d9bfe6982ee205",
+      "docs/agentl.ebnf": "28274582c0ad8e44a9f06059af9e28d8d9e8e2115264221faac15a2a979cb713"
     }
   },
   "schema_version": 1,
   "skill": "agentl-author",
   "validation_toolchain": {
-    "combined_sha256": "f78a1758ae2b1e30124c98f2f8e834a47f3782f55ef2a41a0dd11f81e4aeffbb",
+    "combined_sha256": "e51156b9c8c3db588b8e7a1cd8f1c1802823497922b3180e5cc3f321e3a7d468",
     "files": {
       "agentl/_boundary_project.py": "deda80a0447454411fe5fba4361c2e48b9b33890de0c8934279ae51dd60f650c",
       "agentl/_boundary_security.py": "26186a9381e465b68f702b9465c95d93d9043f04daee00497865d410ab3ee290",
       "agentl/_check_flow.py": "349e6603514654b08e108e8f897736875129013d08cc454303a34fdb871f402b",
-      "agentl/analyzer.py": "a06b6537b9b0732afc4ffb8493ff6a2bf7f45abc28248ca4cfc1bb09aa8a2b9d",
+      "agentl/analyzer.py": "f2e1705a605a605a7453d18f19c390061b1438b7382a50cdccd7ddd9fd465b56",
       "agentl/autoloop.py": "d321a8a37354a6df2a66de06a0f490a24577628375f67f41c79acd6e8de498bd",
       "agentl/boundary.py": "9fa1d9ca88cde9053a1461a7377b24c548d568082fc922856c58e5f400e7c0a2",
       "agentl/cli.py": "b13006e8fa77f53b58a4730966207e8de1aebdc96d7e7842b11fde4bfefe09bc",
@@ -50,8 +50,8 @@
       "agentl/kernel/gate.py": "db969f818879b5fbb356c6de6434ac44508d4fa05aa56bf9c97af492afd5db41",
       "agentl/kernel/permit.py": "acc3e86b33a674d44e3881af3c45b5c1f81af66f52fd670eeedf666c56648798",
       "agentl/kernel/provenance.py": "3991a9040f0a9e89306f6d62fd47b0d483030165ef4b628b50f0fb123d1f3477",
-      "agentl/runtime.py": "002ca5cd95dd9e02854477165e4714db18f87675adcef9649c0b3cf07c452d24",
-      "agentl/scenario.py": "a8dfd8966135a6d50c52afbf3c12509e914a9c50a5e99d4d013ae0cb866c735a",
+      "agentl/runtime.py": "2bc464a801a53127c6ce7a2875eb8f7c716a7872c841f3a492a0978ed2c19b29",
+      "agentl/scenario.py": "f1ec9d83e285d8fbfaaaffdf0193e8c2d317aacc440ea2242b9a1cae6612a95d",
       "agentl/verifier.py": "dbf3c3072da5382fed1bb708887a6d38b4df53a5e44dd85c12bf35889cc41889"
     }
   }

@@ -30,6 +30,8 @@ d'effet (`effect_drift`, `VERIFY`) qui traitent cette question.
 | l'état du monde | `asset.criticality = CRITICAL` | inconnu (`UNKNOWN`) |
 | la réponse de l'opérateur | `operator.approval = yes` · `operator.answer = isolate` | **refus**, sans réponse |
 | la proposition du modèle | le nom produit par `REASON … PRODUCE` : `suspected_host = "web-07"` | le `DEFAULT` déclaré, sinon indéfini |
+| la réponse d'un `JUDGE` | le nom du champ : `kind = question` | le `DEFAULT` déclaré, sinon indéfini |
+| sa probabilité (`ABSTAIN BELOW`, gardes sur `.p`) | `judge.kind.p = 0.55` | `1.0` : poser la valeur dit « l'oracle a répondu ceci » |
 | la sortie d'un outil sans `EFFECT` | `outil.champ = valeur` | le test est **invalide** (sortie manquante) |
 | la branche d'un outil à plusieurs `OUTCOME` | `scenario.outcome.outil = branche` | erreur : « OUTCOME ambigu » |
 | le plan choisi par le modèle (`DECIDE { REASON }`) | `llm.plan = nom_du_plan` | erreur : « sélection LLM non déclarée » |

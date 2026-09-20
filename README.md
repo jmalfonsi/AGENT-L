@@ -7,9 +7,9 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.9.0** —
-noyau à permis, exécution durable, provenance portée par les valeurs,
-exécution asynchrone.
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.10.0** —
+`JUDGE`, le jugement fermé : la question part avec le champ et la probabilité
+de la réponse entre dans la politique.
 
 ```bash
 git clone https://github.com/jmalfonsi/AGENT-L.git && cd AGENT-L
@@ -1582,6 +1582,7 @@ WEBSITE/                site de présentation
 | **v1.8.1** | **résilience : reprise LLM bornée, disjoncteur d'outil, diagnostics `W133`/`W134`** |
 | **v1.8.2** | **deux P0 de sûreté fermés (la sortie d'un outil ne forge plus l'état, une valeur non finie ne désarme plus une politique), vérificateur sensible au flot d'écritures, `V114`/`W135`, autorisation unifiée outil/délégation** |
 | **v1.9.0** | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
+| **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
 
 Les `VERSION "…"` des exemples indiquent le niveau de langage illustré, pas la
 version du paquet — celle-ci est `agentl.__version__`.

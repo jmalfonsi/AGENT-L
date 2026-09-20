@@ -11,7 +11,8 @@ from .nodes import (
     DelegateStmt, Effect, EventHandler, EvidenceItem, Goal, Hypothesis, IfStmt,
     Domain, ForEachStmt, ListExpr, Literal, LoopSpec, LoopStmt, MemoryWrite, MemorySpec,
     MessageHandler, MessageStmt, Observer,
-    PathExpr, Plan, PlannerSpec, PolicyRule, Program, ReasonStmt, Redaction,
+    JudgeStmt, Node, PathExpr, Plan, PlannerSpec, PolicyRule, Program, Question,
+    ReasonStmt, Redaction,
     SetStmt,
     Outcome, Scenario, ScenarioStimulus, ScenarioAssertion, Step, Stmt, ThenPlan, ToolDecl, UnOp, UtilityTerm,
     VerifyStmt,
@@ -284,6 +285,8 @@ class Parser:
                 return self.verify_stmt()
             if kw == "REASON":
                 return self.reason_stmt()
+            if kw == "JUDGE":
+                return self.judge_stmt()
             if kw == "ASK":
                 return self.ask_stmt()
             if kw == "DELEGATE":
@@ -409,6 +412,109 @@ class Parser:
             self.opt_comma()
         self.expect("OP", "}")
         return ReasonStmt(task, using, produce, domains, defaults, line=line)
+
+    # ------------------------------------------------------------- JUDGE
+    def judge_stmt(self) -> JudgeStmt:
+        """`JUDGE [<étiquette>] { USING {…} <champ>: NOUL|CHOICE|SCORE … }`
+
+        Le parseur dérive `produce`, `domains` et `defaults` des questions :
+        un `JUDGE` **est** un `REASON` dont les champs sont clos, et tout ce
+        qui borne déjà une sortie de modèle (domaines, DEFAULT, W115, W134,
+        provenance `LLM`) s'applique sans être réécrit.
+        """
+        line = self.expect_kw("JUDGE").line
+        task = ""
+        using: List[str] = []
+        questions: Dict[str, Question] = {}
+        defaults: Dict[str, Node] = {}
+        if self.cur.kind == "STR":
+            task = str(self.advance().value)
+        self.expect("OP", "{")
+        while not self.at("OP", "}"):
+            if self.at_kw("USING"):
+                self.advance()
+                self.opt_sep()
+                using = self.name_list()
+            elif self.at_kw("TASK"):
+                self.advance()
+                self.opt_sep()
+                task = str(self.expect("STR").value)
+            else:
+                question, default = self.judge_question()
+                if question.name in questions:
+                    raise ParseError(
+                        f"{self.filename}:{question.line}: champ JUDGE en "
+                        f"double : {question.name}")
+                questions[question.name] = question
+                if default is not None:
+                    defaults[question.name] = default
+            self.opt_comma()
+        self.expect("OP", "}")
+        produce: Dict[str, str] = {}
+        domains: Dict[str, Domain] = {}
+        for name, question in questions.items():
+            produce[name] = question.type_name()
+            domain = question.domain()
+            if domain is not None:
+                domains[name] = domain
+        return JudgeStmt(task, using, produce, domains, defaults,
+                         questions=questions, line=line)
+
+    def judge_question(self) -> tuple:
+        """`<champ>: NOUL "…"`, `CHOICE "…" { v: "…" }`, `SCORE "…" [ … ]`."""
+        line = self.cur.line
+        name = self.name()
+        self.opt_sep()
+        kind_token = self.cur
+        if not self.at_kw("NOUL", "CHOICE", "SCORE"):
+            raise ParseError(
+                f"{self.filename}:{kind_token.line}: JUDGE attend NOUL, "
+                f"CHOICE ou SCORE pour `{name}`, obtenu "
+                f"{kind_token.value!r}")
+        kind = str(self.advance().value)
+        # La consigne est **obligatoire** : c'est tout l'objet de `JUDGE`.
+        # Un nom de champ n'est pas une question — les bancs montrent qu'un
+        # oracle lit `holds_negative` comme « concerne le négatif ».
+        if self.cur.kind != "STR":
+            raise ParseError(
+                f"{self.filename}:{self.cur.line}: `{name}: {kind}` attend la "
+                f"question entre guillemets")
+        instructions = str(self.advance().value)
+        question = Question(name, kind, instructions, line=line)
+        if kind == "CHOICE":
+            self.expect("OP", "{")
+            while not self.at("OP", "}"):
+                option = self.name()
+                self.opt_sep()
+                if self.cur.kind != "STR":
+                    raise ParseError(
+                        f"{self.filename}:{self.cur.line}: l'option "
+                        f"`{option}` de `{name}` attend sa description entre "
+                        f"guillemets")
+                question.criteria[option] = str(self.advance().value)
+                self.opt_comma()
+            self.expect("OP", "}")
+        elif kind == "SCORE":
+            self.expect("OP", "[")
+            while not self.at("OP", "]"):
+                if self.cur.kind != "STR":
+                    raise ParseError(
+                        f"{self.filename}:{self.cur.line}: les niveaux de "
+                        f"`{name}` sont des descriptions entre guillemets")
+                question.levels.append(str(self.advance().value))
+                self.opt_comma()
+            self.expect("OP", "]")
+        default: Optional[Node] = None
+        while self.at_kw("ABSTAIN", "DEFAULT"):
+            if self.accept_kw("ABSTAIN"):
+                self.expect_kw("BELOW")
+                self.opt_sep()
+                question.abstain_below = self._number("seuil d'abstention")
+            else:
+                self.advance()
+                self.opt_sep()
+                default = self.expression()
+        return question, default
 
     def ask_stmt(self) -> AskStmt:
         line = self.expect_kw("ASK").line

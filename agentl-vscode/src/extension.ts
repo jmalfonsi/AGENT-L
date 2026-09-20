@@ -48,6 +48,8 @@ const RESERVED_KEYWORDS = new Set([
     "UNKNOWN", "DEGRADE",
     // v1.7 : postcondition qui ne porte pas sur le monde, donc indémentissable
     "INTERNAL",
+    // v1.10 : jugement fermé — questions typées posées à l'oracle
+    "JUDGE", "NOUL", "CHOICE", "SCORE", "ABSTAIN", "BELOW",
     // Symboles d'échelle ordinaux et constantes autorisées en majuscules.
     // `UNSET` est le risque non tranché que produit `agentl mcp import` : le
     // fichier fraîchement importé doit s'ouvrir sans une erreur par outil.

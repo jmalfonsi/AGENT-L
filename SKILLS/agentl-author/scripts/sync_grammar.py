@@ -62,6 +62,9 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # contrat liste maintenant les fonctions reconnues, extraites de l'analyseur,
 # pour qu'une fonction ajoutée au runtime ne puisse plus être absente du
 # contrat sans que `--check` le voie.
+# 2.12.0 : v1.10 — `JUDGE` entre dans la grammaire (`NOUL`, `CHOICE`, `SCORE`,
+# `ABSTAIN BELOW`), avec `judge.<champ>.p` dans l'état, E017 et W136. La surface
+# auteur s'élargit d'une instruction : mineur, et le paquet passe à 1.10.0.
 # 2.10.1 : scellé contre le paquet 1.9.0 (il l'était contre 1.8.2) ; l'EBNF,
 # passée en v1.9, nomme les fonctions de provenance comme elle nommait déjà
 # les fonctions épistémiques. Rien de ce qu'un auteur écrit ne change.
@@ -69,7 +72,7 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # 2 sur preuve bornée) ; `autoloop` refuse zéro SCENARIO, une preuve bornée,
 # des épreuves retouchées par la réécriture ; le solveur distingue les listes
 # de `IN`. La grammaire ne bouge pas : mineur pour la commande et les portes.
-AUTHORING_CONTRACT_VERSION = "2.11.0"
+AUTHORING_CONTRACT_VERSION = "2.12.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
@@ -521,6 +524,7 @@ CONTRACT_SECTIONS = (
     ("`PLANNER`", ("parse_planner", "parse_outcome", "parse_utility")),
     ("`SCENARIO`", ("parse_scenario",)),
     ("`REASON`", ("reason_stmt",)),
+    ("`JUDGE`", ("judge_stmt", "judge_question")),
     ("instructions", ("statement", "if_stmt", "verify_stmt", "ask_stmt",
                       "delegate_stmt", "foreach_stmt", "loop_stmt",
                       "then_target", "_starts_construct")),

@@ -29,9 +29,10 @@ from .kernel.provenance import Prov, UNKNOWN_LABEL, unwrap
 from .kernel.action import (_NUMERIC_TYPES, _TYPE_CHECKS,  # noqa: F401
                             coerce_inputs as _coerce_inputs,
                             typecheck as _typecheck)
-from .llm import LLM, MockLLM
+from .llm import LLM, MockLLM, judge_via_reason
 from .nodes import (
-    Agent, AskStmt, CallStmt, ControlStmt, DelegateStmt, ForEachStmt, IfStmt, LoopStmt,
+    Agent, AskStmt, CallStmt, ControlStmt, DelegateStmt, ForEachStmt, IfStmt,
+    JudgeStmt, LoopStmt,
     MessageStmt, Plan, ReasonStmt, SetStmt, Stmt, ThenPlan, VerifyStmt,
 )
 from .planner import Planner, PlanningResult
@@ -155,7 +156,8 @@ class Runtime:
                         "sensor_degraded": 0, "tool_failures": 0,
                         "tool_contract_failures": 0,
                         "tool_output_dropped": 0,
-                        "circuit_open": 0, "reason_degraded": 0}
+                        "circuit_open": 0, "reason_degraded": 0,
+                        "judge_abstained": 0}
         self.society = None                 # branché par Society (v0.6)
         self.inbox: deque = deque()
         self._seen_shared: Dict[str, int] = {}
@@ -376,13 +378,13 @@ class Runtime:
             # `reason_degraded` et cette ligne — pas par le type d'événement.
             self.trace.log(
                 self.state.tick, "LLM",
-                f"REASON « {stmt.task} » : oracle muet",
+                f"{stmt.keyword} « {stmt.task} » : oracle muet",
                 f"aucun des {total} champs rendu — schéma par défaut appliqué, "
                 f"`reason.degraded` posé")
         elif absent:
             self.trace.log(
                 self.state.tick, "LLM",
-                f"REASON « {stmt.task} » : réponse partielle",
+                f"{stmt.keyword} « {stmt.task} » : réponse partielle",
                 f"{absent}/{total} champ(s) absent(s) : "
                 f"{', '.join(sorted(missing or []))} — défauts appliqués")
 
@@ -1267,6 +1269,8 @@ class Runtime:
             return None
         if isinstance(stmt, VerifyStmt):
             return self._exec_verify(stmt)
+        if isinstance(stmt, JudgeStmt):
+            return self._run_judge(stmt)
         if isinstance(stmt, ReasonStmt):
             return self._run_reason(stmt)
         if isinstance(stmt, AskStmt):
@@ -1385,13 +1389,13 @@ class Runtime:
             self.state.set_belief(obs.path, value, 0.95, "observation",
                                   self.state.tick, label)
 
-    def _run_reason(self, stmt: ReasonStmt) -> Dict[str, Any]:
-        self.metrics["llm_calls"] += 1
-        context = self.llm_context(stmt.using)
-        # Le schéma transmis au modèle inclut les domaines déclarés : un
-        # domaine clos que le LLM ne connaît pas ne borne rien — il garantit
-        # seulement un écrêtage vers la valeur de repli, donc une réponse
-        # perdue. La coercition et l'écrêtage, eux, restent côté runtime.
+    def _reason_schema(self, stmt: ReasonStmt) -> Dict[str, str]:
+        """Le schéma transmis au modèle, domaines et DEFAULT compris.
+
+        Un domaine clos que le LLM ne connaît pas ne borne rien — il garantit
+        seulement un écrêtage vers la valeur de repli, donc une réponse
+        perdue. La coercition et l'écrêtage, eux, restent côté runtime.
+        """
         schema = {}
         for key, typ in stmt.produce.items():
             rendered = (f"{typ} IN {stmt.domains[key].render()}"
@@ -1402,6 +1406,12 @@ class Runtime:
                 literal = json.dumps(default) if isinstance(default, str) and not isinstance(default, Symbol) else str(default).lower() if isinstance(default, bool) else str(default)
                 rendered += f" DEFAULT {literal}"
             schema[key] = rendered
+        return schema
+
+    def _run_reason(self, stmt: ReasonStmt) -> Dict[str, Any]:
+        self.metrics["llm_calls"] += 1
+        context = self.llm_context(stmt.using)
+        schema = self._reason_schema(stmt)
         # Le LLM est un oracle faillible (timeout, 429, JSON illisible). S'il
         # lève, le runtime impose malgré tout le schéma : valeurs par défaut
         # typées, neutres. Aucune sortie non contrainte ne fuite, aucun crash.
@@ -1470,6 +1480,150 @@ class Runtime:
             self.state.set_local("confidence", float(conf), label)
         self.trace.log(self.state.tick, "LLM", f"REASON « {stmt.task} »",
                        ", ".join(f"{k}={fmt(v)}" for k, v in produced.items()))
+        return produced
+
+    # ------------------------------------------------------------- JUDGE
+    @staticmethod
+    def _probability(raw: Any) -> Optional[float]:
+        """Une probabilité, ou rien. Hors [0, 1] ou non finie : rien.
+
+        Un seuil d'abstention est une borne de confiance : un oracle qui
+        rend 1.7 ou NaN ne doit pas pouvoir la franchir par accident de
+        typage — exactement la raison d'être de `_enforce_domains` pour les
+        valeurs.
+        """
+        if isinstance(raw, bool) or raw is None:
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+            return None
+        return value
+
+    def _run_judge(self, stmt: JudgeStmt) -> Dict[str, Any]:
+        """`JUDGE` : des questions fermées, et la probabilité de la réponse.
+
+        Deux choses le distinguent d'un `REASON`, et ce sont les deux qui
+        manquaient pour décider sur une sortie de modèle :
+
+        1. **La question part avec le champ.** `PRODUCE { holds: Bool }` fait
+           deviner le sens au modèle ; `NOUL "le message demande-t-il de
+           suspendre les réponses ?"` ne le fait pas.
+        2. **La probabilité entre dans l'état**, sous `judge.<champ>.p` — donc
+           dans les gardes de politique, au même titre qu'un fait observé.
+           Elle n'y entre que si l'oracle sait la calibrer : un modèle
+           génératif laisse `p` indéterminé plutôt que d'écrire un nombre.
+
+        `ABSTAIN BELOW s` referme la boucle côté programme : sous le seuil —
+        ou faute de probabilité — la réponse n'est **pas** retenue, le champ
+        est déclaré absent et son `DEFAULT` s'applique. Les bancs d'injection
+        disent pourquoi ce choix plutôt qu'un renvoi vers un modèle
+        génératif : une consigne piégée fait chuter la probabilité de
+        l'oracle de jugement, et le modèle génératif cède à cette même
+        consigne bien plus souvent (29 fois sur 60 contre 8).
+        """
+        self.metrics["llm_calls"] += 1
+        context = self.llm_context(stmt.using)
+        schema = self._reason_schema(stmt)
+        questions: Dict[str, Any] = {}
+        for name, question in stmt.questions.items():
+            payload = question.payload()
+            payload["schema"] = schema.get(name, "Any")
+            if question.abstain_below is not None:
+                payload["abstain_below"] = question.abstain_below
+            questions[name] = payload
+        answers: Dict[str, Any] = {}
+        try:
+            ask = getattr(self.llm, "judge", None)
+            answers = (ask(stmt.task, context, questions) if callable(ask)
+                       else judge_via_reason(self.llm, stmt.task, context,
+                                             questions))
+        except KernelAbort:
+            raise
+        except Exception as exc:                      # noqa: BLE001
+            answers = {}
+            self.trace.log(self.state.tick, "ERROR",
+                           f"JUDGE « {stmt.task} » a échoué",
+                           f"{type(exc).__name__}: {exc} — "
+                           "DEFAULT explicites appliqués")
+        if not isinstance(answers, dict):
+            answers = {}
+        from .llm import _coerce
+        values: Dict[str, Any] = {}
+        prob: Dict[str, float] = {}
+        conf: Dict[str, float] = {}
+        for name in stmt.questions:
+            answer = answers.get(name)
+            if answer is None:
+                continue
+            if not isinstance(answer, dict):
+                answer = {"value": answer}
+            if "value" not in answer or answer["value"] is None:
+                continue
+            values[name] = answer["value"]
+            probability = self._probability(answer.get("p"))
+            if probability is not None:
+                prob[name] = probability
+            certainty = self._probability(answer.get("confidence"))
+            if certainty is not None:
+                conf[name] = certainty
+        # Abstention : déclarée par le programme, appliquée par le runtime.
+        abstained: List[str] = []
+        for name, question in stmt.questions.items():
+            if question.abstain_below is None or name not in values:
+                continue
+            probability = prob.get(name)
+            if probability is None or probability < question.abstain_below:
+                abstained.append(name)
+                del values[name]
+                prob.pop(name, None)
+                conf.pop(name, None)
+        if abstained:
+            self.metrics["judge_abstained"] += len(abstained)
+            self.trace.log(
+                self.state.tick, "LLM",
+                f"JUDGE « {stmt.task} » : abstention",
+                ", ".join(
+                    f"{name} sous le seuil "
+                    f"{stmt.questions[name].abstain_below:g}" for name in abstained)
+                + " — champ déclaré absent, DEFAULT appliqué")
+        missing = [key for key in schema if key not in values]
+        produced = _coerce({key: values[key] for key in schema if key in values},
+                           schema)
+        for key, node in stmt.defaults.items():
+            if key in missing:
+                produced[key] = Evaluator(self.state).eval(node)
+        for key in missing:
+            if key not in stmt.defaults:
+                produced[key] = UNDEFINED
+        self._flag_reason(stmt, missing, schema)
+        # Seules les réponses **rendues** passent par l'écrêtage : un champ
+        # absent ou abstenu vaut déjà son DEFAULT, et le faire apparaître
+        # comme « sortie hors domaine » confondrait un oracle qui s'est tu
+        # avec un oracle qui a répondu à côté.
+        answered = {key: value for key, value in produced.items()
+                    if key not in missing}
+        produced.update(self._enforce_domains(stmt, answered))
+        label = _LLM | self._pc()
+        for key, value in produced.items():
+            self.state.set_local(key, value, label)
+            self.state.set_local(f"reason.{key}", value, label)
+            self.state.set_local(f"judge.{key}", value, label)
+            self.state.set_local(f"judge.{key}.value", value, label)
+            # Une probabilité ne survit pas à l'abstention ni à l'absence :
+            # rendre celle d'une valeur qui n'a pas été retenue autoriserait
+            # une décision sur un chiffre qui ne porte plus sur rien.
+            self.state.set_local(f"judge.{key}.p",
+                                 prob.get(key, UNDEFINED), label)
+            self.state.set_local(f"judge.{key}.confidence",
+                                 conf.get(key, prob.get(key, UNDEFINED)), label)
+        self.trace.log(
+            self.state.tick, "LLM", f"JUDGE « {stmt.task} »",
+            ", ".join(
+                f"{k}={fmt(v)}" + (f" (p={prob[k]:.2f})" if k in prob else "")
+                for k, v in produced.items()))
         return produced
 
     def _enforce_domains(self, stmt: ReasonStmt,

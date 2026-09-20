@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.9.0)
+# AGENT-L — sémantique de référence (v1.10.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -518,6 +518,7 @@ obtenir une information, puis rentrer sous contrat.*
 | primitive | oracle | contrat de retour |
 |---|---|---|
 | `REASON` | LLM | schéma `PRODUCE { champ: Type }`, coercition imposée |
+| `JUDGE` | LLM | questions fermées, valeur **et** probabilité (§39) |
 | `ASK` | humain | réponse liée à `answer`, `DEFAULT` si silence/timeout |
 | `DELEGATE` | autre agent | `EXPECT { … }`, champs manquants signalés |
 
@@ -2058,6 +2059,7 @@ permis — il est parfois le bon choix — mais il ne doit pas être silencieux.
 | `W133` | avertissement | `REASON` de plus de huit champs `PRODUCE` : le budget de sortie s'épuise avant la fermeture du JSON |
 | `W134` | avertissement | champ `PRODUCE` gardant une action sans `DEFAULT` explicite, ou avec un `DEFAULT` qui ne déclenche pas l'interdit |
 | `W135` | avertissement | garde de déclenchement (`WHEN`, `IF`, `DECIDE`) comparant `!=` un chemin que rien ne renseigne |
+| `W136` | avertissement | champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW` ni garde sur `judge.<champ>.p` (§39) |
 
 ### L'oracle en panne mène au `DEFAULT` explicite, sinon à `UNDEFINED`
 
@@ -2314,6 +2316,7 @@ compte pas (§7.1).
 |---|---|
 | `E015` | fonction inconnue dans une expression — l'expression serait inévaluable |
 | `E016` | fonction de provenance mal employée : argument qui n'est pas un chemin, `action` hors d'une garde de politique, `ATTESTED(action)`, second argument qui ne nomme pas un `TOOL` |
+| `E017` | question `JUDGE` qui ne demande rien : consigne vide, `CHOICE` sans alternative, option ou niveau sans description, `SCORE` à moins de deux niveaux, seuil d'abstention hors `]0, 1]` |
 
 Avant la v1.9, tout appel en position d'expression était signalé `E009`,
 fonctions pures comprises (`CONFIDENCE(x)`, `len(xs)`), et un nom inconnu dans
@@ -2431,3 +2434,91 @@ sémantique du langage.
   mécanisme de sûreté documenté ; oracle extérieur, un processus par phase,
   versions figées, `run.py --check` pour la CI. Les résultats et leurs
   limites sont dans `bench/frameworks/README.md`.
+
+---
+
+## 39. `JUDGE` — le jugement fermé et sa probabilité (v1.10)
+
+`REASON` transmet un **schéma** et un texte de tâche. Le sens de chaque champ
+reste donc dans son nom et dans une consigne qui les décrit tous à la fois.
+C'est suffisant tant que le champ est évident ; ça ne l'est plus dès que la
+décision en dépend. Les bancs le montrent sans ambiguïté : un oracle lit
+`holds_negative` comme « concerne les mentions négatives » alors que le champ
+demande « le message suspend-il les réponses ? », et répond `yes` à 0,94 — une
+erreur **confiante**, que ni le type, ni le domaine, ni le `DEFAULT` ne
+rattrapent.
+
+`JUDGE` déplace la question dans le programme :
+
+```
+JUDGE "Trier la mention" {
+    USING { m.content }
+
+    holds_negative: NOUL "Le message demande-t-il de SUSPENDRE les réponses
+                          aux mentions négatives ?"
+        DEFAULT true
+
+    kind: CHOICE "De quoi cette mention parle-t-elle ?" {
+        question:           "elle pose une question sur le produit"
+        enterprise_inquiry: "elle exprime un besoin d'entreprise"
+        other:              "aucune des deux"
+    } ABSTAIN BELOW 0.80 DEFAULT other
+
+    frustration: SCORE "À quel point l'auteur est-il mécontent ?" [
+        "calme et factuel",
+        "agacé mais courtois",
+        "très mécontent, menace de partir"
+    ]
+}
+```
+
+### Ce que le runtime en fait
+
+Un `JUDGE` **est** un `REASON` : le parseur en dérive `PRODUCE`, les domaines
+(`CHOICE` → énumération close, `SCORE` → `[0, n-1]`) et les `DEFAULT`. Tout ce
+qui borne déjà une sortie de modèle s'y applique sans exception —
+coercition, écrêtage de domaine, `reason.degraded`, provenance `LLM`,
+`NEVER SEND`, `USING`, `W115`, `W134`.
+
+S'y ajoutent quatre chemins par champ :
+
+| chemin | contenu |
+|---|---|
+| `judge.<champ>` et `judge.<champ>.value` | la réponse retenue |
+| `judge.<champ>.p` | probabilité de **cette** réponse, ou `UNDEFINED` |
+| `judge.<champ>.confidence` | concentration de la distribution, ou `UNDEFINED` |
+
+La probabilité n'est pas une valeur comme une autre : elle n'existe que si
+l'oracle sait la calibrer. Le protocole `LLM.judge()` est implémenté par
+défaut en traduisant les questions vers `reason()` — un programme `JUDGE`
+tourne donc avec n'importe quel oracle — mais cette traduction laisse `p`
+**indéterminé** plutôt que de demander un nombre à un modèle qui l'écrirait.
+Une garde `WHEN judge.kind.p >= 0.90` se referme alors, ce qui est le bon
+défaut : on ne franchit pas un seuil de calibration avec un chiffre inventé.
+
+### `ABSTAIN BELOW` — l'incertitude comme conduite déclarée
+
+Sous le seuil — ou faute de probabilité — la réponse **n'est pas retenue** :
+le champ est déclaré absent, son `DEFAULT` s'applique, `reason.missing` le
+compte et la trace le dit. L'abstention est donc un cas d'oracle muet, pas une
+valeur de repli inventée.
+
+Le choix de l'abstention plutôt que d'un renvoi vers un modèle génératif vient
+d'une mesure, pas d'un principe : sur 60 injections de consignes dans du texte
+non fiable, le modèle génératif a basculé 29 fois et l'oracle de jugement 8,
+en gardant une probabilité basse dans 6 de ces 8 cas. Renvoyer l'incertain
+vers le génératif, c'est donc lui confier précisément les entrées piégées.
+
+`W136` demande que ce choix soit écrit : un champ `JUDGE` qui garde un
+interdit doit soit déclarer son seuil, soit faire porter une garde sur
+`judge.<champ>.p`. Sans l'un des deux, une réponse à 0,51 pèse autant qu'une
+réponse à 0,99.
+
+### Ce que `JUDGE` ne fait pas
+
+Il ne génère rien. Un résumé, un brouillon de réponse, une cause racine en
+texte libre restent du ressort de `REASON` : les trois primitives fermées
+(`NOUL`, `CHOICE`, `SCORE`) sont exactement ce qu'un oracle peut rendre sans
+écrire. Un agent réel mélange donc les deux, et c'est voulu — la frontière
+entre « ce qui se juge » et « ce qui s'écrit » devient visible dans le
+programme.

@@ -4,6 +4,60 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.10.0] — non publié · `JUDGE`, le jugement fermé
+
+Un `REASON` envoie un **type** ; le sens du champ reste dans son nom. Les
+bancs d'oracle du dépôt (`bench/jev_failures.md`) montrent où cela casse :
+`holds_negative` — « le message demande-t-il de suspendre les réponses ? » —
+lu comme « la mention est-elle négative ? », et répondu à 0,94. Une erreur
+**confiante**, que ni le type, ni le domaine, ni le `DEFAULT` ne rattrapent.
+Le paquet passe à 1.10.0 ; le contrat d'auteur à **2.12.0**.
+
+### Ajouté
+
+- **`JUDGE`** (SPEC §39, `references/judge.md`). La question et le sens de
+  chaque réponse possible partent avec le champ :
+
+  ```
+  JUDGE "Trier la mention" {
+      USING { m.content }
+      kind: CHOICE "De quoi cette mention parle-t-elle ?" {
+          question:           "elle pose une question sur le produit"
+          enterprise_inquiry: "elle exprime un besoin d'entreprise"
+          other:              "aucune des deux"
+      } ABSTAIN BELOW 0.80 DEFAULT other
+  }
+  ```
+
+  Trois primitives fermées — `NOUL`, `CHOICE`, `SCORE` — parce que ce sont
+  celles auxquelles un oracle peut répondre **sans rien écrire**.
+- **La probabilité entre dans l'état** : `judge.<champ>.p`,
+  `judge.<champ>.confidence`, `judge.<champ>.value`. Une politique garde donc
+  sur la calibration (`ALLOW send WHEN judge.kind.p >= 0.90`) et non plus sur
+  un nombre que le modèle aurait écrit lui-même.
+- **`ABSTAIN BELOW s`** : sous le seuil — ou faute de probabilité — la réponse
+  n'est pas retenue, le champ est déclaré absent et son `DEFAULT` s'applique.
+  Le choix de l'abstention plutôt que d'un renvoi vers un modèle génératif
+  vient d'une mesure : sur 60 injections de consignes dans du texte non
+  fiable, le modèle génératif a basculé 29 fois, l'oracle de jugement 8.
+- **`LLM.judge()`** dans le protocole d'oracle, avec une implémentation par
+  défaut qui traduit les questions vers `reason()` : un programme `JUDGE`
+  tourne avec n'importe quel adaptateur. Cette traduction laisse `p`
+  **indéterminé** plutôt que de demander un nombre à un modèle qui
+  l'écrirait — la garde se referme, ce qui est le bon défaut.
+  `examples/jev_llm.py` (TypeSafe System One) l'implémente nativement.
+- **Diagnostics** : `E017` (question qui ne demande rien : consigne vide,
+  `CHOICE` sans alternative, option ou niveau sans description, seuil hors
+  `]0, 1]`) et `W136` (champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW`
+  ni garde sur `judge.<champ>.p`).
+
+### Inchangé
+
+Un `JUDGE` **est** un `REASON` dans l'AST : coercition, domaines,
+`reason.degraded`, provenance `LLM`, `USING`, `NEVER SEND`, `W115`, `W134` et
+le vérificateur s'y appliquent sans une ligne de plus. La trace est inchangée :
+les journaux dorés de la v1.8.2 se rejouent à l'octet.
+
 ## [1.9.0] — non publié · le noyau, la reprise, la provenance
 
 Cinq chantiers, un fil : garder le caractère déclaratif et fail-closed du

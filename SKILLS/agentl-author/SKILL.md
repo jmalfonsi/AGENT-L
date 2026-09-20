@@ -37,6 +37,19 @@ python3 ~/AGENT-L/SKILLS/agentl-author/scripts/sync_grammar.py --check
 Pour un agent à effets de bord ou alimenté par du texte non fiable, lire ensuite
 `references/security-authoring.md` : cette référence est obligatoire.
 
+## Ce qui change en v1.10 pour l'auteur
+
+- **`JUDGE` — le jugement fermé.** `REASON` envoie un type ; `JUDGE` envoie la
+  question et le sens de chaque réponse possible, et fait entrer la
+  probabilité dans l'état (`judge.<champ>.p`, `.confidence`). Trois
+  primitives : `NOUL` (une condition tient-elle ?), `CHOICE` (laquelle de ces
+  options décrites ?), `SCORE` (où sur ces niveaux ordonnés ?).
+  `ABSTAIN BELOW s` déclare le seuil sous lequel la réponse n'est pas retenue
+  — le champ devient absent et son `DEFAULT` s'applique. Nouveaux codes :
+  `E017` (question qui ne demande rien) et `W136` (jugement qui garde un
+  interdit sans traiter son doute). Détail, mesures et liste de contrôle :
+  `references/judge.md`.
+
 ## Ce qui change en v1.9 pour l'auteur
 
 - **Provenance dans les valeurs.** Chaque valeur porte l'ensemble de ses
@@ -269,6 +282,7 @@ vérifier un hôte ne doit pas exécuter de code arbitraire.
 | `references/generated/canonical.agent` + `.py` | couple minimal exécutable, régénéré et soumis à toutes les portes plus un test de mutation. Le copier, ne pas le réinventer. |
 | `references/security-authoring.md` | **obligatoire pour effets de bord, cibles ou texte non fiable** : `DEFAULT`, `ATTESTS`, approbation, réobservation, rollback, T6/T7 et W119–W125/B008–B014 ; **provenance v1.9** (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`, `ORIGIN`, E015/E016). |
 | [references/scenarios.md](references/scenarios.md) | **pour écrire ou corriger un test** : sorties et choix explicites, stimuli, assertions, portée de TEST/T5 et codes de sortie. |
+| [references/judge.md](references/judge.md) | **pour faire décider sur une sortie de modèle** : `JUDGE`, `NOUL`/`CHOICE`/`SCORE`, `judge.<champ>.p`, `ABSTAIN BELOW`, E017/W136. |
 | `references/authoring.md` | **pour écrire** : procédure, formes fragiles et pièges appris en production. À lire en entier avant de coder. |
 | `references/business-workflows.md` | **données d'entreprise** (tickets, e-mails, feuilles, CRM) : règle de partage détaillée, `FOREACH`, `REASON` à domaine clos, motifs de `POLICY` qui portent, pièges des API réelles, liste de contrôle de livraison. |
 | `references/runtime-semantics.md` | **pour expliquer un run** : pourquoi N ticks, ordre d'évaluation de la politique, ligne bayésienne, séparation de canaux, **glossaire complet E/W/V/B**, métriques, rejeu ; **noyau à permis, exécution durable (`--durable`, reprise, indéterminé), asynchrone** (v1.9). |
