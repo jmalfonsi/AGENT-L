@@ -61,7 +61,7 @@
     "global": {
       "versions": [
         {
-          "version": "v1.9 (dév.)",
+          "version": "v1.10 (dév.)",
           "default": true,
           "href": "/"
         }
@@ -87,6 +87,7 @@
               "core/agent-program",
               "core/tools-and-host",
               "core/policies",
+              "core/judgment-oracles",
               "core/provenance",
               "core/inference-and-planning",
               "core/multi-agent"

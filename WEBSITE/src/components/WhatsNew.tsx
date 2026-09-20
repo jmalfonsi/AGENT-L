@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Sparkles, ShieldCheck, EyeOff, PlugZap, Infinity as InfinityIcon, Plug,
   Timer, Network, Crosshair, FileSignature, AlertTriangle, Trash2, ArrowRight,
-  KeyRound, DatabaseBackup, Fingerprint, Workflow, Scale
+  KeyRound, DatabaseBackup, Fingerprint, Workflow, Scale, Gavel, Gauge
 } from 'lucide-react';
 import { AgentLText } from './AgentLLogo';
 
@@ -52,6 +52,49 @@ const TONES: Record<Entry['tone'], { chip: string; border: string; icon: string 
 };
 
 const ENTRIES: Entry[] = [
+  {
+    version: 'v1.10',
+    tag: 'Jugement',
+    tone: 'emerald',
+    icon: Gavel,
+    title: 'JUDGE — la question part avec le champ, la probabilité entre dans la politique',
+    spec: 'SPEC §39',
+    body:
+      "Un REASON envoie un type ; le sens du champ reste dans son nom. Sur le banc, « suspendre les réponses aux " +
+      "mentions négatives ? » a été lu « la mention est-elle négative ? » et répondu à 0,94. JUDGE écrit la question " +
+      "dans le programme (NOUL, CHOICE, SCORE), décrit chaque réponse possible, et publie judge.<champ>.p : la " +
+      "politique garde sur la calibration du jugement. ABSTAIN BELOW déclare le seuil sous lequel la réponse n'est " +
+      "pas retenue — le DEFAULT s'applique. Rejeu des 13 erreurs relevées : 1/13 corrigées en REASON, 11/13 en JUDGE.",
+    codes: ['E017', 'W136'],
+    snippet: `JUDGE "Trier la mention" {
+    USING { mention.content }
+    kind: CHOICE "Que fait l'auteur ?" {
+        question:           "il pose une question produit"
+        enterprise_inquiry: "il exprime un besoin d'entreprise"
+        generic:            "simple mention d'usage"
+    } ABSTAIN BELOW 0.80 DEFAULT generic
+}
+POLICY { ALLOW send_reply WHEN judge.kind.p >= 0.90 }`
+  },
+  {
+    version: 'v1.10',
+    tag: 'Oracle',
+    tone: 'cyan',
+    icon: Gauge,
+    title: 'Jev (TypeSafe System One) — un oracle de jugement calibré, −42 % d’appels génératifs',
+    spec: 'SPEC §39',
+    body:
+      "L'adaptateur examples/jev_llm.py (urllib seul, zéro dépendance) route chaque champ : domaine clos vers Choice, " +
+      "booléen vers Noul, nombre vers une sélection parmi les nombres du contexte, texte libre vers le modèle " +
+      "génératif en parallèle. Neuf tâches AutomationBench : 9/9 réussies comme Gemini seul, 42 % d'appels génératifs " +
+      "en moins, 13 % de temps d'oracle en moins (30 à 43 % sur les tâches à champs clos), 0,003 $ de Jev. Sous 60 " +
+      "injections de consignes, le modèle génératif bascule 29 fois, Jev 8 fois — d'où l'abstention plutôt que le renvoi " +
+      "vers le génératif.",
+    snippet: `AGENTL_ORACLE=hybrid python3 bench/run_task.py \
+    marketing marketing.social_mention_response --llm
+
+llm = JevLLM(fallback=GeminiLLM())`
+  },
   {
     version: 'v1.9',
     tag: 'Noyau',
@@ -318,7 +361,7 @@ agentl replay run.json --require-seal`
   }
 ];
 
-const VERSIONS = ['Toutes', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
+const VERSIONS = ['Toutes', 'v1.10', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
 
 export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
   const [filter, setFilter] = useState<string>('Toutes');
@@ -331,7 +374,7 @@ export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
       <div className="mb-10 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-3 py-1 text-xs font-mono font-semibold text-cyan-400 mb-3">
           <Sparkles className="h-3.5 w-3.5" />
-          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.9'}
+          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.10'}
         </div>
         <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           {compact ? 'Ce qui change dans AGENT-L' : 'Évolutions majeures du langage et du moteur'}

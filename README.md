@@ -574,8 +574,82 @@ démentis.
 **11. L'hôte fournit des faits, l'agent décide.** Un interdit ne garde que ce
 qu'on lui donne à voir. `boundary` aide à revoir cette règle, sans la démontrer.
 
----
+## Un oracle qui juge plutôt qu'il ne devine — `JUDGE` et Jev (v1.10)
 
+Un `REASON` envoie un **type** ; le sens du champ reste dans son nom. Le banc
+d'AutomationBench a montré où cela casse : `holds_negative` — « le message
+demande-t-il de *suspendre* les réponses aux mentions négatives ? » — a été lu
+« la mention est-elle négative ? » et répondu `yes` **à 0,94**. Ni le type, ni
+le domaine `IN […]`, ni le `DEFAULT` ne rattrapent une erreur confiante.
+
+`JUDGE` écrit la question dans le programme, décrit chaque réponse possible, et
+fait entrer la **probabilité** de la réponse dans la politique :
+
+```
+JUDGE "Trier la mention" {
+    USING { mention.content }
+    kind: CHOICE "Que fait l'auteur de la mention ?" {
+        question:           "il pose une question sur le produit"
+        enterprise_inquiry: "il exprime un besoin d'entreprise"
+        generic:            "il mentionne un usage, sans question"
+    } ABSTAIN BELOW 0.80 DEFAULT generic
+}
+
+POLICY {
+    ALLOW send_reply WHEN judge.kind.p >= 0.90
+}
+```
+
+Trois primitives fermées — `NOUL`, `CHOICE`, `SCORE` — parce que ce sont celles
+auxquelles un oracle répond **sans rien écrire**. Un `JUDGE` *est* un `REASON`
+dans l'AST : coercition, domaines, `reason.degraded`, provenance `LLM`, `USING`,
+`NEVER SEND` et le vérificateur s'appliquent sans changement. `ABSTAIN BELOW`
+déclare le seuil sous lequel la réponse n'est pas retenue (champ absent,
+`DEFAULT` appliqué) ; `W136` refuse de laisser un jugement garder un interdit
+sans traiter son doute. Un oracle qui ne sait pas calibrer laisse `p`
+**indéterminé** : la garde se referme au lieu de franchir un seuil avec un
+chiffre écrit par un modèle.
+
+**Jev**, le modèle System One de [TypeSafe](https://docs.typesafe.ai), est
+l'oracle qui répond à ces questions : il ne génère pas de texte, il rend une
+distribution de probabilité sur les réponses énumérées. L'adaptateur
+`examples/jev_llm.py` (urllib seul, zéro dépendance) route chaque champ —
+domaine clos → Choice, booléen → Noul, nombre → sélection parmi ceux du
+contexte, texte libre → modèle génératif, appelé en parallèle.
+
+| mesure (9 tâches AutomationBench, gemini-3.1-flash-lite) | Gemini seul | hybride Jev + Gemini |
+|---|---|---|
+| tâches réussies | 9/9 | 9/9 |
+| appels au modèle génératif | 69 | **40** (−42 %) |
+| jetons génératifs (entrée / sortie) | 27,3k / 10,7k | 12,4k / 6,3k |
+| temps d'oracle | 70,1 s | **61,3 s** (−13 %) |
+| consignes injectées ayant fait basculer la réponse (60) | 29 | **8** (Jev) |
+| 13 erreurs de jugement rejouées : corrigées | 1/13 (`REASON`) | **11/13** (`JUDGE`) |
+
+Sur les tâches dont tous les champs sont clos, le temps d'oracle baisse de 30 à
+43 %. Jev seul réussit 5 tâches sur 9 : les échecs sont des champs de texte
+libre, qu'un modèle System One ne prétend pas produire. Coût Jev : 0,003 $.
+
+**Ce que la mesure ne dit pas** : une passe par configuration, un seul modèle
+génératif, un seul banc. Jev n'est pas déterministe (≈ ±0,06 sur des appels
+identiques). Et deux des 13 cas restent hors de portée de `JUDGE` :
+l'extraction d'un nombre, et une consigne forgée *dans* le texte même que la
+question examine — `ABSTAIN BELOW` les referme, il ne les corrige pas. C'est
+pourquoi la conclusion du banc d'injection est d'**abstenir** sous le seuil
+plutôt que de renvoyer la question au modèle génératif, qui cède plus souvent
+au texte piégé. Aucun des deux ne remplace `NEVER` ni `REQUIRE APPROVAL` sur
+l'action elle-même.
+
+```bash
+AGENTL_ORACLE=hybrid python3 bench/run_task.py marketing marketing.social_mention_response --llm
+python3 bench/jev_judge_replay.py --repeat 3      # les 13 échecs, rejoués en JUDGE
+python3 -m agentl test examples/mention_triage.agent   # JUDGE hors ligne
+```
+
+Détail : [`docs/SPEC.md`](docs/SPEC.md) §39, [`bench/jev_failures.md`](bench/jev_failures.md),
+[`SKILLS/agentl-author/references/judge.md`](SKILLS/agentl-author/references/judge.md).
+
+---
 ## Brancher un vrai LLM, un vrai monde
 
 `MockLLM` rend les exécutions déterministes et testables. Pour un vrai modèle :
@@ -586,6 +660,9 @@ from agentl import AnthropicLLM, Runtime, parse_file
 agent = parse_file("examples/soc_analyst.agent").agents[0]
 Runtime(agent, host, AnthropicLLM(model="claude-sonnet-5")).run()
 ```
+
+`JevLLM` (`examples/jev_llm.py`) branche un oracle de jugement calibré, avec
+repli génératif : `JevLLM(fallback=GeminiLLM())`.
 
 L'adaptateur impose un JSON strict et **coerce** la réponse au schéma
 `PRODUCE`. Pour un champ absent ou un nombre non fini (`NaN`, `±inf`), seul un
@@ -1481,7 +1558,7 @@ blocked: 0
 
 | option de `run_task.py` | effet |
 |---|---|
-| `--llm` | branche l'oracle réel (Gemini). **Requis pour toute tâche dont un `REASON` porte le jugement** — sans lui, seuls les `DEFAULT` explicitement déclarés s'appliquent ; les autres champs restent `UNDEFINED`. `hr.offboarding_automation` rend 0.14 sans, 1.00 avec. |
+| `--llm` | branche l'oracle réel (Gemini par défaut ; `AGENTL_ORACLE=hybrid` ou `jev` pour Jev, voir « `JUDGE` et Jev »). **Requis pour toute tâche dont un `REASON` porte le jugement** — sans lui, seuls les `DEFAULT` explicitement déclarés s'appliquent ; les autres champs restent `UNDEFINED`. `hr.offboarding_automation` rend 0.14 sans, 1.00 avec. |
 | `--ticks N` | plafond de ticks (défaut 6) |
 | `--echo` | trace du runtime en direct |
 
@@ -1526,7 +1603,7 @@ bancs, de laboratoires et d'outillage qui **ne sont pas des dépendances** :
 ```
 agentl/                 core Python (28 modules de premier niveau, 0 dépendance)
 agentl/studio/          studio web : session instrumentée, serveur, interface
-tests/                  1 325 tests du paquet — `pytest` sans argument
+tests/                  1 381 tests du paquet — `pytest` sans argument
 docs/agentl.ebnf        grammaire formelle complète
 docs/SPEC.md            sémantique : modèle, cycle, algorithme de politique
 docs/QUALITY.md         critères reproductibles du niveau interne Grade AAA
@@ -1536,6 +1613,7 @@ bench/frameworks/       banc comparatif AGENT-L / LangGraph / PydanticAI /
 docs/formal/            modèle TLA+ du protocole du noyau (v1.9)
 SKILLS/agentl-author/   skill d'écriture d'agents : méthode, pièges, checklist
 examples/               SOC, risque, société, maintenance, medic réel,
+                        mention_triage (JUDGE), jev_llm.py (oracle Jev),
                         supervision industrielle (VALMONT), majordome Gmail,
                         classic_medic.py / langgraph_medic.py (mêmes
                         incidents, autres architectures),

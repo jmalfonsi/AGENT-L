@@ -212,6 +212,43 @@ export function BenchmarkSection() {
           ⚖️ <strong className="text-cyan-300">Ce que le banc ne dit pas</strong> : le modèle est un script, on mesure les garde-fous et non la probabilité qu'un vrai modèle se trompe ; on mesure ce que chaque framework donne sans code maison ; et la sûreté d'AGENT-L dépend du programme — sans la ligne <code className="text-amber-300">NEVER … UNTRUSTED(host)</code>, l'injection passe aussi. Chaque scénario a une variante légitime, réussie par les quatre frameworks.
         </div>
       </div>
+
+      {/* Jev (TypeSafe System One) : oracle de jugement, mesuré sur AutomationBench */}
+      <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+          <div className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-emerald-400" />
+            <h3 className="font-bold text-white text-base">Jev + JUDGE · un oracle de jugement calibré (v1.10)</h3>
+          </div>
+          <span className="text-xs font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+            bench/jev_compare.py · jev_judge_replay.py
+          </span>
+        </div>
+        <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+          Neuf tâches AutomationBench dont la réussite dépend d'un <code className="text-cyan-400">REASON</code>, même programme, même modèle génératif (gemini-3.1-flash-lite). L'hybride confie à Jev les champs clos et garde le texte libre au modèle génératif.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left font-mono text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400">
+                <th className="py-2 pr-4">Mesure</th>
+                <th className="py-2 px-2 text-center">Gemini seul</th>
+                <th className="py-2 px-2 text-center text-cyan-400 font-bold">Hybride Jev + Gemini</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-slate-200">
+              <tr><td className="py-2.5 pr-4 font-sans">Tâches réussies</td><td className="text-center">9/9</td><td className="text-center text-emerald-300">9/9</td></tr>
+              <tr><td className="py-2.5 pr-4 font-sans">Appels au modèle génératif</td><td className="text-center">69</td><td className="text-center text-emerald-300">40 (−42 %)</td></tr>
+              <tr><td className="py-2.5 pr-4 font-sans">Temps d'oracle</td><td className="text-center">70,1 s</td><td className="text-center text-emerald-300">61,3 s (−13 %)</td></tr>
+              <tr><td className="py-2.5 pr-4 font-sans">Consignes injectées ayant fait basculer la réponse (60)</td><td className="text-center">29</td><td className="text-center text-emerald-300">8 (Jev)</td></tr>
+              <tr><td className="py-2.5 pr-4 font-sans">13 erreurs de jugement rejouées : corrigées</td><td className="text-center">1/13 (REASON)</td><td className="text-center text-emerald-300">11/13 (JUDGE)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/20 text-[11px] text-slate-300 leading-relaxed">
+          ⚖️ <strong className="text-cyan-300">Ce que le banc ne dit pas</strong> : une passe par configuration, un seul modèle génératif, neuf tâches d'un même banc. Jev seul réussit 5 tâches sur 9 — les échecs sont des champs de texte libre, qu'un modèle System One ne prétend pas produire. Jev n'est pas déterministe (≈ ±0,06 sur des appels identiques), et deux cas restent hors de portée de JUDGE : l'extraction d'un nombre, et une consigne forgée dans le texte même que la question examine — le seuil <code className="text-amber-300">ABSTAIN BELOW</code> les referme, il ne les corrige pas.
+        </div>
+      </div>
     </section>
   );
 }

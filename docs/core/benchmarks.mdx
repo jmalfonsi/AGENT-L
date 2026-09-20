@@ -83,3 +83,7 @@ BENCH_LANGGRAPH_DURABILITY=async .venv/bin/python run.py --only langgraph --scen
 ```
 
 Le rapport consigne les versions, Python, la plateforme et le commit d’AGENT-L. Aucun réseau ni aucune clé d’API ne sont nécessaires.
+
+## Un autre banc : l’oracle, pas les garde-fous
+
+Le banc ci-dessus fixe le modèle et compare les garde-fous. Un second jeu de bancs (`bench/jev_*.py`) fait l’inverse : même programme, même garde-fous, on change l’**oracle** — Gemini seul, hybride Jev + Gemini, Jev seul — sur neuf tâches AutomationBench. Résultats (−42 % d’appels génératifs, 8 injections sur 60 contre 29) et limites : [Jugement et oracles](/core/judgment-oracles).

@@ -2,6 +2,37 @@ import { DocSection, ErrorCodeInfo } from '../types';
 
 export const DOC_SECTIONS: DocSection[] = [
   {
+    id: 'v110-judge-jev',
+    title: 'v1.10 — JUDGE et l’oracle Jev',
+    iconName: 'ShieldCheck',
+    summary: 'JUDGE pose la question avec le champ et fait entrer la probabilité de la réponse dans la politique. L’adaptateur Jev (TypeSafe System One) la calibre. Documentation complète sur doc.agent-l.integria.app.',
+    content: `
+### Le problème (SPEC §39)
+Un \`REASON\` envoie un **type**, pas une question : le sens du champ reste dans son nom. Sur le banc, \`holds_negative\` — « le message demande-t-il de suspendre les réponses aux mentions négatives ? » — a été lu « la mention est-elle négative ? » et répondu \`yes\` à **0,94**. Ni le type, ni le domaine, ni le \`DEFAULT\` ne rattrapent une erreur confiante.
+
+### La primitive
+\`JUDGE\` porte la **question** et le sens de chaque réponse : \`NOUL\` (une condition tient-elle ?), \`CHOICE\` (laquelle de ces options décrites ?), \`SCORE\` (où sur ces niveaux ordonnés ?). Le runtime publie \`judge.<champ>\`, \`.value\`, \`.p\` et \`.confidence\` : une politique garde sur la calibration, pas sur un nombre que le modèle écrit lui-même. \`ABSTAIN BELOW s\` déclare le seuil sous lequel la réponse n'est pas retenue — le champ est absent et son \`DEFAULT\` s'applique.
+
+### Un JUDGE est un REASON
+Le parseur en dérive \`PRODUCE\`, domaines et \`DEFAULT\` : coercition, écrêtage, \`reason.degraded\`, provenance \`LLM\`, \`USING\`, \`NEVER SEND\` et le vérificateur s'appliquent sans changement. Un oracle qui ne sait pas calibrer laisse \`p\` **indéterminé** : la garde se referme plutôt que de franchir un seuil avec un chiffre inventé.
+
+### Jev (TypeSafe System One)
+\`examples/jev_llm.py\` : adaptateur sans dépendance. Neuf tâches AutomationBench, hybride Jev + Gemini : **9/9** comme Gemini seul, **−42 %** d'appels génératifs, **−13 %** de temps d'oracle, 0,003 $. Sous 60 injections de consignes, le modèle génératif bascule **29** fois, Jev **8**. Rejeu des 13 erreurs relevées : 1/13 corrigées avec \`REASON\`, **11/13** avec \`JUDGE\`.
+
+### Documentation
+https://doc.agent-l.integria.app/core/judgment-oracles
+    `,
+    codeSnippet: `JUDGE "Trier la mention" {
+    USING { mention.content }
+    kind: CHOICE "Que fait l'auteur ?" {
+        question:           "il pose une question produit"
+        enterprise_inquiry: "il exprime un besoin d'entreprise"
+        generic:            "simple mention d'usage"
+    } ABSTAIN BELOW 0.80 DEFAULT generic
+}
+POLICY { ALLOW send_reply WHEN judge.kind.p >= 0.90 }`
+  },
+  {
     id: 'v19-kernel-durable-provenance',
     title: 'v1.9 — Noyau, reprise durable, provenance, asynchrone',
     iconName: 'ShieldCheck',
@@ -552,6 +583,14 @@ agentl replay run.json --require-seal
 
 export const ERROR_CODES: ErrorCodeInfo[] = [
   {
+    code: 'E017',
+    type: 'E',
+    category: 'Analyse',
+    summary: 'Question JUDGE qui ne demande rien',
+    explanation: 'Consigne vide, CHOICE sans alternative, option ou niveau sans description, SCORE à moins de deux niveaux, ou seuil ABSTAIN BELOW hors ]0, 1]. L\'oracle n\'a pas de jugement à rendre : la valeur produite ne veut rien dire.',
+    remedy: 'Écrire la question, décrire chaque option ou niveau par une situation concrète, et donner au moins deux réponses possibles.'
+  },
+  {
     code: 'E001',
     type: 'E',
     category: 'Analyse',
@@ -662,6 +701,14 @@ export const ERROR_CODES: ErrorCodeInfo[] = [
     summary: 'Valeur DEFAULT ne déclenchant pas la sécurité attendue',
     explanation: 'En cas d\'erreur de parsing ou d\'indisponibilité du LLM, la valeur DEFAULT est assignée. Elle doit donc garantir un comportement sécurisé par défaut.',
     remedy: 'Choisir une valeur DEFAULT qui active la règle de sécurité NEVER en cas de panne.'
+  },
+  {
+    code: 'W136',
+    type: 'W',
+    category: 'Avertissement',
+    summary: 'Jugement qui garde un interdit sans traiter son doute',
+    explanation: 'Un champ JUDGE garde un NEVER/DENY/REQUIRE APPROVAL sans ABSTAIN BELOW ni garde sur judge.<champ>.p : une réponse à 0,51 pèse alors autant qu\'une réponse à 0,99.',
+    remedy: 'Déclarer ABSTAIN BELOW <seuil> sur le champ, ou garder sur judge.<champ>.p dans la politique.'
   },
   {
     code: 'V101',

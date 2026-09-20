@@ -157,6 +157,10 @@ Les wrappers enregistrent ou rejouent les lectures, outils, approbations et rép
   <Accordion title="Runtime">
     `Host`, `LLM`, `MockLLM`, `AnthropicLLM`, `Runtime`, `Trace`, `Society`.
   </Accordion>
+  <Accordion title="Jugement fermé (v1.10)">
+    `LLM.judge(task, context, questions)` rend `{champ: {value, p, confidence}}`. L’implémentation par défaut traduit vers `reason()` et laisse `p` indéterminé ; un adaptateur qui sait calibrer la redéfinit (`examples/jev_llm.py`, `JevLLM`). `MockLLM({"tâche": {"kind": {"value": "question", "p": 0.94}}})` script un jugement et sa probabilité. Détail : [Jugement et oracles](/core/judgment-oracles).
+  </Accordion>
+
   <Accordion title="Noyau, reprise, asynchrone (v1.9)">
     `agentl.kernel` : `Kernel`, `ExecutionPermit`, `ActionRequest`, `current_action`, `require_permit`, `TCB_FILES`. `agentl.durable` : `DurableRun`, `FileStore`, `SQLiteStore`, `MemoryStore`, `NOT_EXECUTED`. `agentl.aio` : `AsyncHost`, `AsyncRuntime`, `AsyncSociety`, `Limits`.
   </Accordion>

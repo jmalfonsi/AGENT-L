@@ -34,7 +34,7 @@ export function Header({ activeTab, setActiveTab }: HeaderProps) {
                   AGENT-L
                 </span>
                 <span className="inline-block px-2 py-0.5 border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase tracking-widest font-mono rounded-none">
-                  v1.9
+                  v1.10
                 </span>
               </div>
               <p className="text-[10px] font-mono text-cyan-400/80 hidden sm:block tracking-wide font-semibold">

@@ -110,7 +110,10 @@ POLICY {
   </Step>
 </Steps>
 
-<Columns cols={2}>
+<Columns cols={3}>
+  <Card title="Garder sur un jugement" icon="gavel" href="/core/judgment-oracles">
+    `ALLOW send WHEN judge.kind.p >= 0.90` : la politique lit la calibration, pas une confiance déclarée.
+  </Card>
   <Card title="Vérifier les théorèmes" icon="badge-check" href="/core/verifier">
     Examinez routes interdites, replis et surface LLM.
   </Card>
