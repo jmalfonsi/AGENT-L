@@ -212,6 +212,64 @@ class TestReason(unittest.TestCase):
             llm.reason("route", {}, {"category": "Any IN [billing, technical]"})
         self.assertEqual(llm.last_reason_missing, ["category"])
 
+    def test_fallback_outage_keeps_the_closed_fields_jev_answered(self):
+        # Une panne Gemini ne concerne que les champs qui lui étaient confiés :
+        # elle faisait échouer tout le REASON, et le runtime appliquait les
+        # DEFAULT aux champs que Jev venait de rendre.
+        class Down(MockLLM):
+            def reason(self, task, context, produce):
+                raise urllib.error.HTTPError("u", 503, "down", {}, None)
+
+        llm = ScriptedJev({"category": choice("billing", billing=0.9, technical=0.1)},
+                          fallback=Down())
+        out = llm.reason("route", {}, {"category": "Any IN [billing, technical]",
+                                       "summary": "String"})
+        self.assertEqual(out["category"], "billing")
+        self.assertEqual(llm.last_reason_missing, ["summary"])
+        self.assertIn("HTTPError", llm.calls[-1]["fallbackErrors"][0])
+
+    def test_everything_down_is_raised_not_returned_empty(self):
+        class Down(MockLLM):
+            def reason(self, task, context, produce):
+                raise urllib.error.HTTPError("u", 503, "down", {}, None)
+
+        # Jev et le repli tombés : c'est une panne, que le runtime doit
+        # tracer — pas un REASON « répondu » où tout serait absent.
+        llm = ScriptedJev(urllib.error.HTTPError("u", 401, "no", {}, None),
+                          fallback=Down())
+        with self.assertRaises(Exception):
+            llm.reason("route", {}, {"category": "Any IN [billing, technical]",
+                                     "summary": "String"})
+
+    def test_jev_outage_does_not_ask_the_open_fields_twice(self):
+        class Recording(MockLLM):
+            def __init__(self):
+                super().__init__()
+                self.fields = []
+
+            def reason(self, task, context, produce):
+                self.fields.append(sorted(produce))
+                return super().reason(task, context, produce)
+
+        fallback = Recording()
+        llm = ScriptedJev(urllib.error.HTTPError("u", 401, "no", {}, None),
+                          fallback=fallback)
+        llm.reason("route", {}, {"category": "Any IN [billing, technical]",
+                                 "summary": "String"})
+        asked = [f for call in fallback.fields for f in call]
+        self.assertEqual(sorted(asked), ["category", "summary"])
+
+    def test_escalated_noul_reports_the_probability_of_the_kept_value(self):
+        # Jev : P(oui) = 0,6 ; le repli répond non. La confiance est celle de
+        # « non » selon Jev (0,4), pas celle de sa propre réponse (0,6).
+        fallback = MockLLM({"route": {"urgent": False}})
+        llm = ScriptedJev({"urgent": {"type": "noul", "noul": 0.6}},
+                          fallback=fallback, escalate_below=0.7)
+        out = llm.reason("route", {}, {"urgent": "Bool",
+                                       "urgent_confidence": "Number IN [0, 1]"})
+        self.assertIs(out["urgent"], False)
+        self.assertAlmostEqual(out["urgent_confidence"], 0.4)
+
 
 class TestSelectPlan(unittest.TestCase):
     def test_plan_is_chosen_among_candidates(self):

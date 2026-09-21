@@ -38,6 +38,8 @@ def make_llm(model: str = ""):
                 os.environ.setdefault(key, value.strip().strip('"\''))
     # `AGENTL_ORACLE=hybrid` : Jev (TypeSafe) pour les champs clos, Gemini
     # pour le texte libre ; `jev` : Jev seul. Défaut : Gemini seul.
+    # `AGENTL_LAYA=1` place Laya (service local :8099) devant Jev pour les
+    # jugements courts qu'il sait trancher.
     return oracle_from_env(model)
 
 

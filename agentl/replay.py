@@ -7,12 +7,13 @@ auditeur demande quand il dit « reproduisez cette décision ».
 L'observation qui rend la chose bon marché : le cœur d'AGENT-L n'a **aucune
 source de non-déterminisme propre** — ni horloge, ni tirage aléatoire, ni
 identifiant volatil. Tout ce qui varie d'une exécution à l'autre traverse la
-frontière de l'hôte ou celle du modèle, soit huit points d'entrée :
+frontière de l'hôte ou celle du modèle, soit neuf points d'entrée :
 
     Host.read()    Host.invoke()   Host.ask()    Host.approve()
     Host.drain()   DELEGATE        LLM.reason()  LLM.select_plan()
+    LLM.judge()
 
-Journaliser ces huit-là suffit. Le contrat est donc :
+Journaliser ces neuf-là suffit. Le contrat est donc :
 
     host, llm = RecordingHost(host, journal), RecordingLLM(llm, journal)
     Runtime(agent, host, llm).run()
@@ -62,6 +63,7 @@ from typing import Any, Callable, Dict, List, Optional
 from .core import AgentLError, Symbol
 from .kernel.errors import KernelAbort
 from .kernel.provenance import Labeled, Prov
+from .llm import ask_judge
 from .seal import (ChainReport, SignatureReport, SigningKey, chain_hashes,
                    chain_head, sign, verify_chain, verify_signature)
 
@@ -75,7 +77,7 @@ READABLE_FORMATS = (1, 2)
 #: enregistrement, mais pas un point de non-déterminisme : il note seulement
 #: si un sous-agent était présent, pour que son absence se rejoue aussi.
 KINDS = ("read", "invoke", "ask", "approve", "drain", "delegate",
-         "delegate_lookup", "reason", "select_plan",
+         "delegate_lookup", "reason", "select_plan", "judge",
          "intent", "resolution", "checkpoint")
 
 #: Entrées d'**annotation** écrites par l'exécution durable (v1.9) : une
@@ -591,6 +593,21 @@ class RecordingLLM:
         self._journal.record("select_plan", key, value=value)
         return value
 
+    def judge(self, task: str, context: Dict[str, Any],
+              questions: Dict[str, Dict[str, Any]]) -> Any:
+        # Sans cette méthode, `judge` filait par `__getattr__` jusqu'à
+        # l'oracle réel sans laisser de trace : le journal d'un agent à
+        # `JUDGE` était incomplet, et son rejeu divergeait au premier
+        # jugement (v1.10). La réponse journalisée porte `p` : c'est elle que
+        # la politique a lue.
+        try:
+            value = ask_judge(self._inner, task, context, questions)
+        except BaseException as exc:                      # noqa: BLE001
+            self._journal.record("judge", task, error=exc)
+            raise
+        self._journal.record("judge", task, value=value)
+        return value
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
@@ -671,3 +688,7 @@ class ReplayLLM:
     def select_plan(self, context: Dict[str, Any],
                     candidates: List[str]) -> Optional[str]:
         return self.journal.replay_value("select_plan", "|".join(candidates))
+
+    def judge(self, task: str, context: Dict[str, Any],
+              questions: Dict[str, Dict[str, Any]]) -> Any:
+        return self.journal.replay_value("judge", task)

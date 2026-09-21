@@ -29,7 +29,7 @@ from .kernel.provenance import Prov, UNKNOWN_LABEL, unwrap
 from .kernel.action import (_NUMERIC_TYPES, _TYPE_CHECKS,  # noqa: F401
                             coerce_inputs as _coerce_inputs,
                             typecheck as _typecheck)
-from .llm import LLM, MockLLM, judge_via_reason
+from .llm import LLM, MockLLM, ask_judge
 from .nodes import (
     Agent, AskStmt, CallStmt, ControlStmt, DelegateStmt, ForEachStmt, IfStmt,
     JudgeStmt, LoopStmt,
@@ -1536,10 +1536,7 @@ class Runtime:
             questions[name] = payload
         answers: Dict[str, Any] = {}
         try:
-            ask = getattr(self.llm, "judge", None)
-            answers = (ask(stmt.task, context, questions) if callable(ask)
-                       else judge_via_reason(self.llm, stmt.task, context,
-                                             questions))
+            answers = ask_judge(self.llm, stmt.task, context, questions)
         except KernelAbort:
             raise
         except Exception as exc:                      # noqa: BLE001

@@ -63,6 +63,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from .core import AgentLError
 from .kernel.action import canonical
 from .kernel.errors import ActionInDoubt, KernelAbort
+from .llm import ask_judge
 from .replay import (ANNOTATIONS, Entry, Journal, ReplayDivergence, _NO_ARGS,
                      _missing_args, _rebuild_error, decode, missing_of, sha256)
 from .seal import chain_head, chain_step
@@ -616,6 +617,16 @@ class DurableLLM:
         return self._journal.crossing(
             "select_plan", "|".join(candidates),
             lambda: self._inner.select_plan(context, candidates))
+
+    def judge(self, task: str, context: Dict[str, Any],
+              questions: Dict[str, Dict[str, Any]]) -> Any:
+        # Servi par le journal pendant la reprise, comme `reason`. Un oracle
+        # de jugement n'est pas déterministe (Jev : ±0,06 sur la même
+        # question) : le rappeler à la reprise pouvait changer la décision
+        # déjà prise — et faire refuser la reprise au franchissement suivant.
+        return self._journal.crossing(
+            "judge", task,
+            lambda: ask_judge(self._inner, task, context, questions))
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)

@@ -56,6 +56,7 @@ from .kernel.errors import ActionInDoubt, Cancelled, KernelAbort
 from .kernel.gate import approval_granted
 from .kernel.permit import activated, active_dispatch, require_permit
 from .kernel.provenance import RUNTIME, Prov
+from .llm import judge_via_reason
 
 
 # =========================================================================
@@ -404,6 +405,24 @@ class _BridgedLLM:
         return self._bridge.call(
             "llm", _awaitable(self._inner.select_plan, context, candidates),
             "sélection de plan")
+
+    def judge(self, task: str, context: Dict[str, Any],
+              questions: Dict[str, Dict[str, Any]]) -> Any:
+        """Le jugement passe par le pont, sous le même délai et la même borne
+        de concurrence que `reason`.
+
+        Par `__getattr__`, il échappait aux deux — et un `async def judge`
+        rendait une coroutine jamais attendue, lue par le runtime comme un
+        oracle muet.
+        """
+        ask = getattr(self._inner, "judge", None)
+        if not callable(ask):
+            # Adaptateur sans `judge` : la traduction passe par notre
+            # `reason`, donc par le pont elle aussi.
+            return judge_via_reason(self, task, context, questions)
+        return self._bridge.call(
+            "llm", _awaitable(ask, task, context, questions),
+            f"JUDGE « {task} »")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)

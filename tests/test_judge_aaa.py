@@ -402,3 +402,117 @@ def test_a_posed_answer_without_a_probability_is_certain():
         "t", {}, {"kind": {"kind": "CHOICE"}})
 
     assert answers["kind"]["p"] == 1.0
+
+
+# ================================================================= ENVELOPPES
+# Le runtime ne parle pas toujours à l'oracle en direct : l'enregistrement, la
+# reprise durable et le pont asynchrone l'enveloppent. Chacune définissait
+# `reason` et `select_plan` mais pas `judge`, qui filait par `__getattr__`
+# jusqu'à l'oracle réel — ni journalisé, ni rejouable, ni borné.
+_SCRIPT = {"Trier la mention": {
+    "kind": {"value": "question", "p": 0.93, "confidence": 0.9},
+    "holds_negative": {"value": False, "p": 0.88},
+    "frustration": {"value": 0.4, "p": 0.81}}}
+
+
+class _Counting(MockLLM):
+    def __init__(self, scripted):
+        super().__init__(scripted)
+        self.judged = 0
+
+    def judge(self, task, context, questions):
+        self.judged += 1
+        return super().judge(task, context, questions)
+
+
+def test_a_recorded_judgement_replays_identically():
+    """Le jugement est journalisé avec sa probabilité, et le rejeu le rend
+    sans oracle : même valeur, même `p`, même trace."""
+    from agentl.replay import (Journal, RecordingHost, RecordingLLM,
+                               ReplayHost, ReplayLLM)
+    agent = _agent(_program())
+    journal = Journal(meta={"agent": agent.name})
+    host = Host()
+    host.tool("reply")(lambda text: {"sent": True})
+    recorded = Runtime(agent, RecordingHost(host, journal),
+                       RecordingLLM(MockLLM(_SCRIPT), journal))
+    recorded.state.set_local("m.content", "Vous proposez un plan équipe ?")
+    recorded.run(max_ticks=1)
+
+    replayed = Runtime(agent, ReplayHost(journal), ReplayLLM(journal))
+    replayed.state.set_local("m.content", "Vous proposez un plan équipe ?")
+    replayed.run(max_ticks=1)
+
+    assert [e.kind for e in journal.entries].count("judge") == 1
+    assert replayed.state.get("judge.kind") == "question"
+    assert replayed.state.get("judge.kind.p") == 0.93
+    assert replayed.trace.render() == recorded.trace.render()
+
+
+def test_a_durable_resume_does_not_ask_the_oracle_again():
+    """À la reprise, le jugement vient du journal. Un oracle de jugement
+    n'est pas déterministe : le rappeler pouvait changer la décision déjà
+    prise et faire refuser la reprise."""
+    from agentl.durable import DurableRun, MemoryStore
+    agent, store = _agent(_program()), MemoryStore()
+
+    def host():
+        h = Host()
+        h.sensor("m.content")(lambda: "Vous proposez un plan équipe ?")
+        h.tool("reply")(lambda text: {"sent": True})
+        return h
+
+    first = _Counting(_SCRIPT)
+    DurableRun(agent, host(), first, store=store).run(max_ticks=1)
+    drifted = _Counting({"Trier la mention": {
+        "kind": {"value": "other", "p": 0.55}}})
+    resumed = DurableRun(agent, host(), drifted, store=store).run(max_ticks=1)
+
+    assert first.judged == 1
+    assert drifted.judged == 0
+    assert resumed.state.get("judge.kind") == "question"
+
+
+def test_an_async_judgement_is_awaited_under_the_bridge():
+    """Un `async def judge` est attendu — il n'arrive plus au runtime sous
+    forme de coroutine lue comme un oracle muet."""
+    import asyncio
+    from agentl.aio import AsyncHost, AsyncRuntime
+
+    class AsyncOracle(MockLLM):
+        async def judge(self, task, context, questions):
+            return {"kind": {"value": "question", "p": 0.97}}
+
+    host = AsyncHost()
+    host.sensor("m.content")(lambda: "Vous proposez un plan équipe ?")
+    host.tool("reply")(lambda text: {"sent": True})
+
+    rt = asyncio.run(AsyncRuntime(_agent(_program()), host, AsyncOracle())
+                     .run(max_ticks=1))
+
+    assert rt.state.get("judge.kind") == "question"
+    assert rt.state.get("judge.kind.p") == 0.97
+
+
+def test_a_slow_judgement_times_out_like_a_slow_reason():
+    """Le délai du pont s'applique au jugement : passé `llm_timeout`, l'oracle
+    est muet et le `DEFAULT` s'applique."""
+    import asyncio
+    from agentl.aio import AsyncHost, AsyncRuntime, Limits
+
+    class SlowOracle(MockLLM):
+        async def judge(self, task, context, questions):
+            await asyncio.sleep(5)
+            return {"kind": {"value": "question", "p": 0.97}}
+
+    host = AsyncHost()
+    host.sensor("m.content")(lambda: "Vous proposez un plan équipe ?")
+    host.tool("reply")(lambda text: {"sent": True})
+
+    rt = asyncio.run(AsyncRuntime(_agent(_program()), host, SlowOracle(),
+                                  limits=Limits(llm_timeout=0.1))
+                     .run(max_ticks=1))
+
+    assert rt.state.get("judge.kind") == "other"
+    assert rt.state.get("judge.kind.p") is UNDEFINED
+    assert "délai" in rt.trace.render()

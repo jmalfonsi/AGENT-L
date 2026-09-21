@@ -1062,6 +1062,7 @@ class StudioSession:
         """
         reason, select = getattr(llm, "reason", None), \
             getattr(llm, "select_plan", None)
+        judge = getattr(llm, "judge", None)
 
         def announced(label: str, call: Callable[[], Any]):
             self._llm_mark(agent_name, multi, label, started=True)
@@ -1077,6 +1078,10 @@ class StudioSession:
         if callable(select):
             llm.select_plan = lambda context, candidates: announced(
                 "llm.select_plan", lambda: select(context, candidates))
+        if callable(judge):
+            llm.judge = lambda task, context, questions: announced(
+                f"llm.judge « {task} »",
+                lambda: judge(task, context, questions))
 
     def _llm_mark(self, agent_name: str, multi: bool, label: str,
                   *, started: bool) -> None:

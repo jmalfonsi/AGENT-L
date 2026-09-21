@@ -88,7 +88,17 @@ rédigé.
 
 L'adaptateur `examples/jev_llm.py` (TypeSafe System One) implémente `judge()`
 nativement : les questions du programme partent telles quelles, sans
-reformulation.
+reformulation. Avec `local=LayaRouter()` (`examples/laya_llm.py`), une
+question courte sur un état court part d'abord au service Laya de la machine
+(`typed-decisions` en anglais, `multilingual` sinon) et revient à Jev sous le
+seuil du checkpoint : écrire une question brève et des options décrites
+laisse le jugement en local ; une question longue ou un dossier en entrée
+partent à Jev. Le `.agent` ne change pas — c'est un choix de l'hôte.
+
+Le jugement est journalisé comme une réponse de `REASON` : `agentl replay`
+le rejoue avec sa probabilité, et une reprise durable le lit dans le journal
+au lieu de reposer la question à un oracle qui ne répondrait pas forcément
+pareil.
 
 ## `ABSTAIN BELOW` — déclarer sous quel seuil on ne décide pas
 

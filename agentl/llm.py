@@ -172,6 +172,22 @@ def judge_via_reason(llm: Any, task: str, context: Dict[str, Any],
             if name in produced and name not in missing}
 
 
+def ask_judge(llm: Any, task: str, context: Dict[str, Any],
+              questions: Dict[str, Dict[str, Any]]) -> Any:
+    """Un `JUDGE` posé à `llm` : sa méthode `judge()` s'il en a une, sinon la
+    traduction en `reason()`.
+
+    Le runtime et chaque enveloppe d'oracle (enregistrement, reprise durable,
+    pont asynchrone) passent par ici. Une enveloppe qui ne définissait pas
+    `judge` le laissait filer par `__getattr__` jusqu'à l'oracle réel : ni
+    journalisé, ni rejouable, ni borné par le délai du pont.
+    """
+    ask = getattr(llm, "judge", None)
+    if callable(ask):
+        return ask(task, context, questions)
+    return judge_via_reason(llm, task, context, questions)
+
+
 class LLM:
     """Interface minimale attendue par le runtime."""
 

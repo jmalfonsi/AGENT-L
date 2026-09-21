@@ -646,6 +646,25 @@ python3 bench/jev_judge_replay.py --repeat 3      # les 13 échecs, rejoués en 
 python3 -m agentl test examples/mention_triage.agent   # JUDGE hors ligne
 ```
 
+**Laya en frontal local.** `JevLLM(local=LayaRouter())` (`examples/laya_llm.py`,
+ou `AGENTL_LAYA=1`) pose d'abord au service [Laya](https://huggingface.co/convaiinnovations/laya)
+de la machine (127.0.0.1:8099, Apache 2.0) les questions de `JUDGE` qu'il sait
+trancher : question courte, état court, au plus 6 options ; `typed-decisions`
+pour l'anglais, `multilingual` pour le reste. Sous son seuil de confiance, la
+question revient à Jev. Rien ne sort de la machine pour ces jugements — c'est
+l'apport ; sur ce serveur (CPU), Laya n'est ni plus rapide ni plus juste que Jev.
+
+| mesure (2026-09-21) | Laya | Jev |
+|---|---|---|
+| tri de messages courts EN / FR (36 questions chacun) | 0,89 / 0,89 | 1,00 / 1,00 |
+| dont gardé en local après cascade, justesse | ~70 % à 100 % | — |
+| champs fermés de `REASON` réels (140) | 0,49 | ≈ 0,97 |
+| 13 `JUDGE` difficiles | 4–5/13 | 11/13 |
+
+D'où les règles : seules les questions de `JUDGE` courtes vont en local ; jamais
+`SELECT_PLAN`, et les champs de `REASON` seulement sur demande
+(`AGENTL_LAYA_REASON=1`). Seuils réglables par `AGENTL_LAYA_*`.
+
 Détail : [`docs/SPEC.md`](docs/SPEC.md) §39, [`bench/jev_failures.md`](bench/jev_failures.md),
 [`SKILLS/agentl-author/references/judge.md`](SKILLS/agentl-author/references/judge.md).
 
@@ -662,7 +681,9 @@ Runtime(agent, host, AnthropicLLM(model="claude-sonnet-5")).run()
 ```
 
 `JevLLM` (`examples/jev_llm.py`) branche un oracle de jugement calibré, avec
-repli génératif : `JevLLM(fallback=GeminiLLM())`.
+repli génératif : `JevLLM(fallback=GeminiLLM())` — et, pour les jugements
+courts, le service Laya local en frontal : `JevLLM(fallback=GeminiLLM(),
+local=LayaRouter())`.
 
 L'adaptateur impose un JSON strict et **coerce** la réponse au schéma
 `PRODUCE`. Pour un champ absent ou un nombre non fini (`NaN`, `±inf`), seul un

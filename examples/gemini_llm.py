@@ -94,6 +94,7 @@ class GeminiLLM(LLM):  # pragma: no cover - nécessite le réseau
         }).encode()
         req = urllib.request.Request(
             url, data=body, headers={"content-type": "application/json"})
+        started = time.monotonic()
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode())
         candidate = (data.get("candidates") or [{}])[0]
@@ -107,6 +108,8 @@ class GeminiLLM(LLM):  # pragma: no cover - nécessite le réseau
             "completionTokens": (usage.get("candidatesTokenCount") or 0) + (usage.get("thoughtsTokenCount") or 0),
             "reasoningTokens": usage.get("thoughtsTokenCount"),
             "totalTokens": usage.get("totalTokenCount"),
+            # Après l'attente de quota (`pace`) : le temps du modèle seul.
+            "latencySeconds": round(time.monotonic() - started, 3),
             "status": "completed",
         })
         return "".join(

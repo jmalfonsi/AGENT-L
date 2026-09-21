@@ -103,6 +103,27 @@ llm = JevLLM(fallback=GeminiLLM())   # jugement calibré + génération de texte
 
 En ligne de commande, `AGENTL_ORACLE=gemini|hybrid|jev` choisit l’oracle des bancs (`bench/run_task.py`).
 
+### Laya, frontal local
+
+`examples/laya_llm.py` place le service [Laya](https://huggingface.co/convaiinnovations/laya) de la machine (Apache 2.0, `127.0.0.1:8099`) devant Jev. Chaque question fermée est routée **avant** tout appel :
+
+| critère | règle par défaut |
+| --- | --- |
+| forme | question de `JUDGE` ; jamais `SELECT_PLAN` ; champs de `REASON` sur demande (`AGENTL_LAYA_REASON=1`) |
+| options | au plus 6, consigne + options dans le budget de tête du checkpoint (192 / 256 jetons) |
+| taille | question ≤ ~40 jetons, état ≤ ~128 jetons (estimation prudente, sans tokenizer) |
+| langue | anglais → `typed-decisions` ; toute autre langue, dans la question ou l’état → `multilingual` |
+| cascade | réponse gardée si p ≥ 0,65 (`typed-decisions`) ou ≥ 0,90 (`multilingual`), sinon Jev |
+| panne | service injoignable → écarté 30 s, tout part à Jev |
+
+```python
+from laya_llm import LayaRouter
+
+llm = JevLLM(fallback=GeminiLLM(), local=LayaRouter())
+```
+
+L’enveloppe vient de la mesure : sur du tri de messages courts, Laya atteint 0,89 en anglais comme en français (Jev 1,00) et la cascade garde ~70 % des questions en local sans erreur ; sur les champs de `REASON` réels d’AutomationBench il tombe à 0,49, et sur les 13 `JUDGE` difficiles à 4–5/13 — avec des erreurs à p ≥ 0,9 que la cascade ne rattrape pas. Sur ce serveur (CPU), Laya n’est pas plus rapide que Jev (1 à 2,5 s par question contre 0,6 s) : son apport est que ces jugements ne quittent pas la machine.
+
 ### Ce que ça apporte, mesuré
 
 Neuf tâches AutomationBench dont la réussite dépend d’un `REASON`, même programme, même modèle génératif (`bench/jev_compare.py`) :

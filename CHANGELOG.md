@@ -11,7 +11,8 @@ bancs d'oracle du dépôt (`bench/jev_failures.md`) montrent où cela casse :
 `holds_negative` — « le message demande-t-il de suspendre les réponses ? » —
 lu comme « la mention est-elle négative ? », et répondu à 0,94. Une erreur
 **confiante**, que ni le type, ni le domaine, ni le `DEFAULT` ne rattrapent.
-Le paquet passe à 1.10.0 ; le contrat d'auteur à **2.12.0**.
+Le paquet passe à 1.10.0 ; le contrat d'auteur à **2.12.1** (2.12.0 pour
+la grammaire, 2.12.1 pour les enveloppes d'oracle ci-dessous).
 
 ### Ajouté
 
@@ -50,6 +51,38 @@ Le paquet passe à 1.10.0 ; le contrat d'auteur à **2.12.0**.
   `CHOICE` sans alternative, option ou niveau sans description, seuil hors
   `]0, 1]`) et `W136` (champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW`
   ni garde sur `judge.<champ>.p`).
+- **Laya en frontal local de Jev** (`examples/laya_llm.py`,
+  `JevLLM(local=LayaRouter())`, ou `AGENTL_LAYA=1` avec `AGENTL_ORACLE`).
+  Le service Laya de la machine (127.0.0.1:8099) répond aux questions
+  fermées qui entrent dans son enveloppe mesurée : question de `JUDGE`
+  courte, état court, au plus 6 options tenant dans le budget de tête du
+  checkpoint ; `typed-decisions` pour l'anglais, `multilingual` pour toute
+  autre langue. Une réponse sous le seuil du checkpoint (0,65 / 0,90) est
+  redemandée à Jev ; un service injoignable est écarté 30 s. Ni
+  `SELECT_PLAN`, ni les champs de `REASON` (sauf `AGENTL_LAYA_REASON=1`)
+  ne partent en local. Mesures qui fixent ces règles : tri de messages
+  courts EN 0,89 et FR 0,89 (Jev 1,00), mais champs de `REASON` réels
+  0,49 et `JUDGE` difficiles 4/13 (Jev 11/13), avec une probabilité qui n'y
+  sépare plus les erreurs.
+
+### Corrigé
+
+- **`JUDGE` à travers les enveloppes d'oracle.** `RecordingLLM`,
+  `DurableLLM` et le pont asynchrone définissaient `reason` et
+  `select_plan`, pas `judge`, qui filait par `__getattr__` jusqu'à l'oracle
+  réel : le jugement n'était pas journalisé (le rejeu divergeait au premier
+  `JUDGE`), la reprise durable rappelait l'oracle — non déterministe — au
+  lieu de lire le journal, et `llm_timeout` comme `max_concurrent_llm` ne
+  s'y appliquaient pas ; un `async def judge` rendait une coroutine jamais
+  attendue, lue comme un oracle muet. Nouvelle entrée de journal `judge`,
+  `ReplayLLM.judge`, helper `agentl.llm.ask_judge` partagé par le runtime
+  et les enveloppes ; le Studio signale aussi les jugements en cours.
+- **Adaptateur Jev** : une panne du modèle génératif n'efface plus les
+  champs que Jev a rendus (seuls les champs confiés au repli sont absents) ;
+  une panne de Jev ne redemande plus au repli les champs déjà partis en
+  parallèle ; un champ escaladé porte la probabilité que Jev accordait à la
+  valeur **retenue** (une question oui/non contredite par le repli annonçait
+  la confiance de la réponse écartée). `GeminiLLM` enregistre sa latence.
 
 ### Inchangé
 

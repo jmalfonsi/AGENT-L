@@ -33,8 +33,14 @@ Incertitude, deux politiques :
   * ``escalate_below`` — le champ est redemandé à l'oracle de repli (motif
     « SDE cascade » de TypeSafe), pour l'ambiguïté ordinaire.
 
-Si Jev est injoignable, tout le `REASON` part au repli. Sans repli, les champs
+Si Jev est injoignable, ses champs partent au repli. Sans repli, les champs
 non couverts sont déclarés absents et le runtime applique ses DEFAULT.
+
+Frontal local (``local=LayaRouter()``, `examples/laya_llm.py`) : une question
+fermée qui entre dans l'enveloppe mesurée de Laya — `JUDGE` court, état court,
+peu d'options, checkpoint choisi selon la langue — est posée d'abord au
+service local ; sous son seuil de confiance, ou s'il ne répond pas, elle
+revient à Jev. Le reste ne quitte jamais Jev.
 """
 from __future__ import annotations
 
@@ -164,8 +170,11 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
                  api_key: Optional[str] = None,
                  escalate_below: Optional[float] = None,
                  abstain_below: Optional[float] = None,
-                 select_numbers: bool = True):
+                 select_numbers: bool = True,
+                 local: Optional[Any] = None):
         self.model = model
+        #: Frontal System One local (`LayaRouter`), facultatif.
+        self.local = local
         self.api_key = api_key or _api_key()
         self.fallback = fallback
         self.escalate_below = (float(os.environ.get("AGENTL_JEV_ESCALATE", "0"))
@@ -210,6 +219,85 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
         """Un appel System One brut, avec la reprise sur panne commune."""
         return call_with_retry(lambda: self._post(state, questions),
                                on_retry=self._note_retry)
+
+    def _consult(self, state: Any, questions: Dict[str, Any],
+                 local_ok: List[str], record: Dict[str, Any]
+                 ) -> Tuple[Dict[str, Any], Dict[str, str], Optional[BaseException]]:
+        """Les questions fermées, routées entre le frontal local et Jev.
+
+        Rend (réponses, erreurs par question, panne de Jev) et ne lève pas —
+        la panne est rendue pour être relevée telle quelle si rien n'a
+        répondu, afin que la trace du runtime nomme la vraie erreur. Une question
+        sans réponse revient à l'appelant, qui la confie au repli génératif.
+        Les questions locales et celles de Jev partent en même temps ; seule
+        la cascade (réponse locale sous son seuil) attend Laya.
+
+        Une réponse locale sous le seuil n'est jamais retenue, même si Jev est
+        tombé : le seuil définit ce que Laya sait faire, et en dessous il n'a
+        pas répondu — le programme applique alors ce qu'il a prévu pour une
+        absence, au lieu d'agir sur un jugement que son auteur a déclaré
+        indigne de confiance.
+        """
+        engines: Dict[str, str] = {}
+        routes: Dict[str, Any] = {}
+        if self.local is not None and local_ok:
+            why: Dict[str, str] = {}
+            for qid in local_ok:
+                route = self.local.route(state, questions[qid])
+                why[qid] = route.why
+                if route.checkpoint:
+                    routes[qid] = route
+            record["localRoutes"] = why
+        remote = {q: v for q, v in questions.items() if q not in routes}
+        pending = (_POOL.submit(self.local.answer, state, routes)
+                   if routes else None)
+        answers: Dict[str, Any] = {}
+        errors: Dict[str, str] = {}
+        jev_down: Optional[str] = None
+        jev_exc: Optional[BaseException] = None
+
+        def to_jev(batch: Dict[str, Any], label: str) -> None:
+            nonlocal jev_down, jev_exc
+            if not batch:
+                return
+            if jev_down is not None:
+                errors.update({q: jev_down for q in batch})
+                return
+            try:
+                got = self.ask(state, batch)
+            except Exception as exc:                  # noqa: BLE001
+                jev_exc = exc
+                jev_down = f"{type(exc).__name__}: {str(exc)[:160]}"
+                errors.update({q: jev_down for q in batch})
+                return
+            for qid in batch:
+                if qid in got:
+                    answers[qid] = got[qid]
+                    engines[qid] = label
+
+        to_jev(remote, "jev")
+        if pending is not None:
+            from laya_llm import probability as local_p
+            local_answers, local_errors = pending.result()
+            weak: Dict[str, Any] = {}
+            for qid, route in routes.items():
+                answer = local_answers.get(qid)
+                if answer is not None and self.local.keeps(route.checkpoint,
+                                                           local_p(answer)):
+                    answers[qid] = answer
+                    engines[qid] = f"laya:{route.checkpoint}"
+                else:
+                    weak[qid] = questions[qid]
+            if local_errors:
+                record["localErrors"] = local_errors
+            to_jev(weak, "jev (cascade)")
+            for qid in local_errors:                  # pas une cascade : un silence
+                if engines.get(qid) == "jev (cascade)":
+                    engines[qid] = "jev (Laya muet)"
+        if jev_down is not None:
+            record["jevError"] = jev_down
+        record["engines"] = engines
+        return answers, errors, jev_exc
 
     # ---------------------------------------------------------- questions
     @staticmethod
@@ -296,6 +384,40 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
         missing = getattr(self.fallback, "last_reason_missing", None)
         return got, list(missing or [])
 
+    @staticmethod
+    def _settle(call, fields: List[str],
+                record: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+        """Le résultat du repli, ou « ces champs sont absents » s'il a levé.
+
+        Une panne du modèle génératif ne concerne que les champs qu'on lui a
+        confiés. La laisser remonter faisait échouer tout le `REASON` : le
+        runtime appliquait alors les DEFAULT aux champs que Jev venait de
+        rendre, et une panne Gemini effaçait une réponse Jev valide.
+        """
+        try:
+            return call()
+        except Exception as exc:                      # noqa: BLE001
+            record.setdefault("fallbackErrors", []).append(
+                f"{type(exc).__name__}: {str(exc)[:160]}")
+            return {}, list(fields)
+
+    @staticmethod
+    def _probability_of(route: str, answer: Dict[str, Any], value: Any) -> float:
+        """P, selon Jev, de `value` — la valeur **retenue**, qui n'est pas
+        forcément celle qu'il avait choisie (champ escaladé)."""
+        if route == "noul":
+            p_yes = float(answer.get("noul", 0.5))
+            if value is True:
+                return p_yes
+            return 1.0 - p_yes if value is False else 0.0
+        probs = answer.get("probabilities") or {}
+        if route == "value":
+            for literal, p in probs.items():
+                if literal != NONE and parse_number(literal) == value:
+                    return float(p)
+            return 0.0
+        return float(probs.get(str(value), 0.0))
+
     def reason(self, task, context, produce):
         record: Dict[str, Any] = {"kind": "reason", "task": task}
         self.calls.append(record)
@@ -314,21 +436,23 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
             sub = {f: produce[f] for f in early_fields}
             early = _POOL.submit(self._fallback_reason, task, context, sub)
         if questions:
-            try:
-                answers = self.ask(context, questions)
-            except Exception as exc:                  # noqa: BLE001
-                record["jevError"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+            closed = [f for f in questions if routes[f] in ("choice", "noul")]
+            answers, failed, down = self._consult(context, questions, closed, record)
+            if failed and not answers:
                 if self.fallback is None:
                     self.last_reason_missing = list(produce)
-                    raise
-                # Jev tombé : tout le REASON part au repli, confiances comprises.
-                if early is not None:
-                    early.result()                    # ne pas laisser d'orphelin
-                    early, early_fields = None, []
-                rest = list(produce)
-                answers = {}
+                    raise down or RuntimeError(f"System One muet : {failed}")
+                # Aucune réponse System One : ses champs partent au repli,
+                # confiances comprises. Ceux déjà confiés au repli en avance
+                # y restent : les redemander doublait l'appel génératif.
+                rest = [f for f in produce if f not in early_fields]
+            elif failed:
+                # Panne partielle : seuls les champs restés sans réponse — et
+                # leur confiance, qui n'a plus rien dont dériver — partent.
+                rest = rest + list(failed) + [
+                    f"{f}_confidence" for f in failed if f"{f}_confidence" in produce]
         if early is not None:
-            got, missing_fb = early.result()
+            got, missing_fb = self._settle(early.result, early_fields, record)
             for field in early_fields:
                 if field in got and field not in missing_fb:
                     out[field] = got[field]
@@ -366,16 +490,18 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
         ask_fallback = list(dict.fromkeys(rest + escalated))
         if ask_fallback and self.fallback is not None:
             sub = {f: produce[f] for f in ask_fallback}
-            got, missing_fb = self._fallback_reason(task, context, sub)
+            got, missing_fb = self._settle(
+                lambda: self._fallback_reason(task, context, sub),
+                ask_fallback, record)
             for field in ask_fallback:
                 if field in got and field not in missing_fb:
-                    out[field] = got[field]
+                    out[field] = _coerce({field: got[field]}, {field: produce[field]})[field]
                     if field in escalated:
-                        # La valeur retenue est celle du repli : on garde la
-                        # probabilité que Jev lui accordait, qui reste calibrée.
-                        probs = (answers.get(field) or {}).get("probabilities") or {}
-                        if str(got[field]) in probs:
-                            prob[field] = float(probs[str(got[field])])
+                        # La valeur retenue est celle du repli : la
+                        # probabilité est celle que Jev accordait à CETTE
+                        # valeur, qui reste calibrée — pas à la sienne.
+                        prob[field] = self._probability_of(
+                            routes[field], answers.get(field) or {}, out[field])
         # Confiances dérivées : jamais demandées, toujours calculées.
         for field, route in routes.items():
             if route != "derived" or field in out:
@@ -389,6 +515,11 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
                     out[field] = round(prob[target], 4)
         record["probability"] = prob
         self.last_reason_missing = [f for f in produce if f not in out]
+        if not out and record.get("fallbackErrors"):
+            # Aucun oracle n'a rien rendu : c'est une panne, pas une réponse
+            # vide — le runtime la trace comme telle.
+            raise RuntimeError("REASON sans réponse — " + " ; ".join(
+                [record.get("jevError", "")] + record["fallbackErrors"]).strip(" ;"))
         return _coerce(out, produce)
 
     # --------------------------------------------------------------- JUDGE
@@ -427,18 +558,29 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
                                  "criteria": list(question.get("levels") or [])}
         if not payload:
             return {}
-        try:
-            answers = self.ask(context, payload)
-        except Exception as exc:                      # noqa: BLE001
-            record["jevError"] = f"{type(exc).__name__}: {str(exc)[:160]}"
-            if self.fallback is None:
-                raise
-            # Jev muet : le repli génératif répond aux mêmes questions, sans
-            # probabilité — le runtime fermera ce qui exigeait un seuil.
-            record["fallback"] = True
-            from agentl.llm import judge_via_reason
-            return judge_via_reason(self.fallback, task, context, questions)
-        out: Dict[str, Any] = {}
+        answers, failed, down = self._consult(context, payload, list(payload), record)
+        fallback_out: Dict[str, Any] = {}
+        if failed:
+            if self.fallback is None and not answers:
+                raise down or RuntimeError(f"System One muet : {failed}")
+            if self.fallback is not None:
+                # System One muet sur ces questions : le repli génératif y
+                # répond, sans probabilité — le runtime fermera ce qui
+                # exigeait un seuil.
+                record["fallback"] = sorted(failed)
+                from agentl.llm import judge_via_reason
+                try:
+                    fallback_out = judge_via_reason(
+                        self.fallback, task, context,
+                        {name: questions[name] for name in failed})
+                except Exception as exc:              # noqa: BLE001
+                    # Comme pour `reason` : la panne du repli ne concerne que
+                    # ses questions — sauf si plus rien n'a répondu.
+                    if not answers:
+                        raise
+                    record.setdefault("fallbackErrors", []).append(
+                        f"{type(exc).__name__}: {str(exc)[:160]}")
+        out: Dict[str, Any] = dict(fallback_out)
         for name, answer in (answers or {}).items():
             kind = str((questions.get(name) or {}).get("kind", "")).upper()
             if kind == "NOUL":
@@ -480,6 +622,8 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
                              "given the current state?"),
             "criteria": {name: None for name in candidates},
         }}
+        # Jamais au frontal local : le choix d'action est le terrain où Laya
+        # est mesuré au niveau du hasard (AGENTS_CONSTRUCT, 2026-09-20).
         try:
             answer = self.ask(context, question).get("plan") or {}
         except Exception as exc:                      # noqa: BLE001
@@ -497,13 +641,18 @@ class JevLLM(LLM):  # pragma: no cover - nécessite le réseau
 
 
 def usage_summary(llm: Any) -> Dict[str, Any]:
-    """Compte-rendu homogène pour Jev, Gemini ou un JevLLM avec repli."""
+    """Compte-rendu homogène pour Jev, Gemini ou un JevLLM avec repli et
+    frontal local."""
     rows = list(getattr(llm, "responses", []) or [])
     jev = [r for r in rows if r.get("provider") == "typesafe-systemone"]
     fb = getattr(llm, "fallback", None)
     gen = list(getattr(fb, "responses", []) or []) if fb is not None else \
         [r for r in rows if r.get("provider") != "typesafe-systemone"]
+    local = list(getattr(getattr(llm, "local", None), "responses", []) or [])
     return {
+        "laya_calls": len(local),
+        "laya_questions": sum(r.get("questions", 0) for r in local),
+        "laya_seconds": round(sum(r.get("latencySeconds", 0.0) for r in local), 2),
         "jev_calls": len(jev),
         "jev_questions": sum(r.get("questions", 0) for r in jev),
         "jev_input_tokens": sum(r.get("promptTokens") or 0 for r in jev),
@@ -520,6 +669,9 @@ def oracle_from_env(model: str = "") -> LLM:  # pragma: no cover - réseau
     """Oracle choisi par ``AGENTL_ORACLE`` : ``gemini`` (défaut), ``hybrid``
     (Jev + repli Gemini) ou ``jev`` (Jev seul, sans génération de texte).
 
+    ``AGENTL_LAYA=1`` ajoute, pour ``hybrid`` et ``jev``, le frontal local
+    Laya (`laya_llm.LayaRouter`, réglé par ``AGENTL_LAYA_*``).
+
     Le repli est lu dans `gemini_llm`, voisin de ce module ; ``model`` et
     ``AGENTL_BENCH_MODEL`` désignent le modèle génératif.
     """
@@ -527,10 +679,14 @@ def oracle_from_env(model: str = "") -> LLM:  # pragma: no cover - réseau
 
     kind = os.environ.get("AGENTL_ORACLE", "gemini").strip().lower()
     generative = model or os.environ.get("AGENTL_BENCH_MODEL", "gemini-3.1-flash-lite")
+    local = None
+    if os.environ.get("AGENTL_LAYA", "") == "1":
+        from laya_llm import LayaRouter
+        local = LayaRouter()
     if kind == "gemini":
         return GeminiLLM(model=generative)
     if kind == "hybrid":
-        return JevLLM(fallback=GeminiLLM(model=generative))
+        return JevLLM(fallback=GeminiLLM(model=generative), local=local)
     if kind == "jev":
-        return JevLLM(fallback=None)
+        return JevLLM(fallback=None, local=local)
     raise ValueError(f"AGENTL_ORACLE inconnu : {kind!r} (gemini, hybrid, jev)")

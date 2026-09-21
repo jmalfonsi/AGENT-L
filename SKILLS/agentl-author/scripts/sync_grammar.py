@@ -72,7 +72,11 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # 2 sur preuve bornée) ; `autoloop` refuse zéro SCENARIO, une preuve bornée,
 # des épreuves retouchées par la réécriture ; le solveur distingue les listes
 # de `IN`. La grammaire ne bouge pas : mineur pour la commande et les portes.
-AUTHORING_CONTRACT_VERSION = "2.12.0"
+# 2.12.1 : `JUDGE` traverse enfin les enveloppes d'oracle — journalisé et
+# rejoué (`RecordingLLM`/`ReplayLLM`, entrée `judge`), servi par le journal à
+# la reprise durable, borné par le pont asynchrone. Un auteur écrit le même
+# AGENT-L ; seule l'exécution devient conforme à ce qu'il écrivait : patch.
+AUTHORING_CONTRACT_VERSION = "2.12.1"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
