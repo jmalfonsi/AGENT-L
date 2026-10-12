@@ -46,6 +46,15 @@ désormais être avertis ou refusés.
   d'écraser une clé existante.
 - Skills `policy-guard`, `resilience-tester` et `society-architect` : l'en-tête
   `name`/`description` manquait, ils n'étaient donc pas découvrables.
+- **Skill `agentl-author` : l'outillage n'était pas décrit** (contrat d'auteur
+  **2.13.1**, aucune grammaire ni contrôle modifié). `agentl seal` et la
+  signature des journaux (HMAC/Ed25519, `--sign-key`, `--require-seal`),
+  `agentl mcp`, `run --events`, `verify --require-proved`, les options
+  d'`autoloop` et du Studio, et 28 codes de diagnostic n'apparaissaient nulle
+  part. Nouvelle référence `references/cli.md`, glossaire complété, affirmation
+  fausse « Studio sans dépendance » corrigée. `sync_grammar.py --check` devient
+  rouge pour toute option de CLI ou tout code de diagnostic que le SKILL ne
+  nomme pas.
 
 ## [1.10.0] — non publié · `JUDGE`, le jugement fermé
 

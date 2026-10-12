@@ -253,6 +253,43 @@ Un vert signifie qu'aucun motif bloquant couvert n'a été détecté sur la surf
 affichée. Voir [security-authoring.md](security-authoring.md) et
 [business-workflows.md](business-workflows.md) §1.
 
+### Codes complémentaires
+
+Codes émis par l'analyseur, le vérifieur et `boundary` qui ne figurent pas
+dans les listes ci-dessus. La table complète, avec leur théorème, est dans
+`docs/SPEC.md` (§21, §25, §27, §39, §40).
+
+| Code | Signification |
+|---|---|
+| `E017` | question `JUDGE` qui ne demande rien : consigne vide, `CHOICE` sans alternative, option ou niveau sans description, `SCORE` à moins de deux niveaux, seuil d'abstention hors `]0, 1]` |
+| `W119` | sortie LLM utilisée comme cible risquée sans `ATTESTS` |
+| `W121` | `VERIFY` auto-confirmé par un `EFFECT` non observé |
+| `W122` | hypothèse globale autorisant une action ciblée dans un `FOREACH` |
+| `W123` | clôture non gardée par l'absence de travail non résolu |
+| `W124` | outil risqué sans scénario de sûreté |
+| `W125` | texte non fiable suivi d'une action risquée sans garde d'injection |
+| `W136` | champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW` ni garde sur `judge.<champ>.p` |
+| `W137` | garde comparant deux identifiants nus que le programme renseigne tous deux (v1.11) : le runtime lit l'état avant le symbole. Renommer l'un, ou comparer à un littéral |
+| `V103` | T3 (erreur) — aucune règle `ALLOW` satisfaisable pour cet outil |
+| `V107` | T3 (erreur) — outil que `DEFAULT DENY` n'autorise jamais |
+| `V108` | T3 (avertissement) — tous les sites d'appel ont une condition contradictoire |
+| `V125` | T6 (info) — garantie de provenance statique satisfaite |
+| `V126` | T7 (info) — garantie de terminaison statique satisfaite |
+| `V131` | T8 (erreur) — signal jamais émis bien qu'un contexte l'émette : l'émetteur est lui-même mort |
+| `V133` | T8 (avertissement) — cycle de messages vivant qui n'écrit rien : livelock présumé |
+| `V134` | T8 (info) — vivacité démontrée (vrai à vide pour un programme mono-agent) |
+| `V151` | T9 (info) — chaque `EFFECT` sur le monde est confrontable à une perception |
+| `V152` | T9 (avertissement, v1.11) — `EFFECT` dont la seule `OBSERVE` est conditionnelle (`WHEN`) : non créditée, elle peut ne jamais démentir la postcondition. Observer sans `WHEN` |
+| `B002` | filtrage d'une collection sur un critère métier dans l'hôte (erreur) |
+| `B003` | `break`/`continue` : un élément écarté dans l'hôte (avertissement) |
+| `B004` | tri ou extremum : l'hôte priorise (avertissement) |
+| `B005` | seuil numérique appliqué dans l'hôte (erreur) |
+| `B006` | nom de fonction qui décide — `should_`, `classify_`, `select_`… (erreur) |
+| `B009` | commande exécutée avec `shell=True` |
+| `B010` | cible destructive sans attestation ni revalidation locale |
+| `B011` | journal lu sans curseur ni déduplication |
+| `B012` | action sans recette de rollback |
+
 ---
 
 ## 6. Métriques de fin de run (à interpréter)
@@ -330,6 +367,13 @@ réseau**. Ce qu'il faut savoir pour l'expliquer :
 - Les sociétés multi-agents sont couvertes. API : `Journal`, `RecordingHost`,
   `RecordingLLM`, `ReplayHost`, `ReplayLLM`, `verify_trace`
   (`agentl/replay.py`, SPEC §26).
+
+- **Intégrité ≠ authenticité.** La chaîne SHA-256 est sans clé : elle détecte
+  une altération, pas un journal fabriqué de toutes pièces. La signature
+  (`--sign-key`, HMAC ou Ed25519) rattache le journal à une clé ; `agentl seal`
+  le vérifie sans rejouer, `replay --require-seal` refuse un journal non
+  signé, et un sceau présent mais faux arrête toujours le rejeu. Rien
+  n'atteste *quand*. Détail : [cli.md](cli.md).
 
 **Rejeu ≠ reprise.** `replay` re-dérive une exécution **terminée**. Reprendre
 une exécution **interrompue** (crash, redémarrage) est le rôle de

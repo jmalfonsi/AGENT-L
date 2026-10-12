@@ -81,7 +81,13 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # (OBSERVE sous WHEN ne couvre pas un EFFECT), `DENY` compté par T1/T2, et le
 # solveur lit un nom renseigné comme une variable. Un agent écrit comme avant
 # peut désormais être refusé ou averti là où `verify` mentait : mineur.
-AUTHORING_CONTRACT_VERSION = "2.13.0"
+# 2.13.1 : la grammaire et les contrôles ne bougent pas ; le SKILL rattrape
+# l'outillage qu'il ne décrivait pas — `agentl seal` et la signature des
+# journaux, `agentl mcp`, les options de `run`/`verify`/`autoloop`/`studio`
+# (`references/cli.md`) et 28 codes absents du glossaire. Deux contrôles
+# nouveaux rendent rouge tout oubli du même genre : option de CLI et code de
+# diagnostic non nommés dans le SKILL : patch.
+AUTHORING_CONTRACT_VERSION = "2.13.1"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
@@ -115,6 +121,7 @@ AUTHORING_FILES = (
     "SKILLS/agentl-author/references/authoring.md",
     "SKILLS/agentl-author/references/autoloop.md",
     "SKILLS/agentl-author/references/business-workflows.md",
+    "SKILLS/agentl-author/references/cli.md",
     "SKILLS/agentl-author/references/composition.md",
     "SKILLS/agentl-author/references/runtime-semantics.md",
     "SKILLS/agentl-author/references/security-authoring.md",
@@ -873,9 +880,78 @@ def validate_coverage() -> list[str]:
     ]
 
 
+def skill_text() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [SKILL / "SKILL.md", *sorted((SKILL / "references").glob("*.md"))]
+    )
+
+
+COMMANDS = ("check", "ast", "run", "plan", "infer", "verify", "viz", "boundary",
+            "test", "autoloop", "replay", "durable", "seal", "mcp", "studio")
+
+
+def cli_flags() -> dict[str, list[str]]:
+    """Les options longues de chaque sous-commande, lues dans `--help`."""
+    from agentl.cli import main as cli_main
+
+    flags: dict[str, list[str]] = {}
+    for command in COMMANDS:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.suppress(SystemExit):
+            cli_main([command, "--help"])
+        found = set(re.findall(r"(?<![\w-])(--[a-z][a-z-]+)", out.getvalue()))
+        flags[command] = sorted(found - {"--help"})
+    return flags
+
+
+def validate_cli_coverage() -> list[str]:
+    """Toute option de la CLI doit être nommée dans le SKILL.
+
+    Le SKILL décrit la chaîne des portes ; il ne décrivait ni `seal`, ni
+    `mcp`, ni `--events`, ni `--require-proved`, et `--check` restait vert.
+    """
+    text = skill_text()
+    errors = [
+        f"option de CLI absente du SKILL : agentl {command} {flag} — la "
+        f"documenter dans references/cli.md"
+        for command, flags in cli_flags().items()
+        for flag in flags
+        if flag not in text
+    ]
+    errors += [
+        f"sous-commande absente du SKILL : agentl {command}"
+        for command in COMMANDS
+        if f"agentl {command}" not in text
+    ]
+    return errors
+
+
+def diagnostic_codes() -> set[str]:
+    codes: set[str] = set()
+    for path in sorted((ROOT / "agentl").rglob("*.py")):
+        codes |= set(re.findall(r"""['"]([EWVB]\d{3})['"]""",
+                                path.read_text(encoding="utf-8")))
+    return codes
+
+
+def validate_diagnostic_coverage() -> list[str]:
+    """Tout code émis par l'outillage doit être nommé dans le glossaire."""
+    glossary = (SKILL / "references" / "runtime-semantics.md").read_text(
+        encoding="utf-8")
+    glossary += (SKILL / "references" / "security-authoring.md").read_text(
+        encoding="utf-8")
+    return [
+        f"code de diagnostic émis mais absent des glossaires du SKILL : {code}"
+        for code in sorted(diagnostic_codes())
+        if code not in glossary
+    ]
+
+
 def check(files: dict[Path, str]) -> list[str]:
     errors = (validate_canonical(files) + validate_markdown()
-              + validate_lock_guard() + validate_coverage())
+              + validate_lock_guard() + validate_coverage()
+              + validate_cli_coverage() + validate_diagnostic_coverage())
     for path, expected in files.items():
         if not path.exists():
             errors.append(f"artefact absent : {display_path(path)}")

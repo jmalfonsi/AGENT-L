@@ -1,6 +1,6 @@
 ---
 name: agentl-author
-description: "Crée, modifie, débogue, vérifie et explique des agents AGENT-L et leurs hôtes Python. Utiliser pour tout fichier .agent, TOOL, POLICY, HYPOTHESIS, PLANNER, SCENARIO, FOREACH ou REASON ; pour les gardes de provenance (UNTRUSTED, LLM_DERIVED, ATTESTED), l'exécution durable (--durable, idempotence, réconciliation) et les hôtes asynchrones ; pour automatiser des workflows métier vérifiables ; et pour analyser les ticks, refus, approbations, reprises, inférences, traces ou diagnostics E/W/V/B. Applique le contrat de grammaire versionné puis la chaîne check→test→verify→boundary→autoloop→run→replay."
+description: "Crée, modifie, débogue, vérifie et explique des agents AGENT-L et leurs hôtes Python. Utiliser pour tout fichier .agent, TOOL, POLICY, HYPOTHESIS, PLANNER, SCENARIO, FOREACH ou REASON ; pour les gardes de provenance (UNTRUSTED, LLM_DERIVED, ATTESTED), l'exécution durable (--durable, idempotence, réconciliation) et les hôtes asynchrones ; pour automatiser des workflows métier vérifiables ; pour signer et vérifier un journal de rejeu (`agentl seal`, Ed25519/HMAC), importer des outils MCP (`agentl mcp`) ; et pour analyser les ticks, refus, approbations, reprises, inférences, traces ou diagnostics E/W/V/B. Applique le contrat de grammaire versionné puis la chaîne check→test→verify→boundary→autoloop→run→replay."
 ---
 
 # Écrire un agent AGENT-L
@@ -98,6 +98,25 @@ l'exemple canonique, joue ses scénarios, lance `verify` et `boundary`, exécute
 un run hors ligne, puis retire un `NEVER` pour vérifier que le scénario négatif
 échoue réellement.
 
+## Journaux scellés et outils MCP
+
+Deux fonctions sortent de la chaîne des portes et se trompent facilement ;
+détail, options et codes de sortie dans [references/cli.md](references/cli.md).
+
+- **`--record` ne suffit pas à *attribuer* un journal.** La chaîne SHA-256
+  détecte l'altération, pas la fabrication : qui détient le fichier peut le
+  réécrire. Pour un audit externe : `agentl seal --keygen DIR`, puis
+  `run --record J --sign-key CLÉ.key`, puis `seal J --key CLÉ.pub` et
+  `replay J --key CLÉ.pub --require-seal`. Préférer **Ed25519** (extra `sign`) :
+  avec HMAC, le vérificateur détient de quoi forger. Une signature lie un
+  journal à une clé, **pas à un instant**.
+- **`agentl mcp import` produit des contrats inachevés exprès.** `RISK` sort à
+  `UNSET` (`E011` bloque `check` et `run`) et aucun `EFFECT` n'est inventé :
+  trancher chaque risque à la main. Les descriptions d'outils (texte d'un
+  tiers) ne sont pas importées sans `--unsafe-import-descriptions`. Le
+  catalogue est scellé dans l'en-tête : un serveur qui change refuse de
+  démarrer.
+
 ## Les deux invariants
 
 **1. Deux fichiers, même nom.** `xxx.agent` (le programme auditable) et
@@ -185,7 +204,7 @@ python3 ~/AGENT-L/SKILLS/agentl-author/scripts/sync_grammar.py --check
 ```
 python3 -m agentl check    examples/xxx.agent     # bonne formation ; 0 erreur E
 python3 -m agentl test     examples/xxx.agent     # SCENARIO contre le monde déclaré
-python3 -m agentl verify   examples/xxx.agent     # 8 théorèmes ; 0 erreur
+python3 -m agentl verify   examples/xxx.agent     # T1–T7 + T9 (T8 si société) ; 0 erreur
 python3 -m agentl boundary examples/xxx.agent     # motifs couverts et périmètre explicite
 python3 -m agentl autoloop examples/xxx.agent     # tient-il sur d'autres données ?
 python3 -m agentl run      examples/xxx.agent \
@@ -201,7 +220,9 @@ Ce que chacune doit montrer :
 - **`test`** — une suite non vide, 100 % des scénarios satisfaits, **et** une
   mutation nommée qui fait échouer le scénario de sûreté. Voir les règles
   d'oracles et d'observation dans `references/scenarios.md`.
-- **`verify`** — 0 erreur sur les 8 théorèmes. Attention :
+- **`verify`** — 0 erreur sur T1–T7 et T9 (agent seul), plus T8 pour une
+  société. `--require-proved` fait aussi échouer un `◐ BORNÉ` : à mettre en CI
+  quand « non réfuté » ne suffit pas (`references/cli.md`). Attention :
   - `V105` est une **erreur** quand un interdit rend le but inatteignable
     *sans escalade déclarée* → ajouter `IF planner.exhausted … THEN escalate`.
     Avec l'escalade, c'est `V112` (info) : conduite attendue, pas défaut.
@@ -273,7 +294,8 @@ Outils d'inspection ponctuels : `agentl plan` (route synthétisée),
 python3 -m agentl studio examples/xxx.agent --open      # http://127.0.0.1:8765
 ```
 
-Application web locale (aucune dépendance, hors ligne) : graphe de flux style
+Application web locale (extra `studio` : FastAPI, uvicorn, websockets ; aucun
+réseau externe) : graphe de flux style
 N8N, éditeur `.agent` colorié avec diagnostics en direct, inspecteur
 (croyances, hypothèses avec seuil, métriques), chronologie filtrable. Ce qu'on
 n'y fait qu'au studio :
@@ -287,6 +309,10 @@ n'y fait qu'au studio :
   réponse vaut refus (*fail-closed*) ;
 - **les sociétés** — une bande par agent ; un message illumine ses deux
   extrémités.
+
+Options (`--port`, `--host`, `--root`, `--no-save`) et protections réseau
+(Origin, Host, JSON, `.agent` seul) : `references/cli.md`. Ne jamais lier le
+Studio à `0.0.0.0` : il exécute des agents et écrit des fichiers.
 
 L'hôte n'y est pas sélectionnable : l'indicateur montre le `xxx.py` imposé par
 la norme, vert s'il déclare bien les capteurs du programme, rouge sinon — et le
@@ -306,6 +332,7 @@ vérifier un hôte ne doit pas exécuter de code arbitraire.
 | `references/business-workflows.md` | **données d'entreprise** (tickets, e-mails, feuilles, CRM) : règle de partage détaillée, `FOREACH`, `REASON` à domaine clos, motifs de `POLICY` qui portent, pièges des API réelles, liste de contrôle de livraison. |
 | `references/runtime-semantics.md` | **pour expliquer un run** : pourquoi N ticks, ordre d'évaluation de la politique, ligne bayésienne, séparation de canaux, **glossaire complet E/W/V/B**, métriques, rejeu ; **noyau à permis, exécution durable (`--durable`, reprise, indéterminé), asynchrone** (v1.9). |
 | `references/composition.md` | **pour orchestrer** : `DELEGATE`, `MESSAGE` + `Society`, `MEMORY { SHARED }`, motif hiérarchique ; confiance entre agents, `AsyncSociety`, société durable (v1.9). |
+| `references/cli.md` | **options de la CLI, scellement/signature des journaux, import MCP, Studio** (flags, extras `sign`/`mcp`/`studio`, codes de sortie). |
 | `references/visual-trace.md` | le journal visuel `--html`. |
 | `~/AGENT-L/docs/SPEC.md` | sémantique faisant autorité (§16 inférence, §17 planification, §21 vérification, §22 calibration, §26 rejeu, §27 `SCENARIO`, §34–§38 noyau, provenance, exécution durable, asynchrone, validation externe). |
 | `~/AGENT-L/docs/agentl.ebnf` | grammaire formelle. |
@@ -314,7 +341,8 @@ Exemples de référence : `soc_analyst.agent` (inférence calibrée + planificat
 + deux `SCENARIO` dont un test de mutation) · `service_medic.agent` (EVENT,
 DELEGATE, autonomie) · `disk_sentinel.agent` (approbation) · `supervisor.agent`
 + `forensic.agent` (hiérarchie) · `gmail_butler.agent` + `gmail_butler_naif.agent`
-(workflow réel + variante naïve) · `idor_hunter.agent` (chemin non concluant).
+(workflow réel + variante naïve) · `idor_hunter.agent` (chemin non concluant) ·
+`mention_triage.agent` (`JUDGE` : `CHOICE`, `SCORE`, `ABSTAIN BELOW`).
 
 ## Principes de conception
 

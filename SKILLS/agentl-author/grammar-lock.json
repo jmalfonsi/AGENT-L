@@ -1,23 +1,24 @@
 {
-  "authoring_contract_version": "2.13.0",
+  "authoring_contract_version": "2.13.1",
   "authoring_surface": {
-    "combined_sha256": "d38f58c7a652ad0c12002cc04280a3d441de654bf19e1fe21c96081ddf417a18",
+    "combined_sha256": "f0783036ba3f446433c7ead2067ee22ef9fd4af6f43b701fbc15046d4bae3725",
     "files": {
-      "SKILLS/agentl-author/SKILL.md": "a6494b4bcd17723da1fdba76b3e663560d1ad9e3c6ad0cc739f8fe2129223e54",
+      "SKILLS/agentl-author/SKILL.md": "1cefb63480cd4b7f1273025381318da27275d7b169268c623a3e09a4e263f4fa",
       "SKILLS/agentl-author/agents/openai.yaml": "77d03386d40b24dbb2216ee80870d3248fc4f509c3299f69edf1079049f78f25",
       "SKILLS/agentl-author/references/authoring.md": "88eb508809ee0620ba212bb95ba1971e232f49880aeca2976f62fe06f8e1bb48",
       "SKILLS/agentl-author/references/autoloop.md": "4e44f3209d7c94e0e8f40198a54a7eb3ca19524c7ffaf74a31ce3f9d1ce796f2",
       "SKILLS/agentl-author/references/business-workflows.md": "62af2c7964d206604516d5c144d46a8c114c1dde830ab1526b3992a9b46ccfba",
+      "SKILLS/agentl-author/references/cli.md": "856a94be96bd14a4cc9290cffc7e2c219d5a6026ddc078568add65a5facd7f1b",
       "SKILLS/agentl-author/references/composition.md": "161d8d91d096589c2d4102801c345470097764a059080267139f17329d3b5e36",
-      "SKILLS/agentl-author/references/runtime-semantics.md": "7e36234f38e5708e1517b8d3c33969171cc0521a961f45b39f4b31e94836205e",
+      "SKILLS/agentl-author/references/runtime-semantics.md": "b4c89eb57cf129936070680998f8f2a72bae030d4827e8f41f0069c1f8e9c75f",
       "SKILLS/agentl-author/references/scenarios.md": "124da0f56b79d9528b985439fb46c23b93cdb3a4a2ab154cd927e45872b5c2bf",
       "SKILLS/agentl-author/references/security-authoring.md": "ee5a649d0f4ef51746120b53ded0523886d9f6a274d27e03221745eaa184a4bf",
       "SKILLS/agentl-author/references/visual-trace.md": "0f220164120f985a62724ebadb080a65532989e0dc9fcb9cb57516999c17226a",
-      "SKILLS/agentl-author/scripts/sync_grammar.py": "7524147125ca1a4d858003971d50a9f458ca4d62b6af5fbab541e07dfdd14698"
+      "SKILLS/agentl-author/scripts/sync_grammar.py": "c94b07a4c1802884f7e9b6d0c412b5e0cfe45a3a6125342a3499f5954b47e0fc"
     }
   },
   "canonical_examples": {
-    "canonical.agent": "ff04459b6bbcfb440d9d923e1dcd93e06ea36019fad85e1416ce2a977b0d01fd",
+    "canonical.agent": "135f86227295a12e6ea8150ad305c4d7bdc13e2bd9fcb14eabf33b2658ea3995",
     "canonical.py": "0732da0962aaffd462dd12d095b00e42d18e4a07fb2ca74cf6ea2458e0f623ce"
   },
   "compatibility": {
