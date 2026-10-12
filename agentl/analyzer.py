@@ -135,6 +135,7 @@ class Analyzer:
         self._check_redactions()
         self._check_sensor_unknown()
         self._check_policy_guard_names()
+        self._check_symbol_shadowing()
         self._check_undefined_inequality()
         self._check_risky_tools()
         self._check_verification()
@@ -402,6 +403,46 @@ class Analyzer:
                         f"comparaison sera fausse et la règle ne "
                         f"s'appliquera pas — préférer un chemin pointé",
                         rule.line))
+
+    def _check_symbol_shadowing(self) -> None:
+        """W137 — une constante symbolique qui est aussi une variable d'état.
+
+        Un identifiant nu se résout d'abord dans l'état et ne vaut le symbole
+        du même nom qu'à défaut de valeur. Dans :
+
+            NEVER pay WHEN decision != approved
+
+        l'auteur lit `approved` comme une constante. Si le programme renseigne
+        aussi un chemin `approved` (champ d'un `REASON`, croyance, capteur…),
+        le runtime compare **deux variables** : une réponse `decision =
+        unknown`, `approved = unknown` rend la garde fausse et le paiement
+        part. Un modèle qui produit les deux champs n'a pas besoin d'être
+        malveillant pour le provoquer. Le solveur de `verify` traite depuis la
+        1.11 ces noms comme des variables (atome opaque), mais seul l'auteur
+        peut dire laquelle des deux lectures il voulait : renommer le champ,
+        ou comparer à un littéral `"approved"`.
+        """
+        declared = self._declared_names()
+        sites = [(rule.guard, rule.line) for rule in self.agent.policies]
+        sites += [(plan.when, plan.line) for plan in self.agent.plans]
+        for expr, line in sites:
+            for node in _walk_expr(expr):
+                if not (isinstance(node, BinOp) and node.op in _COMPARISON_OPS):
+                    continue
+                sides = (node.left, node.right)
+                if not all(isinstance(side, PathExpr) and len(side.parts) == 1
+                           for side in sides):
+                    continue
+                names = [side.parts[0] for side in sides]
+                if all(name in declared for name in names):
+                    self.diags.append(Diagnostic(
+                        "W137", "warning",
+                        f"`{names[0]} {node.op} {names[1]}` compare deux "
+                        f"variables d'état, pas une variable à la constante "
+                        f"symbolique `{names[1]}` : le programme renseigne "
+                        f"aussi `{names[1]}` et le runtime le lit avant le "
+                        f"symbole — renommer l'un des deux, ou écrire un "
+                        f"littéral", line))
 
     def _check_undefined_inequality(self) -> None:
         """W135 — `!=` sur un chemin que rien ne renseigne, dans une garde.

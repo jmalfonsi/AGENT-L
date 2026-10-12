@@ -76,7 +76,12 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # rejoué (`RecordingLLM`/`ReplayLLM`, entrée `judge`), servi par le journal à
 # la reprise durable, borné par le pont asynchrone. Un auteur écrit le même
 # AGENT-L ; seule l'exécution devient conforme à ce qu'il écrivait : patch.
-AUTHORING_CONTRACT_VERSION = "2.12.1"
+# 2.13.0 : v1.11 — la grammaire ne bouge pas, les contrôles se resserrent :
+# `W137` (constante symbolique qui est aussi une variable d'état), `V152`
+# (OBSERVE sous WHEN ne couvre pas un EFFECT), `DENY` compté par T1/T2, et le
+# solveur lit un nom renseigné comme une variable. Un agent écrit comme avant
+# peut désormais être refusé ou averti là où `verify` mentait : mineur.
+AUTHORING_CONTRACT_VERSION = "2.13.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

@@ -1,3 +1,8 @@
+---
+name: resilience-tester
+description: "Renforce un projet AGENT-L au-delà du chemin nominal : pannes de capteurs et d'outils, SCENARIO de refus, reprise durable, rejeu. Utiliser pour éprouver un agent avant mise en service ou après une modification de politique."
+---
+
 # Resilience Tester
 
 Renforcer un projet AGENT-L au-delà de son chemin nominal.

@@ -73,6 +73,8 @@ POLICY {
 
 `ABSTAIN BELOW s` referme la boucle côté programme : sous le seuil, la réponse **n’est pas retenue**. Le champ est déclaré absent, son `DEFAULT` s’applique, `reason.missing` le compte et la trace le dit. Une abstention est donc traitée comme un oracle muet, jamais comme une valeur de repli inventée.
 
+Une réponse que le runtime **remplace** — illisible pour son type, hors de l’énumération d’un `CHOICE`, écrêtée par un `SCORE` — emporte sa probabilité avec elle : `judge.<champ>.p` et `.confidence` deviennent indéterminés et la trace le dit. Une garde `judge.x.p >= 0.90` se referme donc sur le `DEFAULT`, au lieu de s’ouvrir sur le 0,99 d’une réponse écartée (corrigé en 1.11).
+
 `W136` demande que cette conduite soit écrite : un champ `JUDGE` qui garde un interdit déclare son seuil, ou bien une garde porte sur `judge.<champ>.p`. Sans l’un des deux, une réponse à 0,51 pèse autant qu’une réponse à 0,99.
 
 ## Qui répond : le protocole d’oracle

@@ -312,13 +312,18 @@ def generate_ed25519(directory: str | Path, name: str = "journal") -> Tuple[Path
     serialization, ed25519 = _cryptography()
     key = ed25519.Ed25519PrivateKey.generate()
     directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
     priv = directory / f"{name}.key"
     pub = directory / f"{name}.pub"
-    priv.write_bytes(key.private_bytes(
+    pem = key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()))
-    os.chmod(priv, 0o600)
+        encryption_algorithm=serialization.NoEncryption())
+    # Créée en 0600 d'emblée : `write_bytes` puis `chmod` laissait la clé
+    # lisible (umask) le temps d'un instant, et ne refusait pas d'écraser.
+    fd = os.open(priv, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(pem)
     pub.write_bytes(key.public_key().public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo))

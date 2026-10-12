@@ -74,7 +74,8 @@ from .nodes import (Agent, AskStmt, BinOp, CallStmt, DelegateStmt, ForEachStmt,
                     IfStmt, Literal, LoopStmt, Node, PathExpr, Plan,
                     PolicyRule, ReasonStmt, SetStmt, Stmt, ThenPlan, ToolDecl,
                     VerifyStmt)
-from .solver import MAX_CLAUSES, entails, satisfiable, watch_overflow
+from .solver import (MAX_CLAUSES, entails, satisfiable, state_names,
+                     watch_overflow)
 
 MAX_ENTRY_DEPTH = 4
 
@@ -180,7 +181,12 @@ class Verifier:
         self.agent = agent
         self.depth = depth
         self.max_nodes = max_nodes
-        self.never_rules = [r for r in agent.policies if r.effect == "NEVER"]
+        # `DENY` interdit comme `NEVER` : le moteur de politiques les évalue
+        # à la suite et le premier verdict négatif gagne. T1 et T2 les
+        # ignoraient, et prouvaient « aucun appel interdit n'aboutit » pour
+        # les seules règles écrites `NEVER`.
+        self.never_rules = [r for r in agent.policies
+                            if r.effect in ("NEVER", "DENY")]
         self.operators = [t for t in agent.tools if t.is_operator]
         self._entries: Optional[Dict[str, List[Tuple[List[Node], str]]]] = None
         self._frozen_facts: Optional[List[Node]] = None
@@ -228,6 +234,14 @@ class Verifier:
 
     # ------------------------------------------------------------------ API
     def run(self) -> Report:
+        # Les identifiants nus que le programme renseigne sont des variables
+        # pour le runtime : le solveur ne peut pas les lire comme des
+        # constantes symboliques (VFY-02).
+        from .analyzer import Analyzer
+        with state_names(Analyzer(self.agent)._declared_names()):
+            return self._run()
+
+    def _run(self) -> Report:
         report = Report(self.agent.name)
         for build in (self.theorem_forbidden, self.theorem_reachability,
                       self.theorem_dead_capabilities, self.theorem_llm_surface,
@@ -925,7 +939,13 @@ class Verifier:
         soit.
         """
         theorem = Theorem("T9", "Le modèle d'effets est réfutable")
-        observed = {observer.path for observer in self.agent.observers}
+        # Un `OBSERVE … WHEN c` ne perçoit que sous `c` : il peut ne jamais
+        # lire le chemin que l'effet a posé. Il ne le couvre que si la
+        # condition tient dans tout état où l'outil peut s'exécuter — ce que
+        # T9 ne démontre pas ; il le dit au lieu de le compter.
+        observed = {o.path for o in self.agent.observers if o.when is None}
+        conditional = {o.path: o for o in self.agent.observers
+                       if o.when is not None}
         checked = blind = 0
         for tool in self.agent.tools:
             seen: Set[str] = set()
@@ -938,6 +958,18 @@ class Verifier:
                         checked += 1
                         continue
                     blind += 1
+                    if effect.path in conditional:
+                        theorem.findings.append(Finding(
+                            "V152", "warning",
+                            f"{tool.name}() prédit {effect.path}, que "
+                            f"l'OBSERVE de la ligne "
+                            f"{conditional[effect.path].line} ne perçoit "
+                            f"que sous WHEN : la postcondition peut ne "
+                            f"jamais être démentie",
+                            f"retirer le WHEN, ou le remplacer par un "
+                            f"`ON UNKNOWN` si c'est le capteur qui peut "
+                            f"manquer", effect.line or tool.line))
+                        continue
                     theorem.findings.append(Finding(
                         "V150", "warning",
                         f"{tool.name}() prédit {effect.path}, qu\'aucune "

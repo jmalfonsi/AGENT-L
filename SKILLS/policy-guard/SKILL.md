@@ -1,3 +1,8 @@
+---
+name: policy-guard
+description: "Conçoit des agents AGENT-L dont chaque action risquée est gouvernée : RISK/SIDE_EFFECT/EFFECT, POLICY en NEVER, approbation vérifiable, gardes de provenance (UNTRUSTED/ATTESTED), idempotence. Utiliser pour tout outil qui touche le monde, avant `agentl verify` (T3, T6) et `agentl boundary`."
+---
+
 # Policy Guard
 
 Concevoir des agents AGENT-L dont chaque action risquée est gouvernée.
@@ -44,6 +49,12 @@ Concevoir des agents AGENT-L dont chaque action risquée est gouvernée.
   un `ALLOW` ni par une approbation. Écrire l'interdit en `NEVER`.
 - Croire qu'une garde `UNTRUSTED` éteint `W119` : T6 exige toujours le motif
   statique `ATTESTS`. Écrire les deux.
+- Écrire `NEVER pay WHEN decision != approved` dans un agent dont un `REASON`
+  produit aussi un champ `approved` : le runtime compare deux variables, pas
+  la constante (`W137`). Renommer l'un des deux ou comparer à un littéral.
+- Garder sur `judge.x.p` sans `ABSTAIN BELOW` : depuis la 1.11 la probabilité
+  d'une réponse rejetée (hors domaine, illisible) est indéterminée, donc la
+  garde se referme — mais c'est l'abstention qui dit ce que fait le programme.
 - Un validateur qui rend `{"ok": "no"}` au lieu de lever : il atteste la
   valeur qu'il voulait refuser.
 

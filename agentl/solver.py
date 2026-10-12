@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
 from .core import Symbol, ordinal
 from .nodes import BinOp, CallExpr, ListExpr, Literal, Node, PathExpr, UnOp
@@ -57,6 +58,24 @@ class OverflowReport:
 
     def __bool__(self) -> bool:
         return self.count > 0
+
+
+#: Noms simples que le programme renseigne (observés, crus, produits par un
+#: `REASON`, écrits par un `SET`…). Posé par `state_names` pour la durée d'une
+#: vérification ; vide hors de ce bloc, ce qui conserve l'ancien comportement
+#: des appels directs au solveur.
+_STATE_NAMES: ContextVar[frozenset] = ContextVar("agentl_state_names",
+                                                 default=frozenset())
+
+
+@contextmanager
+def state_names(names: Iterable[str]) -> Iterator[None]:
+    """Déclare au solveur les identifiants nus qui sont des variables."""
+    token = _STATE_NAMES.set(frozenset(names))
+    try:
+        yield
+    finally:
+        _STATE_NAMES.reset(token)
 
 
 @contextmanager
@@ -177,13 +196,23 @@ def _flip(op: str) -> str:
 def _is_constant(node: Node) -> bool:
     if isinstance(node, Literal):
         return True
-    # Un identifiant nu non pointé s'évalue en symbole (`healthy`, `HIGH`).
-    return isinstance(node, PathExpr) and len(node.parts) == 1 \
-        and not node.parts[0].islower() or _is_bare_symbol(node)
+    # Un identifiant nu non pointé s'évalue en symbole (`healthy`, `HIGH`)…
+    return _is_bare_symbol(node)
 
 
 def _is_bare_symbol(node: Node) -> bool:
-    return isinstance(node, PathExpr) and len(node.parts) == 1
+    """… sauf si le programme le renseigne : le runtime lit alors la variable.
+
+    `Evaluator._path` résout d'abord l'état et ne retombe sur le symbole
+    qu'en l'absence de valeur. Pour `NEVER pay WHEN decision != approved`
+    dans un agent dont un `REASON` produit aussi un champ `approved`, le
+    runtime compare donc deux variables, quand le solveur comparait à la
+    constante `approved` — et prouvait une garde que l'exécution n'applique
+    pas (VFY-02). Un nom que le programme renseigne n'est plus une
+    constante pour la preuve : la comparaison devient un atome opaque.
+    """
+    return (isinstance(node, PathExpr) and len(node.parts) == 1
+            and node.parts[0] not in _STATE_NAMES.get())
 
 
 def _constant(node: Node) -> Any:

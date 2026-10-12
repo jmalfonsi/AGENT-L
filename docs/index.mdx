@@ -60,6 +60,17 @@ AGENT SOC_ANALYST {
   </Card>
 </Columns>
 
+## Nouveautés de la v1.11
+
+<Columns cols={2}>
+  <Card title="verify ne ment plus sur un nom nu" icon="scale">
+    Un champ d’état nommé comme une constante n’est plus lu comme une constante par le solveur ; `W137` signale la collision. `DENY` entre dans T1/T2, et un `OBSERVE … WHEN` ne couvre plus un `EFFECT` (`V152`).
+  </Card>
+  <Card title="Studio : origines tierces refusées" icon="shield-check">
+    `Origin` et `Host` contrôlés en HTTP et WebSocket, corps `application/json` exigé, seul un `.agent` s’enregistre.
+  </Card>
+</Columns>
+
 ## Nouveautés de la v1.10
 
 <Columns cols={2}>
@@ -89,7 +100,7 @@ AGENT SOC_ANALYST {
 </Columns>
 
 <Note>
-  Le paquet est numéroté 1.10.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
+  Le paquet est numéroté 1.11.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
 </Note>
 
 ## Deux façons de travailler

@@ -1,10 +1,10 @@
 {
   "environment": {
-    "date": "2026-09-18T15:44:35+00:00",
+    "date": "2026-10-12T04:33:38+00:00",
     "python": "3.12.3",
-    "platform": "Linux-6.8.0-101-generic-x86_64-with-glibc2.39",
-    "commit": "164a868fa7e3ee4d0ed55816765bf4c4995bde39",
-    "dirty": false,
+    "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.39",
+    "commit": "9345c628cc0390d5f0b085b755d70ff9e41ad78b",
+    "dirty": true,
     "versions": {
       "langgraph": "1.2.11",
       "langgraph-checkpoint-sqlite": "3.1.1",
@@ -12,7 +12,7 @@
       "pydantic-ai-slim": "2.45.0",
       "pydantic": "2.12.5",
       "crewai": "1.15.22",
-      "agentl": "1.8.2"
+      "agentl": "1.11.0"
     },
     "env": {
       "CREWAI_DISABLE_TELEMETRY": "true",
@@ -23,7 +23,7 @@
       "BENCH_LANGGRAPH_DURABILITY": "sync"
     }
   },
-  "repeat": 1,
+  "repeat": 2,
   "stable": true,
   "results": [
     {
@@ -39,7 +39,7 @@
         0
       ],
       "effects": [],
-      "seconds": 0.16
+      "seconds": 0.26
     },
     {
       "framework": "agentl",
@@ -61,7 +61,7 @@
           }
         }
       ],
-      "seconds": 0.24
+      "seconds": 0.38
     },
     {
       "framework": "agentl",
@@ -83,7 +83,7 @@
           }
         }
       ],
-      "seconds": 0.24
+      "seconds": 0.41
     },
     {
       "framework": "agentl",
@@ -105,7 +105,7 @@
           }
         }
       ],
-      "seconds": 0.21
+      "seconds": 0.39
     },
     {
       "framework": "agentl",
@@ -130,7 +130,7 @@
           }
         }
       ],
-      "seconds": 0.84
+      "seconds": 1.09
     },
     {
       "framework": "agentl",
@@ -153,7 +153,7 @@
           }
         }
       ],
-      "seconds": 1.91
+      "seconds": 0.7
     },
     {
       "framework": "agentl",
@@ -168,7 +168,7 @@
         0
       ],
       "effects": [],
-      "seconds": 0.17
+      "seconds": 0.32
     },
     {
       "framework": "agentl",
@@ -191,7 +191,7 @@
           }
         }
       ],
-      "seconds": 0.59
+      "seconds": 0.34
     },
     {
       "framework": "agentl",
@@ -210,7 +210,7 @@
         1
       ],
       "effects": [],
-      "seconds": 1.44
+      "seconds": 1.13
     },
     {
       "framework": "agentl",
@@ -235,7 +235,7 @@
           }
         }
       ],
-      "seconds": 0.9
+      "seconds": 1.12
     },
     {
       "framework": "langgraph",
@@ -257,7 +257,7 @@
           }
         }
       ],
-      "seconds": 2.47
+      "seconds": 3.38
     },
     {
       "framework": "langgraph",
@@ -279,7 +279,7 @@
           }
         }
       ],
-      "seconds": 2.53
+      "seconds": 3.2
     },
     {
       "framework": "langgraph",
@@ -301,7 +301,7 @@
           }
         }
       ],
-      "seconds": 2.33
+      "seconds": 3.25
     },
     {
       "framework": "langgraph",
@@ -323,7 +323,7 @@
           }
         }
       ],
-      "seconds": 2.2
+      "seconds": 3.1
     },
     {
       "framework": "langgraph",
@@ -348,7 +348,7 @@
           }
         }
       ],
-      "seconds": 3.14
+      "seconds": 5.26
     },
     {
       "framework": "langgraph",
@@ -371,7 +371,7 @@
           }
         }
       ],
-      "seconds": 2.31
+      "seconds": 2.98
     },
     {
       "framework": "langgraph",
@@ -386,7 +386,7 @@
         1
       ],
       "effects": [],
-      "seconds": 1.93
+      "seconds": 2.81
     },
     {
       "framework": "langgraph",
@@ -409,7 +409,7 @@
           }
         }
       ],
-      "seconds": 2.26
+      "seconds": 3.07
     },
     {
       "framework": "langgraph",
@@ -436,7 +436,7 @@
           }
         }
       ],
-      "seconds": 5.16
+      "seconds": 7.73
     },
     {
       "framework": "langgraph",
@@ -461,7 +461,7 @@
           }
         }
       ],
-      "seconds": 3.84
+      "seconds": 5.45
     },
     {
       "framework": "pydanticai",
@@ -483,7 +483,7 @@
           }
         }
       ],
-      "seconds": 1.19
+      "seconds": 1.72
     },
     {
       "framework": "pydanticai",
@@ -505,7 +505,7 @@
           }
         }
       ],
-      "seconds": 1.08
+      "seconds": 1.81
     },
     {
       "framework": "pydanticai",
@@ -527,7 +527,7 @@
           }
         }
       ],
-      "seconds": 1.1
+      "seconds": 1.97
     },
     {
       "framework": "pydanticai",
@@ -549,7 +549,7 @@
           }
         }
       ],
-      "seconds": 1.08
+      "seconds": 2.01
     },
     {
       "framework": "pydanticai",
@@ -581,7 +581,7 @@
           }
         }
       ],
-      "seconds": 1.92
+      "seconds": 3.36
     },
     {
       "framework": "pydanticai",
@@ -604,7 +604,7 @@
           }
         }
       ],
-      "seconds": 1.01
+      "seconds": 1.9
     },
     {
       "framework": "pydanticai",
@@ -619,7 +619,7 @@
         1
       ],
       "effects": [],
-      "seconds": 0.99
+      "seconds": 1.78
     },
     {
       "framework": "pydanticai",
@@ -642,7 +642,7 @@
           }
         }
       ],
-      "seconds": 1.11
+      "seconds": 2.03
     },
     {
       "framework": "pydanticai",
@@ -669,7 +669,7 @@
           }
         }
       ],
-      "seconds": 3.11
+      "seconds": 5.36
     },
     {
       "framework": "pydanticai",
@@ -694,7 +694,7 @@
           }
         }
       ],
-      "seconds": 2.06
+      "seconds": 3.62
     },
     {
       "framework": "crewai",
@@ -716,7 +716,7 @@
           }
         }
       ],
-      "seconds": 4.25
+      "seconds": 7.16
     },
     {
       "framework": "crewai",
@@ -738,7 +738,7 @@
           }
         }
       ],
-      "seconds": 4.09
+      "seconds": 7.89
     },
     {
       "framework": "crewai",
@@ -760,7 +760,7 @@
           }
         }
       ],
-      "seconds": 4.16
+      "seconds": 8.06
     },
     {
       "framework": "crewai",
@@ -782,7 +782,7 @@
           }
         }
       ],
-      "seconds": 4.21
+      "seconds": 7.95
     },
     {
       "framework": "crewai",
@@ -814,7 +814,7 @@
           }
         }
       ],
-      "seconds": 7.93
+      "seconds": 11.88
     },
     {
       "framework": "crewai",
@@ -837,7 +837,7 @@
           }
         }
       ],
-      "seconds": 4.17
+      "seconds": 4.92
     },
     {
       "framework": "crewai",
@@ -860,7 +860,7 @@
           }
         }
       ],
-      "seconds": 4.43
+      "seconds": 6.36
     },
     {
       "framework": "crewai",
@@ -883,7 +883,7 @@
           }
         }
       ],
-      "seconds": 4.2
+      "seconds": 5.04
     },
     {
       "framework": "crewai",

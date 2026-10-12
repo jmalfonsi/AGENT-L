@@ -18,7 +18,12 @@ Trois zones concentrent le risque, et il vaut mieux les nommer :
    Python arbitraire** — les modules hôtes — et écrit sur le disque. Il est
    confiné à sa racine `--root` et n'est pas conçu pour être exposé sur un
    réseau non fiable. Ne l'exposez pas hors de `localhost` sans placer un
-   proxy authentifié devant.
+   proxy authentifié devant. Depuis la 1.11, il refuse en outre toute requête
+   (HTTP ou WebSocket) dont l'`Origin` n'est pas lui-même, borne l'en-tête
+   `Host` à sa liaison (rebinding DNS), exige `application/json` pour un corps
+   et n'enregistre que des `.agent` — une page web ouverte dans votre
+   navigateur ne peut donc plus réécrire un module hôte. Lié à toutes les
+   interfaces (`--host 0.0.0.0`), seul l'`Origin` reste contrôlé.
 2. **Les modules hôtes** sont du Python que vous fournissez. AGENT-L ne les
    met pas en bac à sable : exécuter un `.agent` tiers avec son hôte revient à
    exécuter du code tiers.

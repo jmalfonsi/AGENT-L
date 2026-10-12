@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.10.0)
+# AGENT-L — sémantique de référence (v1.11.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -1151,6 +1151,7 @@ sélection de plan et l'on signale ceux de risque `HIGH` ou plus dont la règle
 | `V130-137` | — | T8, vivacité de la société — table détaillée sous « T8 » plus bas dans ce §21 |
 | `V150` | avert. | T9 — `EFFECT` sur le monde qu'aucune `OBSERVE` ne recouvre (§30) |
 | `V151` | info | T9 — chaque `EFFECT` sur le monde est confrontable |
+| `V152` | avert. | T9 — `EFFECT` dont la seule `OBSERVE` est conditionnelle (`WHEN`) : non crédité (v1.11) |
 
 ---
 
@@ -1986,6 +1987,7 @@ la mémoire vit.
 | code | nature | contrôle |
 |---|---|---|
 | `V150` | avertissement | `EFFECT` sur le monde qu'aucune `OBSERVE` ne recouvre — jamais réfutable |
+| `V152` | avertissement | `EFFECT` dont l'`OBSERVE` n'a lieu que sous `WHEN` — peut ne jamais être démenti (v1.11) |
 | `V151` | info | chaque `EFFECT` sur le monde est confrontable à une perception |
 
 
@@ -2060,6 +2062,7 @@ permis — il est parfois le bon choix — mais il ne doit pas être silencieux.
 | `W134` | avertissement | champ `PRODUCE` gardant une action sans `DEFAULT` explicite, ou avec un `DEFAULT` qui ne déclenche pas l'interdit |
 | `W135` | avertissement | garde de déclenchement (`WHEN`, `IF`, `DECIDE`) comparant `!=` un chemin que rien ne renseigne |
 | `W136` | avertissement | champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW` ni garde sur `judge.<champ>.p` (§39) |
+| `W137` | avertissement | garde comparant deux identifiants nus que le programme renseigne tous deux : le runtime lit l'état avant le symbole, le solveur de `verify` aussi depuis la 1.11 (§40) |
 
 ### L'oracle en panne mène au `DEFAULT` explicite, sinon à `UNDEFINED`
 
@@ -2522,3 +2525,30 @@ texte libre restent du ressort de `REASON` : les trois primitives fermées
 écrire. Un agent réel mélange donc les deux, et c'est voulu — la frontière
 entre « ce qui se juge » et « ce qui s'écrit » devient visible dans le
 programme.
+
+
+## 40. Ce que la 1.11 ne laisse plus passer (v1.11)
+
+Quatre énoncés de `verify` ou de `JUDGE` étaient plus forts que ce que le
+code établissait. Chacun a été reproduit avant d'être corrigé.
+
+**Un identifiant nu est d'abord une variable (VFY-02).** `Evaluator._path`
+résout un nom simple dans l'état et ne retombe sur le symbole homonyme qu'à
+défaut de valeur. Le solveur, lui, lisait tout nom nu comme une constante.
+Pour `NEVER pay WHEN decision != approved` dans un agent dont un `REASON`
+produit aussi `approved`, les deux lectures divergeaient : le runtime comparait
+deux variables, la preuve une variable à une constante. Depuis la 1.11, le
+`Verifier` déclare au solveur (`solver.state_names`) les noms que
+`Analyzer._declared_names()` connaît ; une comparaison entre deux tels noms
+devient un atome opaque, ni prouvé ni réfuté. `W137` dit à l'auteur laquelle
+des deux lectures il a écrite.
+
+**`DENY` interdit comme `NEVER`.** T1 (aucun appel interdit n'aboutit) et T2
+(le but reste atteignable sous chaque interdit) parcourent les deux effets.
+
+**Une perception conditionnelle ne couvre pas un effet.** T9 ne crédite que
+les `OBSERVE` sans `WHEN` ; les autres donnent `V152`.
+
+**Une probabilité suit sa valeur.** Lorsque le runtime remplace la réponse de
+l'oracle d'un champ `JUDGE` (illisible pour son type, hors domaine, écrêtée),
+`judge.<champ>.p` et `.confidence` sont indéterminés — la garde se referme.

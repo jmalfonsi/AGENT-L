@@ -7,9 +7,11 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.10.0** —
-`JUDGE`, le jugement fermé : la question part avec le champ et la probabilité
-de la réponse entre dans la politique.
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.11.0** —
+correctifs de vérité : le Studio refuse les origines tierces, `verify` ne lit
+plus un champ d'état comme une constante, `DENY` et `OBSERVE … WHEN` entrent
+dans la preuve. Depuis la 1.10 : `JUDGE`, le jugement fermé — la question part
+avec le champ et la probabilité de la réponse entre dans la politique.
 
 ```bash
 git clone https://github.com/jmalfonsi/AGENT-L.git && cd AGENT-L
@@ -1534,7 +1536,7 @@ qui rend l'appariement non ambigu. Sans `X.py`, `run` refuse de démarrer et
 | `replay` | `--source X.agent` rejoue contre un autre programme · `--force` rejoue même si le programme a changé · `--key K` vérifie le sceau · `--require-seal` échoue si le journal n'est pas valablement signé · `--ticks N` · `--quiet` · `--events F` trace rejouée en JSON Lines |
 | `seal` | vérifie l'intégrité et l'authenticité d'un journal sans le rejouer · `--key K` clé de vérification · `--keygen RÉP` génère une paire Ed25519 · `--name N` nom de base des clés |
 | `mcp` | `list` inspecte un serveur MCP · `import` traduit son catalogue en contrats `TOOL` · `--server N` · `-o F` · `--unsafe-import-descriptions` importe les descriptions rédigées par le serveur (**hors défaut** : elles atteignent le contexte du modèle) · `--strip-descriptions` obsolète, synonyme du défaut · `--force` écrase un fichier existant (les `RISK` tranchés y sont perdus) |
-| `studio` | `--port` · `--host` interface d'écoute (défaut : locale) · `--open` ouvre le navigateur · `--no-save` interdit l'écriture disque · `--root` racine des fichiers accessibles |
+| `studio` | refuse toute `Origin` étrangère, exige `application/json` et n'enregistre que des `.agent` (1.11) · `--port` · `--host` interface d'écoute (défaut : locale) · `--open` ouvre le navigateur · `--no-save` interdit l'écriture disque · `--root` racine des fichiers accessibles |
 | `viz` | `-o/--out F` chemin du HTML produit (défaut `<fichier>.html`) · `--open` |
 | `plan`, `infer` | `--ticks N` ticks avant de figer l'état ; **`--ticks 0` = percevoir sans agir** |
 | `ast` | — |
@@ -1681,6 +1683,7 @@ WEBSITE/                site de présentation
 | **v1.8.1** | **résilience : reprise LLM bornée, disjoncteur d'outil, diagnostics `W133`/`W134`** |
 | **v1.8.2** | **deux P0 de sûreté fermés (la sortie d'un outil ne forge plus l'état, une valeur non finie ne désarme plus une politique), vérificateur sensible au flot d'écritures, `V114`/`W135`, autorisation unifiée outil/délégation** |
 | **v1.9.0** | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
+| **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
 
 Les `VERSION "…"` des exemples indiquent le niveau de langage illustré, pas la

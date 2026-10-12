@@ -159,6 +159,8 @@ agentl studio [file] --port 8765 --host 127.0.0.1 --open
 | `--host HOST` | change l’interface d’écoute |
 | `--port PORT` | change le port |
 
+Depuis la 1.11, le serveur refuse toute requête dont l’`Origin` n’est pas le serveur lui-même (HTTP comme WebSocket), borne l’en-tête `Host` à la liaison, exige `Content-Type: application/json` pour un corps, et n’enregistre que des fichiers `.agent` : les modules hôtes `X.py` ne s’écrivent pas depuis l’éditeur. Derrière un proxy, le `Host` transmis doit être celui de `--host`.
+
 <Note>
   Pour la gestion complète de projets, skills, auteurs, exécutions et historique, utilisez le module Studio documenté dans l’onglet dédié.
 </Note>

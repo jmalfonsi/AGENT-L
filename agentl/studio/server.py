@@ -10,7 +10,13 @@ Principes de sûreté appliqués ici :
 * liaison sur ``127.0.0.1`` par défaut — le studio n'est pas un service public ;
 * aucun chemin hors de la racine (``--root``) n'est lisible ni écrivable ;
 * ``/api/save`` est refusée (403) lorsque ``--no-save`` est demandé ;
-* aucune politique CORS permissive n'est installée ;
+* aucune politique CORS permissive n'est installée, et le serveur **refuse**
+  toute requête (HTTP comme WebSocket) dont l'`Origin` n'est pas le serveur
+  lui-même : un navigateur envoie sans pré-vol une requête `text/plain` ou
+  ouvre un WebSocket vers `127.0.0.1`, et le studio exécute du Python ;
+* l'en-tête `Host` est borné aux noms de la liaison (parade au *DNS
+  rebinding*, où l'origine d'un site tiers devient « la même » que la nôtre) ;
+* un corps d'écriture doit déclarer `application/json` ;
 * le corps d'une édition est borné (2 Mio) ;
 * aucun traceback nu ne remonte au client : tout devient ``{"error": ...}``.
 """
@@ -45,6 +51,73 @@ DRAIN_PERIOD = 0.03
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+
+# --------------------------------------------------------------------------
+# Garde d'origine
+# --------------------------------------------------------------------------
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]",
+                            "testserver"})
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _hostname(netloc: str) -> str:
+    """Nom d'hôte d'un `host[:port]`, crochets IPv6 conservés."""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        return netloc[:netloc.find("]") + 1] if "]" in netloc else netloc
+    return netloc.rsplit(":", 1)[0] if ":" in netloc else netloc
+
+
+class OriginGuard:
+    """Refuse les requêtes dont l'origine ou l'hôte n'est pas le nôtre.
+
+    * `Host` doit nommer la liaison (`allowed_hosts`) — sans quoi un site
+      tiers dont le DNS pointe sur 127.0.0.1 passe pour « même origine ».
+      `None` désactive ce contrôle (liaison sur toutes les interfaces).
+    * `Origin`, s'il est présent, doit désigner exactement le `Host` de la
+      requête. Un client non navigateur (curl, tests) n'en envoie pas : il
+      n'est pas concerné, ce n'est pas lui que cette garde protège.
+    * Une méthode d'écriture sans `Origin` reste admise ici ; le type de
+      contenu est exigé par `body()`.
+    """
+
+    def __init__(self, app: Any, allowed_hosts: Any = LOOPBACK_HOSTS) -> None:
+        self.app = app
+        self.allowed_hosts = (None if allowed_hosts is None
+                              else frozenset(h.lower() for h in allowed_hosts))
+
+    def refusal(self, scope: dict) -> str | None:
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                   for k, v in scope.get("headers", [])}
+        host = headers.get("host", "")
+        if (self.allowed_hosts is not None
+                and _hostname(host) not in self.allowed_hosts):
+            return f"hôte non autorisé : {host or '(absent)'}"
+        origin = headers.get("origin")
+        if origin is not None:
+            netloc = origin.split("://", 1)[-1].rstrip("/").lower()
+            if origin.strip().lower() == "null" or netloc != host.strip().lower():
+                return f"origine non autorisée : {origin}"
+        return None
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        reason = self.refusal(scope)
+        if reason is None:
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await receive()                      # connect
+            await send({"type": "websocket.close", "code": 1008,
+                        "reason": reason})
+            return
+        payload = json.dumps({"error": reason}).encode("utf-8")
+        await send({"type": "http.response.start", "status": 403,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(payload)).encode())]})
+        await send({"type": "http.response.body", "body": payload})
 
 # --------------------------------------------------------------------------
 # Sérialisation défensive
@@ -202,12 +275,16 @@ def verify_source(text: str, depth: int = 4) -> dict[str, Any]:
 # Application
 # --------------------------------------------------------------------------
 def create_app(file: str | None = None, root: Path | str = ".",
-               allow_save: bool = True) -> FastAPI:
+               allow_save: bool = True,
+               allowed_hosts: Any = LOOPBACK_HOSTS) -> FastAPI:
     """Construit l'application FastAPI du studio.
 
     :param file: fichier `.agent` ouvert au démarrage (facultatif).
     :param root: racine autorisée ; aucun chemin hors de cet arbre n'est servi.
     :param allow_save: si faux, `/api/save` répond 403.
+    :param allowed_hosts: noms acceptés dans l'en-tête `Host` (boucle locale
+        par défaut) ; `None` ne contrôle pas l'hôte. L'`Origin` est toujours
+        contrôlé.
     """
     root_path = Path(root).expanduser().resolve()
     if not root_path.is_dir():
@@ -220,6 +297,7 @@ def create_app(file: str | None = None, root: Path | str = ".",
             f"moteur de session du studio indisponible : {exc}") from exc
 
     app = FastAPI(title="AGENT-L Studio", docs_url=None, redoc_url=None)
+    app.add_middleware(OriginGuard, allowed_hosts=allowed_hosts)
     hub = Hub()
     session = StudioSession(root=root_path, file=file)
     app.state.session = session
@@ -261,6 +339,12 @@ def create_app(file: str | None = None, root: Path | str = ".",
             raise HTTPException(413, "charge utile trop volumineuse")
         if not raw:
             return {}
+        # `text/plain` et `multipart/form-data` partent d'une page tierce sans
+        # pré-vol CORS ; `application/json`, non. Exiger le type referme ce
+        # canal même si l'`Origin` était absent ou falsifié par un proxy.
+        kind = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if kind != "application/json":
+            raise HTTPException(415, "Content-Type application/json requis")
         try:
             data = json.loads(raw)
         except ValueError:
@@ -587,7 +671,15 @@ def serve(file: str | None = None, host: str = "127.0.0.1", port: int = 8765,
     """
     import uvicorn
 
-    app = create_app(file, root=root, allow_save=allow_save)
+    # Liaison sur toutes les interfaces : aucun nom d'hôte ne peut être
+    # attendu, l'`Origin` reste contrôlé. Sinon : la boucle locale, plus le
+    # nom de liaison s'il en est un (un proxy authentifié en frontal, par
+    # exemple, doit alors présenter ce même `Host`).
+    wildcard = host in ("0.0.0.0", "::", "")
+    allowed = (None if wildcard
+               else LOOPBACK_HOSTS | {_hostname(host)})
+    app = create_app(file, root=root, allow_save=allow_save,
+                     allowed_hosts=allowed)
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
     if open_browser:
         import webbrowser
@@ -598,5 +690,5 @@ def serve(file: str | None = None, host: str = "127.0.0.1", port: int = 8765,
     return 0
 
 
-__all__ = ["create_app", "serve", "Hub", "json_safe", "discover",
+__all__ = ["create_app", "serve", "Hub", "OriginGuard", "json_safe", "discover",
            "verify_source", "MAX_SOURCE_BYTES"]

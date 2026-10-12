@@ -1,5 +1,5 @@
 (* =========================================================================
-   AGENT-L v1.10 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+   AGENT-L v1.11 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
 
    Convention lexicale fondamentale :
      les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une

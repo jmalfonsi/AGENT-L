@@ -117,6 +117,15 @@ précisément les entrées piégées. Détail des cas : `bench/jev_failures.md`.
 interdit déclare `ABSTAIN BELOW`, ou bien une garde porte sur
 `judge.<champ>.p`. Sans l'un des deux, 0,51 pèse autant que 0,99.
 
+## Une réponse rejetée emporte sa probabilité (v1.11)
+
+Si le runtime remplace la valeur rendue par l'oracle — illisible pour son type
+(`NOUL` répondu « peut-être »), hors de l'énumération d'un `CHOICE`, hors des
+niveaux d'un `SCORE` —, `judge.<champ>.p` et `.confidence` deviennent
+**indéterminés** et la trace le dit. Le champ vaut son `DEFAULT`, et une garde
+`judge.x.p >= 0.9` se referme : le 0,99 d'une réponse écartée ne porte plus sur
+rien. Avant la 1.11 il survivait, et la garde s'ouvrait sur le repli.
+
 ## Ce que la primitive change, mesuré
 
 Les 13 échecs relevés sur l'oracle (`bench/jev_failures.md`) ont été rejoués

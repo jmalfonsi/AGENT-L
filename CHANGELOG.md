@@ -4,6 +4,49 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.11.0] — non publié · correctifs de vérité
+
+Une vérification complète du 2026-10-12 (1409 tests verts, CI verte) a
+pourtant reproduit trois défauts où l'outil disait plus que ce qu'il savait.
+Aucune grammaire ne change ; le paquet passe à 1.11.0 et le contrat d'auteur à
+**2.13.0**, parce que des programmes qui passaient `check` ou `verify` peuvent
+désormais être avertis ou refusés.
+
+### Corrigé
+
+- **Studio : une page web tierce pouvait réécrire l'hôte Python.** Le serveur
+  acceptait tout corps JSON quel que soit son `Content-Type` — un navigateur
+  envoie du `text/plain` vers `127.0.0.1` sans pré-vol CORS — et n'examinait
+  pas l'`Origin` du WebSocket. Deux requêtes suffisaient à remplacer
+  `X.py`, que le `run` suivant exécute. Désormais : `OriginGuard` refuse toute
+  requête, HTTP ou WebSocket, dont l'`Origin` n'est pas le `Host` ; le `Host`
+  est borné à la liaison (parade au rebinding DNS) ; un corps exige
+  `application/json` (415) ; et seul un `.agent` s'enregistre. Liaison sur
+  toutes les interfaces : l'`Origin` reste contrôlé, le `Host` ne l'est plus.
+- **VFY-02 : le solveur lisait une constante là où le runtime lit une
+  variable.** Dans `NEVER pay WHEN decision != approved`, un champ `REASON`
+  nommé `approved` suffisait pour que la garde compare deux variables, que
+  `check` reste muet, que `verify` annonce 8/8 et que le paiement parte avec
+  `decision = unknown`. Le solveur traite désormais comme variable tout nom
+  nu que le programme renseigne (atome opaque), et **`W137`** signale la
+  collision à l'auteur.
+- **`JUDGE` : la probabilité d'une réponse rejetée survivait au rejet.**
+  Une valeur hors domaine, illisible pour son type ou écrêtée était remplacée
+  par le `DEFAULT`, mais `judge.<champ>.p` gardait le 0,99 de la réponse
+  écartée : `ALLOW … WHEN judge.x.p >= 0.90` s'ouvrait sur un repli. `p` et
+  `confidence` sont maintenant indéterminés, et la trace le dit.
+- **T1 et T2 ignoraient `DENY`.** Le moteur de politiques traite `DENY` comme
+  `NEVER` ; le vérificateur ne prouvait « aucun appel interdit n'aboutit »
+  que pour les règles écrites `NEVER`.
+- **T9 comptait un `OBSERVE … WHEN` comme couverture.** Une perception
+  conditionnelle peut ne jamais démentir la postcondition : elle est désormais
+  signalée **`V152`** (T9 non démontré) au lieu d'être créditée.
+- `seal --keygen` crée son répertoire, écrit la clé privée en 0600 dès sa
+  création (plus de fenêtre lisible entre l'écriture et le `chmod`) et refuse
+  d'écraser une clé existante.
+- Skills `policy-guard`, `resilience-tester` et `society-architect` : l'en-tête
+  `name`/`description` manquait, ils n'étaient donc pas découvrables.
+
 ## [1.10.0] — non publié · `JUDGE`, le jugement fermé
 
 Un `REASON` envoie un **type** ; le sens du champ reste dans son nom. Les

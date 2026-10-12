@@ -1,3 +1,8 @@
+---
+name: society-architect
+description: "Conçoit une société AGENT-L minimale, explicite et vérifiable : rôles, MESSAGE/EVENT, DELEGATE sous politique, absence de deadlock/livelock (T8). Utiliser pour tout programme à plusieurs agents."
+---
+
 # Society Architect
 
 Concevoir une société AGENT-L minimale, explicite et vérifiable.

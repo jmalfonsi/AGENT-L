@@ -37,6 +37,25 @@ python3 ~/AGENT-L/SKILLS/agentl-author/scripts/sync_grammar.py --check
 Pour un agent à effets de bord ou alimenté par du texte non fiable, lire ensuite
 `references/security-authoring.md` : cette référence est obligatoire.
 
+## Ce qui change en v1.11 pour l'auteur
+
+La grammaire ne bouge pas ; les contrôles se resserrent là où `verify`
+disait vrai à tort.
+
+- **`W137` — une constante symbolique qui est aussi une variable.** Dans
+  `NEVER pay WHEN decision != approved`, `approved` n'est une constante que si
+  rien ne renseigne un chemin `approved` : le runtime lit l'état d'abord. Si un
+  `REASON` produit aussi un champ `approved`, la garde compare deux
+  variables. Renommer l'un des deux, ou comparer à un littéral. Le solveur de
+  `verify` lit désormais ces noms comme des variables (atome opaque).
+- **`DENY` est un interdit pour T1/T2**, comme `NEVER`.
+- **`V152` — `OBSERVE … WHEN` ne couvre pas un `EFFECT`** pour T9 : une
+  perception conditionnelle peut ne jamais démentir la postcondition.
+- **`judge.<champ>.p` suit la valeur retenue** : une réponse remplacée (hors
+  domaine, illisible) emporte sa probabilité avec elle.
+- **Studio** : toute requête dont l'`Origin` n'est pas le serveur est refusée,
+  le corps doit être `application/json`, et seul un `.agent` s'enregistre.
+
 ## Ce qui change en v1.10 pour l'auteur
 
 - **`JUDGE` — le jugement fermé.** `REASON` envoie un type ; `JUDGE` envoie la

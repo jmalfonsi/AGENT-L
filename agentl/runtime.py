@@ -1603,6 +1603,23 @@ class Runtime:
         answered = {key: value for key, value in produced.items()
                     if key not in missing}
         produced.update(self._enforce_domains(stmt, answered))
+        # Une probabilité ne vaut que pour la valeur que l'oracle a rendue.
+        # Si le runtime l'a remplacée — réponse illisible pour son type,
+        # hors domaine, écrêtée —, la valeur retenue est celle du DEFAULT et
+        # le `p` de la réponse rejetée ne porte plus sur rien : le garder
+        # laisserait `ALLOW … WHEN judge.x.p >= 0.9` s'ouvrir sur un repli.
+        for key in list(prob):
+            if key in missing:
+                continue
+            stated = _coerce({key: values[key]}, {key: stmt.produce[key]})[key]
+            if stated is UNDEFINED or produced.get(key) != stated:
+                prob.pop(key, None)
+                conf.pop(key, None)
+                self.trace.log(
+                    self.state.tick, "LLM",
+                    f"JUDGE « {stmt.task} » : réponse rejetée pour {key}",
+                    f"{fmt(values[key])} non retenue — la probabilité de "
+                    "cette réponse est écartée avec elle")
         label = _LLM | self._pc()
         for key, value in produced.items():
             self.state.set_local(key, value, label)

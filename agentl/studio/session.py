@@ -339,6 +339,15 @@ class StudioSession:
             if target is None:
                 raise AgentLError("aucun fichier associé à la session")
             target = self.resolve_path(target)
+            # Le studio édite des programmes `.agent`. Les modules hôtes
+            # voisins (`X.py`) sont du code exécuté par `run` : les laisser
+            # écrire par la même porte faisait de « sauvegarder » un
+            # « remplacer le code que le prochain run exécutera ».
+            if target.suffix != ".agent":
+                raise AgentLError(
+                    f"sauvegarde refusée : {target.name} n'est pas un "
+                    "programme .agent (les modules hôtes ne s'écrivent pas "
+                    "depuis le studio)")
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(self.source, encoding="utf-8")
