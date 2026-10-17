@@ -100,7 +100,9 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # est celle de son générateur de cas : la réponse simulée d'un outil n'est plus
 # une donnée à effacer, et un monde dérivé qui atteint un outil sans réponse
 # posée est « non jugé ». Aucune surface d'auteur ne change : patch.
-AUTHORING_CONTRACT_VERSION = "2.14.1"
+# 2.14.2 : même chantier — les directives `scenario.outcome.X` et
+# `scenario.refuse.X` sont exemptées de la dérivation, elles aussi : patch.
+AUTHORING_CONTRACT_VERSION = "2.14.2"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

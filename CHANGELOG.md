@@ -14,7 +14,9 @@ posé dans GIVEN/EFFECT », deux fois par la faute de son générateur de cas :
   du monde ; l'étage « données » en faisait pourtant un chemin libre et le
   remplaçait par `∅`, ce qui fait lever le simulateur. Les chemins
   `outil.champ` (et le nom nu d'un `OUTPUT` qu'aucun `OBSERVE` ni `BELIEF` ne
-  porte) ne sont plus jamais dérivés (`tool_output_paths`) ;
+  porte) ne sont plus jamais dérivés (`tool_output_paths`). Les directives du
+  simulateur (`scenario.outcome.X`, `scenario.refuse.X`) non plus : effacées,
+  elles faisaient lever « OUTCOME ambigu » ;
 - **un monde dérivé atteignait un outil dont la réponse n'avait jamais été
   posée.** `alert.level = 4` entre dans un plan que le scénario d'origine ne
   jouait pas, et son outil n'a pas de réponse dans le `GIVEN`. Inventer une
@@ -25,7 +27,7 @@ posé dans GIVEN/EFFECT », deux fois par la faute de son générateur de cas :
   invariants déclarés restent jugés. Une exécution sans aucun cas jugé n'est
   pas un succès.
 
-Contrat d'auteur 2.14.1. Aucune grammaire ne change.
+Contrat d'auteur 2.14.2. Aucune grammaire ne change.
 
 ## [1.12.0] — non publié · ce qu'un auteur devait contourner à la main
 
