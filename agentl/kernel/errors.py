@@ -48,3 +48,22 @@ class ActionInDoubt(AgentLError):
         super().__init__(message)
         self.action_id = action_id
         self.tool = tool
+
+
+class Refused(AgentLError):
+    """L'outil a **refusé** la valeur qu'on lui soumettait : une réponse, pas
+    une panne (v1.12).
+
+    Un validateur refuse en levant une exception — un appel réussi atteste
+    ses arguments, même s'il répond « non ». Levée ainsi, une exception
+    quelconque passait pour une panne : elle nourrissait le disjoncteur, et au
+    troisième refus d'affilée l'outil était coupé, `tools.<outil>.available`
+    à `false`, comme un service mort. `Refused` n'atteste rien, n'est pas
+    comptée comme une panne et pose `tools.<outil>.refused`.
+
+        @host.tool("validate_ip")
+        def validate_ip(ip):
+            if not routable(ip):
+                raise Refused(f"{ip} n'est pas routable")
+            return {"ok": True}
+    """

@@ -1,7 +1,7 @@
 # La ligne de commande — toutes les options, et ce qu'elles garantissent
 
-`SKILL.md` donne la chaîne des portes (`check → test → verify → boundary →
-autoloop → run → replay`). Cette référence couvre le reste de `agentl` : les
+`SKILL.md` donne la chaîne des portes (`check → test → mutate → verify →
+boundary → autoloop → run → replay`). Cette référence couvre le reste de `agentl` : les
 options qui changent ce qu'une porte *prouve*, le scellement des journaux, le
 pont MCP et le Studio.
 
@@ -21,6 +21,7 @@ documenter ici rend le contrôle rouge.
 | `viz F` | graphe statique HTML | `-o/--out FICHIER`, `--open` |
 | `boundary F` | linter de la frontière hôte/agent | `--project-root DIR`, `--external-policy {report,error}` |
 | `test F` | exécute les `SCENARIO` | `--allow-empty`, `--trace` |
+| `mutate F` | relâche chaque règle de politique et rejoue les `SCENARIO` | — (codes 0/1/2, voir ci-dessous) |
 | `autoloop F` | cas dérivés, lot retenu, correction | voir ci-dessous |
 | `run F` | exécute l'agent (hôte `F.py` implicite) | `--ticks`, `--quiet`, `--html`, `--events`, `--record`, `--sign-key`, `--durable`, `--run-id` |
 | `replay J` | re-dérive un journal | `--source`, `--ticks`, `--quiet`, `--events`, `--force`, `--key`, `--require-seal` |
@@ -28,6 +29,30 @@ documenter ici rend le contrôle rouge.
 | `seal [J]` | vérifie ou produit les clés de scellement | `--key`, `--keygen DIR`, `--name` |
 | `mcp list\|import SRC` | inspecte ou importe les outils d'un serveur MCP | `--server`, `-o/--out`, `--force`, `--strip-descriptions`, `--unsafe-import-descriptions` |
 | `studio [F]` | interface web locale | `--port`, `--host`, `--open`, `--no-save`, `--root` |
+
+## `mutate` — chaque règle défendue par un scénario (v1.12)
+
+`agentl mutate X.agent` retire tour à tour chaque `NEVER`, `DENY` et
+`REQUIRE APPROVAL`, puis la garde de chaque `ALLOW … WHEN`, et rejoue tous les
+scénarios de l'agent contre chaque mutant. Sortie : un mutant **tué** (avec le
+scénario qui tombe), **survivant**, ou **levé** par `// MUTATION-OK: raison`.
+
+| Code | Sens |
+|---|---|
+| 0 | tout mutant est tué ou levé |
+| 1 | au moins un survivant : une règle qu'aucun test ne défend |
+| 2 | rien n'est jugeable — aucun `SCENARIO`, ou scénarios déjà rouges sans mutation |
+
+`check` doit passer d'abord (programme mal formé : refus). `NEVER SEND` n'est
+pas muté. Détail et levées : `scenarios.md` §7.
+
+## `boundary` — levée sans effet (v1.12)
+
+Une levée `# BOUNDARY-OK: raison` couvre l'instruction de sa ligne, ou la
+première instruction sous son bloc de commentaires contigu, à la même
+indentation. Séparée par une ligne vide, ou posée au-dessus d'une instruction
+sans constatation, elle ne couvre rien : `boundary` l'affiche désormais
+(« ! levée sans effet », avertissement non bloquant) au lieu de l'ignorer.
 
 ## `verify --require-proved` — la vraie porte de preuve
 
@@ -60,7 +85,11 @@ l'écho de la trace dans le terminal.
 | `--host-ticks N` | nombre de ticks de ce second temps |
 | `-o/--out FICHIER` | écrit le programme corrigé ; sans lui rien n'est écrit |
 
-Code de sortie 3 : appris par cœur (voir `autoloop.md`).
+Code de sortie 3 : appris par cœur (voir `autoloop.md`). La barrière
+« preuve » ne bloque plus sur un T5 indéterminé pour la seule raison `V128`
+(stimuli ou assertions de trace, v1.12) : ces scénarios sont renvoyés à la
+barrière « scénarios », qui les exécute. Un `V122` ou un `V114` bloque
+toujours.
 
 ## Sceller et signer un journal
 

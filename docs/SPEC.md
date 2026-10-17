@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.11.0)
+# AGENT-L — sémantique de référence (v1.12.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2552,3 +2552,27 @@ les `OBSERVE` sans `WHEN` ; les autres donnent `V152`.
 **Une probabilité suit sa valeur.** Lorsque le runtime remplace la réponse de
 l'oracle d'un champ `JUDGE` (illisible pour son type, hors domaine, écrêtée),
 `judge.<champ>.p` et `.confidence` sont indéterminés — la garde se referme.
+
+## 41. Ce que la 1.12 rend vérifiable (v1.12)
+
+**Un `VERIFY` arrête son bloc, pas l'agent.** Chaque point d'entrée — plan,
+règle `DECIDE`, gestionnaire d'`EVENT` ou de `MESSAGE`, instruction de la
+`LOOP` — remet le drapeau d'échec à zéro en sortie, et chaque tick commence
+sans lui. Avant, un échec rendait muets tous les gestionnaires jusqu'au plan
+suivant, `ON VERIFY.FAIL` compris.
+
+**Le refus est un fait.** `tools.<outil>.denied` (politique),
+`tools.<outil>.unapproved` (approbation) et `tools.<outil>.refused` (l'outil a
+levé `Refused`) donnent l'issue de la dernière tentative. `Refused` n'atteste
+rien et n'alimente pas le disjoncteur.
+
+**Une garde de provenance se teste.** `GIVEN { x = "…" UNTRUSTED }` pose une
+valeur `EXTERNAL` ; `scenario.refuse.<outil> = yes` fait refuser l'outil
+simulé. `agentl mutate` vérifie que chaque règle de politique fait tomber un
+scénario quand on la retire.
+
+**T2 ne crédite que des escalades qui partent.** `planner.exhausted` compte
+sous un `PLANNER` activé (sinon `W138`) ; une règle `DECIDE` ou une garde
+`WHEN` compte si la garde de l'interdit l'entraîne, hors conjoints qui ne
+lisent que ce que l'escalade écrit ; une règle sur `tools.<outil>.denied`
+compte si un plan écrit à la main tente l'outil sous la garde.

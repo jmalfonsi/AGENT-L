@@ -4,6 +4,88 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.12.0] — non publié · ce qu'un auteur devait contourner à la main
+
+Un agent auteur a écrit un agent de blocage d'IP gardé par provenance, puis
+a listé dix frictions. Vérifiées contre le code, quatre étaient des défauts,
+dont un plus grave qu'annoncé, et la vérification en a trouvé un cinquième.
+Le paquet passe à 1.12.0, le contrat d'auteur à **2.14.0** : la grammaire
+s'élargit (`GIVEN … UNTRUSTED`), une commande s'ajoute (`mutate`) et des
+programmes qui passaient `verify` peuvent désormais être réfutés.
+
+### Corrigé
+
+- **Un `VERIFY` en échec rendait l'agent muet.** Le drapeau d'échec restait
+  armé après son plan, et `exec_stmts` rendait la main tant qu'il l'était :
+  les règles `DECIDE`, les gestionnaires `EVENT` et `MESSAGE` et les
+  instructions de la `LOOP` des ticks suivants ne faisaient plus rien, sans
+  une ligne de trace — **y compris sous `ON VERIFY.FAIL`**, c'est-à-dire
+  exactement quand une escalade doit partir. `VALMONT.md` documentait déjà
+  le contournement (garde `WHEN` au lieu de `DECIDE`). Chaque point d'entrée
+  remet désormais le drapeau à zéro : un `VERIFY` arrête son bloc, jamais les
+  suivants. **Rupture annoncée** : le journal doré `v1.8.2/complex_soc` ne se
+  rejoue plus — les messages `isolate_and_clean` des ticks 2 à 4 y étaient
+  avalés. Le test épingle la divergence exacte (franchissement #18) et le
+  comportement corrigé a son journal, `tests/golden/v1.12.0/complex_soc`.
+- **T2 créditait une escalade morte.** `IF planner.exhausted … THEN <plan>`
+  comptait comme escalade déclarée (`V112`, DÉMONTRÉ) même sans
+  `PLANNER { ENABLE … }` — alors que le fait n'est jamais posé et que
+  l'escalade ne part jamais. **`W138`** le signale ; T2 ne la crédite plus.
+  `bench/tasks/hr_comp_adjustment_batch.agent` est dans ce cas.
+- **autoloop ne pouvait pas être vert avec `EXPECT NEVER CALL`.** La barrière
+  « preuve » refusait tout T5 non démontré, y compris le `V128` des scénarios
+  à stimuli ou assertions de trace — l'idiome que `security-authoring.md`
+  prescrit pour une garde de provenance. Ces scénarios sont renvoyés à la
+  barrière « scénarios », qui les exécute ; `V122` et `V114` bloquent toujours.
+- **Un refus de validateur passait pour une panne.** L'idiome documenté —
+  lever une exception pour refuser une cible — nourrissait le disjoncteur : au
+  troisième refus d'affilée, l'outil était coupé et `tools.<v>.available`
+  tombait à `false`. Voir `Refused` ci-dessous.
+
+### Ajouté
+
+- **`agentl mutate`** : retire chaque `NEVER`, `DENY` et `REQUIRE APPROVAL`,
+  puis la garde de chaque `ALLOW … WHEN`, rejoue les scénarios et liste les
+  mutants survivants (codes 0/1/2). Un mutant équivalent se lève par
+  `// MUTATION-OK: raison` ; une levée inutile est signalée. Le SKILL exigeait
+  ce test depuis la v1.4 sans l'outiller. L'exemple canonique y passe
+  désormais (trois scénarios ajoutés, une levée justifiée) ; sur les autres
+  exemples du dépôt, la plupart des règles ne sont défendues par aucun test.
+- **`GIVEN { x = "…" UNTRUSTED }`** : une valeur posée par un scénario peut
+  être déclarée écrite par un tiers (`EXTERNAL` en plus d'`OBSERVED`). Une
+  garde `NEVER … WHEN UNTRUSTED(x)` sur un chemin observé était jusque-là
+  invérifiable par SCENARIO : elle survivait à sa propre suppression.
+- **`scenario.refuse.<outil> = yes`** : l'outil simulé lève `Refused`. Sans
+  cela, tout appel simulé réussissait, donc attestait, et `NOT ATTESTED(x, v)`
+  ne pouvait pas mordre.
+- **`agentl.Refused`** : exception d'hôte pour un refus. Elle n'atteste rien,
+  n'est pas comptée par le disjoncteur, pose `tools.<outil>.refused`, compte
+  dans la métrique `tool_refused` et se rejoue comme un refus.
+- **Les refus publiés comme des faits** : `tools.<outil>.denied` (politique) et
+  `tools.<outil>.unapproved` (approbation), état de la dernière tentative. Une
+  escalade sur refus s'écrit sans marqueur bricolé.
+- **T2 reconnaît les escalades réelles** : une règle `DECIDE` ou une garde
+  `WHEN` que la garde de l'interdit entraîne (démontré par le solveur, le
+  conjoint « pas encore escaladé » écarté), ou une règle sur
+  `tools.<outil>.denied` quand un plan écrit à la main tente l'outil. Un plan
+  d'escalade qui rappelle l'outil interdit ne compte pas.
+
+### Modifié
+
+- `V110` explique un interdit levable par `NOT ATTESTED(x, v)` : la synthèse
+  ne modélise pas l'attestation, il faut un plan manuel `v(…)` puis l'outil.
+- Le motif de refus d'un `NEVER` gardé devient « interdiction (garde vraie) » ;
+  « interdiction absolue » est réservé au `NEVER` sans garde.
+- Les gardes qui appellent une fonction s'affichent lisiblement
+  (`UNTRUSTED(ip) AND NOT ATTESTED(ip, validate_ip)` au lieu de
+  `CallExpr AND NOT CallExpr`).
+- `boundary` signale une levée `BOUNDARY-OK` sans effet (mal placée, ou sans
+  constatation à couvrir) au lieu de l'ignorer.
+- `runtime-semantics.md` documente l'ordre interne de `SELECT_PLAN` et le
+  tick de retard de `planner.exhausted` et des refus.
+- Extension VS Code 1.4.0 : fonctions de garde et assertions de scénario
+  reconnues ; le test miroir couvre ces listes et le fichier compilé.
+
 ## [1.11.0] — non publié · correctifs de vérité
 
 Une vérification complète du 2026-10-12 (1409 tests verts, CI verte) a

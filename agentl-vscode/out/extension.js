@@ -54,6 +54,17 @@ const RESERVED_KEYWORDS = new Set([
     "UNKNOWN", "DEGRADE",
     // v1.7 : postcondition qui ne porte pas sur le monde, donc indémentissable
     "INTERNAL",
+    // v1.10 : jugement fermé — questions typées posées à l'oracle
+    "JUDGE", "NOUL", "CHOICE", "SCORE", "ABSTAIN", "BELOW",
+    // Fonctions que les gardes appellent : épistémiques (v1.3) et de
+    // provenance (v1.9). Ce ne sont pas des mots-clés du lexeur, mais elles
+    // s'écrivent en majuscules — `UNTRUSTED(ip)`, et en v1.12 le suffixe
+    // `GIVEN { ip = "…" UNTRUSTED }`.
+    "P", "POSTERIOR", "PROBABILITY", "UNCERTAINTY",
+    "ATTESTED", "LLM_DERIVED", "ORIGIN", "TRUSTED", "UNTRUSTED",
+    // Assertions de trace d'un SCENARIO : `EXPECT NEVER CALL x`,
+    // `EXPECT BLOCKED x`, `EXPECT NO ERROR`.
+    "CALL", "BLOCKED", "NO", "ERROR",
     // Symboles d'échelle ordinaux et constantes autorisées en majuscules.
     // `UNSET` est le risque non tranché que produit `agentl mcp import` : le
     // fichier fraîchement importé doit s'ouvrir sans une erreur par outil.

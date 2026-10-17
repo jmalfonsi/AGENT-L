@@ -117,8 +117,22 @@ l'exécution durable quand un virement est resté indéterminé après une panne
 2. **Attesté ≠ fiable.** `ATTESTED(x, v)` dit que l'outil `v` a été appelé
    avec succès sur cette valeur. L'étiquette de `x` ne change pas.
    **Tout appel réussi atteste ses arguments**, même si l'outil répond
-   `{"ok": "no"}`. Un validateur doit donc **lever une exception** pour
-   refuser une cible. Un validateur qui « répond non » atteste quand même.
+   `{"ok": "no"}`. Un validateur refuse donc en levant
+   **`agentl.Refused`** (v1.12) : rien n'est attesté, le refus n'est pas
+   compté comme une panne par le disjoncteur, et `tools.<v>.refused` passe à
+   `true`. Une autre exception refuse aussi, mais passe pour une panne : au
+   troisième refus d'affilée le disjoncteur coupe l'outil et
+   `tools.<v>.available` tombe à `false`.
+
+   ```python
+   from agentl import Refused
+
+   @host.tool("validate_ip")
+   def validate_ip(ip):
+       if not routable(ip):
+           raise Refused(f"{ip} n'est pas routable")
+       return {"ok": "yes"}
+   ```
 3. **L'hôte peut dégrader, jamais élever.** Un capteur qui lit du texte tiers
    rend `untrusted(valeur)` (`agentl.kernel.provenance`) : la valeur reçoit
    `EXTERNAL` en plus d'`OBSERVED`. Il n'existe aucun moyen de rendre fiable
@@ -129,9 +143,17 @@ l'exécution durable quand un virement est resté indéterminé après une panne
    **`E015`** refuse tout nom de fonction inconnu dans une expression :
    l'expression serait inévaluable, la garde indéterminée pour toujours.
 5. **Les scénarios voient les mêmes étiquettes** : un chemin `OBSERVE` posé
-   par `GIVEN` est `OBSERVED`, une réponse `REASON` est `LLM`
-   (`scenarios.md` §2). Une garde de provenance se teste avec
-   `EXPECT NEVER CALL` + `EXPECT BLOCKED`.
+   par `GIVEN` est `OBSERVED` — donc fiable —, une réponse `REASON` est `LLM`
+   (`scenarios.md` §2). Une garde de provenance se teste en posant la valeur
+   `UNTRUSTED` dans le `GIVEN`, le refus du validateur par
+   `scenario.refuse.<v> = yes`, puis `EXPECT NEVER CALL` + `EXPECT BLOCKED`.
+   `agentl mutate` vérifie qu'elle mord : retirée, un scénario doit tomber.
+6. **Le refus se lit dans le programme** (v1.12) : `tools.<outil>.denied`
+   (la politique a refusé), `tools.<outil>.unapproved` (l'approbation a
+   manqué), `tools.<outil>.refused` (l'outil a levé `Refused`). Une escalade
+   sur refus s'écrit sans marqueur bricolé :
+   `IF tools.block_ip.denied == true AND escalation.sent != yes THEN escalate`.
+   T2 la reconnaît comme escalade si un plan écrit à la main tente l'outil.
 
 ### Ce que `check` et `verify` ne voient pas encore
 

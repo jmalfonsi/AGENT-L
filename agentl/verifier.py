@@ -221,8 +221,14 @@ class Verifier:
         Cette distinction est ce qui sépare, sous un interdit sans repli, un
         agent qui rend la main d'un agent qui cale en silence — le premier fait
         ce qu'on attend de lui, le second est un défaut.
+
+        Sans `PLANNER { ENABLE … }`, le fait n'est jamais posé : la règle est
+        morte, et la créditer faisait annoncer « escalade déclarée » (V112)
+        pour un agent qui calera (W138 le signale à l'auteur).
         """
-        if self.agent.decide is not None:
+        planner = self.agent.planner
+        if self.agent.decide is not None and planner is not None \
+                and planner.enabled:
             for rule in self.agent.decide.rules:
                 if "planner.exhausted" not in _referenced_paths(rule.cond):
                     continue
@@ -231,6 +237,89 @@ class Verifier:
         for target in _plan_targets(self.agent.on_verify_fail):
             return target
         return None
+
+    def _escalation_for(self, rule: PolicyRule) -> Optional[Tuple[str, str]]:
+        """Plan d'escalade qui part quand l'interdit `rule` est en vigueur.
+
+        Trois formes, de la plus générale à la plus locale :
+
+        * `IF planner.exhausted … THEN <plan>` sous un PLANNER activé, ou
+          `ON VERIFY.FAIL` (`_declared_escalation`) ;
+        * une règle `DECIDE`, ou la garde `WHEN` d'un plan, **entraînée** par
+          la garde de l'interdit — démontré par le solveur, jamais supposé :
+          chaque fois que l'interdit s'applique, l'escalade part ;
+        * une règle ou une garde qui lit `tools.<outil>.denied` (v1.12),
+          pourvu qu'un plan écrit à la main tente l'outil et puisse être
+          exécuté sous la garde — sans cette tentative le refus ne serait
+          jamais publié : la synthèse n'engendre pas une action interdite.
+
+        Le plan d'escalade ne doit pas appeler l'outil interdit : réessayer
+        n'est pas rendre la main.
+        """
+        if self.escalation is not None:
+            return self.escalation, "escalade globale (planner.exhausted ou " \
+                                    "ON VERIFY.FAIL)"
+        if rule.target == "*":
+            return None
+        plans = {p.name: p for p in self.agent.plans}
+        triggers = [(plan.when, [plan.name], "garde WHEN")
+                    for plan in self.agent.plans if plan.when is not None]
+        if self.agent.decide is not None:
+            triggers += [(r.cond, _plan_targets(r.then), "règle DECIDE")
+                         for r in self.agent.decide.rules]
+
+        def calls_target(name: str) -> bool:
+            plan = plans.get(name)
+            return plan is not None and any(
+                isinstance(stmt, CallStmt) and stmt.call.name == rule.target
+                for stmt, _, _ in _walk_guarded(_plan_body(plan)))
+
+        denied = f"tools.{rule.target}.denied"
+        attempted = None
+        for cond, names, origin in triggers:
+            targets = [t for t in names if t in plans and not calls_target(t)]
+            if not targets:
+                continue
+            # `esc.sent != yes` dit « une seule fois », pas « quand » : un
+            # conjoint qui ne lit que ce que l'escalade écrit elle-même est
+            # écarté de l'implication — sans quoi aucune escalade idiomatique
+            # ne serait jamais reconnue.
+            written = set().union(*(self.flow_ctx.written_within(
+                _plan_body(plans[t])) for t in targets))
+            def own(part: Node) -> bool:
+                # Un nom nu non écrit (`yes`) est une constante, pas un fait.
+                paths = {p for p in _referenced_paths(part)
+                         if "." in p or p in written}
+                return bool(paths) and paths <= written
+            trigger = [c for c in _conjuncts(cond) if not own(c)]
+            conclusion = None
+            for part in trigger:
+                conclusion = part if conclusion is None else \
+                    BinOp("AND", conclusion, part, line=part.line)
+            if rule.guard is not None and entails([rule.guard], conclusion):
+                return targets[0], f"{origin} entraînée par la garde"
+            if denied in _referenced_paths(cond):
+                if attempted is None:
+                    attempted = self._attempted_under(rule)
+                if attempted:
+                    return targets[0], (f"refus publié ({denied}) après "
+                                        f"l'appel écrit dans {attempted}")
+        return None
+
+    def _attempted_under(self, rule: PolicyRule) -> str:
+        """Un plan qui appelle l'outil interdit et s'exécute sous sa garde."""
+        entries = self.entry_conditions()
+        for plan in self.agent.plans:
+            sites = [conds for stmt, conds, _ in _walk_guarded(_plan_body(plan))
+                     if isinstance(stmt, CallStmt)
+                     and stmt.call.name == rule.target]
+            if not sites:
+                continue
+            for entry, _origin in entries.get(plan.name, []):
+                for local in sites:
+                    if satisfiable(rule.guard, *entry, *local):
+                        return plan.name
+        return ""
 
     # ------------------------------------------------------------------ API
     def run(self) -> Report:
@@ -450,11 +539,23 @@ class Verifier:
         forbidden_ops = {r.target for r in self.never_rules}
         planned = [t.name for t in self.operators if t.name in forbidden_ops]
         if planned:
+            detail = (", ".join(sorted(planned)) +
+                      " — le planificateur interroge la politique par branche")
+            liftable = self._attestation_lifts(planned)
+            if liftable:
+                # La garde tombe après un appel du validateur sur la même
+                # valeur ; le planificateur, lui, ne modélise pas l'attestation
+                # et ne l'enchaînera jamais. Le dire évite de lire l'absence
+                # de l'outil dans la synthèse comme une interdiction absolue.
+                detail += " ; " + " ; ".join(
+                    f"{target}() se lève par ATTESTED(…, {validator}), que la "
+                    f"synthèse ne produit pas : écrire un plan manuel "
+                    f"`{validator}(…)` puis `{target}(…)`"
+                    for target, validator in liftable)
             theorem.findings.append(Finding(
                 "V110", "info",
                 f"{len(planned)} opérateur(s) sous NEVER exclus de la synthèse",
-                ", ".join(sorted(planned)) +
-                " — le planificateur interroge la politique par branche"))
+                detail))
 
         # Une preuve dégradée n'est plus une preuve : le théorème passe de
         # « démontré » à « borné ». Afficher DÉMONTRÉ sur un site où le
@@ -473,6 +574,28 @@ class Verifier:
             if degraded:
                 theorem.summary += f" · {degraded} verdict(s) non démontré(s)"
         return theorem
+
+    def _attestation_lifts(self, targets: List[str]) -> List[Tuple[str, str]]:
+        """`(outil, validateur)` pour chaque `NEVER outil WHEN … NOT
+        ATTESTED(x, validateur)` : un interdit qu'un appel préalable lève."""
+        from .analyzer import _walk_expr
+        from .nodes import CallExpr, UnOp
+
+        out: List[Tuple[str, str]] = []
+        for rule in self.never_rules:
+            if rule.target not in targets or rule.guard is None:
+                continue
+            for node in _walk_expr(rule.guard):
+                if not (isinstance(node, UnOp) and node.op == "NOT"
+                        and isinstance(node.operand, CallExpr)
+                        and node.operand.name == "ATTESTED"
+                        and len(node.operand.args) == 2
+                        and isinstance(node.operand.args[1], PathExpr)):
+                    continue
+                pair = (rule.target, ".".join(node.operand.args[1].parts))
+                if pair not in out:
+                    out.append(pair)
+        return out
 
     # -------------------------------------------- T2 : atteignabilité du but
     def theorem_reachability(self) -> Theorem:
@@ -530,19 +653,23 @@ class Verifier:
             from .runtime import _render_expr
             hypothesis = (_render_expr(rule.guard) if rule.guard is not None
                           else "toujours")
-            if route is None and route_exhausted and self.escalation:
+            escalation = (self._escalation_for(rule)
+                          if route is None and route_exhausted else None)
+            if escalation is not None:
                 # Point fixe atteint sans route, mais l'agent l'a prévu : un
-                # `planner.exhausted` mène à un plan d'escalade. Le but n'est
-                # pas atteint et ce n'est pas un défaut — c'est la conduite
+                # `planner.exhausted`, un refus publié ou une règle que la
+                # garde entraîne mène à un plan d'escalade. Le but n'est pas
+                # atteint et ce n'est pas un défaut — c'est la conduite
                 # attendue. Ce que le théorème interdit, c'est de caler en
                 # silence.
                 escalated += 1
+                plan, how = escalation
                 theorem.findings.append(Finding(
                     "V112", "info",
                     f"sous « {hypothesis} », aucune route permise — "
-                    f"escalade déclarée ({self.escalation})",
-                    "démontré : espace d'états épuisé ; l'agent ne cale pas "
-                    "en silence", rule.line))
+                    f"escalade déclarée ({plan})",
+                    f"démontré : espace d'états épuisé ; l'agent ne cale pas "
+                    f"en silence — {how}", rule.line))
             elif route is None and route_exhausted:
                 # Point fixe atteint sans route **et sans escalade** : l'agent
                 # calera. L'absence de repli est démontrée, plus seulement
@@ -555,8 +682,9 @@ class Verifier:
                     f"(démontré : espace d'états épuisé)",
                     f"l'interdit de {rule.target}() rend le but inatteignable "
                     f"et aucune escalade n'est déclarée : l'agent calera. "
-                    f"Ajouter une règle `IF planner.exhausted … THEN <plan>`, "
-                    f"ou réviser le but", rule.line))
+                    f"Ajouter une règle `IF planner.exhausted … THEN <plan>` "
+                    f"(sous PLANNER {{ ENABLE … }}), ou réviser le but",
+                    rule.line))
             elif route is None:
                 unproved += 1
                 theorem.findings.append(Finding(

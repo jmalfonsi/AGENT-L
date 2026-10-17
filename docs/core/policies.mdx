@@ -81,7 +81,7 @@ POLICY {
 }
 ```
 
-`UNTRUSTED`, `TRUSTED`, `LLM_DERIVED`, `ATTESTED` et `ORIGIN` sont détaillées dans [Provenance des valeurs](/core/provenance). `tools.<outil>.in_doubt` est posé par l’[exécution durable](/core/durable-execution) quand une reprise n’a pas pu trancher si l’action a eu lieu.
+`UNTRUSTED`, `TRUSTED`, `LLM_DERIVED`, `ATTESTED` et `ORIGIN` sont détaillées dans [Provenance des valeurs](/core/provenance). Le runtime publie aussi l’issue de la dernière tentative de chaque outil (v1.12) : `tools.<outil>.denied` (la politique a refusé), `tools.<outil>.unapproved` (l’approbation a manqué) et `tools.<outil>.refused` (l’outil a levé `Refused`). Une escalade sur refus s’écrit sans marqueur bricolé : `IF tools.block_ip.denied == true AND escalation.sent != yes THEN escalate`. `tools.<outil>.in_doubt` est posé par l’[exécution durable](/core/durable-execution) quand une reprise n’a pas pu trancher si l’action a eu lieu.
 
 <Warning>
   Un identifiant nu non résolu est une constante symbolique. Préférez un chemin pointé comme `maintenance.window` pour les gardes critiques ; l’analyseur signale les noms simples suspects.

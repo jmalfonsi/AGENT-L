@@ -326,6 +326,11 @@ une escalade existe. Ici l'escalade passe donc par une **garde de plan**
 que c'est elle que le théorème T2 exige pour transformer un `V105` (erreur) en
 `V112` (conduite attendue).
 
+*Corrigé en v1.12* : un `VERIFY` en échec n'arrête plus que son bloc, et les
+règles `DECIDE` des ticks suivants partent normalement. La garde `WHEN` reste
+valable — T2 la reconnaît désormais directement quand la garde de l'interdit
+l'entraîne.
+
 ---
 
 ## Le défaut qu'un run réel a trouvé, et qu'aucune porte n'avait vu

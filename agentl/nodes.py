@@ -399,6 +399,10 @@ class Effect(Node):
     path: str
     value: Node
     internal: bool = False
+    #: `GIVEN { x = "…" UNTRUSTED }` (v1.12) : dans un SCENARIO seulement, la
+    #: valeur posée est écrite par un tiers — étiquette `EXTERNAL` en plus
+    #: d'`OBSERVED`, comme un capteur qui rend `untrusted(valeur)`.
+    untrusted: bool = False
 
 
 @dataclass

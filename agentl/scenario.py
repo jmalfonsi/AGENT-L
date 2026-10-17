@@ -49,6 +49,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .core import Symbol, UNDEFINED
+from .kernel.errors import Refused
+from .kernel.provenance import untrusted as _untrusted
 from .llm import MockLLM
 from .nodes import Agent, Node, Scenario
 from .state import Evaluator
@@ -67,12 +69,34 @@ def _is_yes(value: Any) -> bool:
     return approval_granted(value)
 
 
-def simulated_tool_result(tool: Any, world: Optional[Dict[str, Any]] = None
+#: `GIVEN { scenario.refuse.<outil> = yes }` (v1.12) : l'outil refuse la
+#: valeur qu'on lui soumet — il lève `Refused`, comme un validateur réel. Sans
+#: cela, tout appel simulé réussissait, donc attestait ses arguments, et une
+#: garde `NOT ATTESTED(x, outil)` ne pouvait pas mordre dans un test.
+REFUSE_PREFIX = "scenario.refuse."
+
+
+def untrusted_paths(scenario: Scenario) -> frozenset:
+    """Chemins que le `GIVEN` déclare écrits par un tiers (`UNTRUSTED`)."""
+    return frozenset(e.path for e in scenario.given if e.untrusted)
+
+
+def simulated_tool_result(tool: Any, world: Optional[Dict[str, Any]] = None,
+                          untrusted: frozenset = frozenset()
                           ) -> Dict[str, Any]:
-    """Sorties explicitement posées ou produites par EFFECT, jamais inventées."""
+    """Sorties explicitement posées ou produites par EFFECT, jamais inventées.
+
+    Une sortie posée `UNTRUSTED` rend `untrusted(valeur)` : le runtime y
+    ajoute l'étiquette de l'outil, comme pour un outil réel.
+    """
     world = world or {}
-    return {key: world.get(f"{tool.name}.{key}", world.get(key, UNDEFINED))
-            for key in tool.outputs}
+    out = {}
+    for key in tool.outputs:
+        path = f"{tool.name}.{key}" if f"{tool.name}.{key}" in world else key
+        value = world.get(path, UNDEFINED)
+        out[key] = (_untrusted(value) if path in untrusted
+                    and value is not UNDEFINED else value)
+    return out
 
 
 class ScenarioHost:
@@ -91,9 +115,11 @@ class ScenarioHost:
     doit l'écrire, et cela se lit dans le test.
     """
 
-    def __init__(self, agent: Agent, world: Dict[str, Any]) -> None:
+    def __init__(self, agent: Agent, world: Dict[str, Any],
+                 untrusted: frozenset = frozenset()) -> None:
         self.agent = agent
         self.world = dict(world)
+        self.untrusted = frozenset(untrusted)
         self.calls: List[str] = []
         self.errors: List[str] = []
         self.events: List[Dict[str, Any]] = []
@@ -108,13 +134,19 @@ class ScenarioHost:
         self.subagents: Dict[str, Any] = _ScenarioSubagents(agent, self.world)
 
     def read(self, path: str) -> Any:
-        return self.world.get(path)
+        value = self.world.get(path)
+        if value is not None and path in self.untrusted:
+            return _untrusted(value)
+        return value
 
     def invoke(self, name: str, args: Dict[str, Any]) -> Any:
         self.calls.append(name)
         tool = self.agent.tool(name)
         if tool is None:
             raise KeyError(f"outil `{name}` non déclaré")
+        if _is_yes(self.world.get(f"{REFUSE_PREFIX}{name}")):
+            # Une réponse de l'outil, pas une erreur du scénario.
+            raise Refused(f"refus simulé ({REFUSE_PREFIX}{name})")
         self.latest_effects = {}
         try:
             branches = [b for b in tool.branches if b.probability > 0]
@@ -148,7 +180,7 @@ class ScenarioHost:
                     self.latest_effects[effect.path] = value
                     if self.on_effect:
                         self.on_effect(self.latest_effects)
-            result = simulated_tool_result(tool, self.world)
+            result = simulated_tool_result(tool, self.world, self.untrusted)
             missing = [key for key, value in result.items() if value is UNDEFINED]
             if missing:
                 raise ValueError(f"OUTPUT de {name} non posé dans GIVEN/EFFECT : {', '.join(missing)}")
@@ -400,9 +432,9 @@ def initial_expectations(agent: Agent, scenario: Scenario
     """
     from .runtime import Runtime
 
-    host = ScenarioHost(agent, _initial_world(scenario))
+    host = ScenarioHost(agent, _initial_world(scenario), untrusted_paths(scenario))
     runtime = Runtime(agent, host, ScenarioLLM(host.world), echo=False)
-    runtime._apply_initial_values(host.world, "scenario")
+    runtime._apply_initial_values(host.world, "scenario", host.untrusted)
 
     invariants, eventualities = [], []
     for expectation in scenario.expect:
@@ -425,7 +457,8 @@ def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
         errors = _scenario_errors(agent, scenario)
         if errors:
             raise ValueError("scénario invalide : " + "; ".join(errors))
-        host = ScenarioHost(agent, _initial_world(scenario))
+        host = ScenarioHost(agent, _initial_world(scenario),
+                            untrusted_paths(scenario))
         broken = []
         reached = set()
         invariants = []
@@ -470,7 +503,7 @@ def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
 
         runtime = MonitoredRuntime(agent, host, ScenarioLLM(host.world), echo=echo)
         host.state = runtime.state
-        runtime._apply_initial_values(host.world, "scenario")
+        runtime._apply_initial_values(host.world, "scenario", host.untrusted)
         for stimulus in scenario.stimuli:
             payload = {}
             evaluator = Evaluator(_WorldState(dict(host.world)))

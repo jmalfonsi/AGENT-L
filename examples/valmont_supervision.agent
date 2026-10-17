@@ -1350,6 +1350,9 @@ AGENT VALMONT_SUPERVISION {
     // une escalade existe. Les gardes de plan, elles, passent par
     // `_enqueue` et ne sont pas concernées.
     //
+    // (Corrigé en v1.12 : un VERIFY en échec n'arrête plus que son bloc. La
+    // garde WHEN reste valable, et T2 la reconnaît désormais directement.)
+    //
     // La garde s'éteint par `SET escalade.envoyee = yes` : sans cela elle se
     // réenfilerait à chaque tick et la synthèse ne se produirait jamais.
     PLAN escalader

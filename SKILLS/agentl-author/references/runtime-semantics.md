@@ -39,6 +39,36 @@ moyenne **pondérée par `WEIGHT`**. Il faut donc que *toutes* les conditions de
   arrêter proprement plus tôt, ajouter un marqueur à la condition `UNTIL`
   (p.ex. `UNTIL goal.satisfied OR escalation.sent == yes`).
 
+### L'ordre dans un tick, et ce qu'il fait aux faits du runtime
+
+Le cycle par défaut est `RECEIVE OBSERVE UPDATE_BELIEFS UPDATE_HYPOTHESES
+EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY`. `SELECT_PLAN` (alias
+`DECIDE`) enchaîne lui-même, dans cet ordre :
+
+1. les `EVENT` drainés de l'hôte ;
+2. les gardes `WHEN` des plans ;
+3. les règles `DECIDE` ;
+4. la **synthèse** du planificateur — seulement si la file est vide ;
+5. `DECIDE { REASON }` — seulement si la file est encore vide.
+
+Deux conséquences, à connaître avant d'écrire une escalade :
+
+- **`planner.exhausted` est lu avec un tick de retard.** Il est posé par la
+  synthèse (étape 4), donc *après* les règles `DECIDE` (étape 3) : une règle
+  `IF planner.exhausted …` part au tick suivant l'épuisement. Et tant qu'un
+  plan est en file, la synthèse n'a pas lieu : le fait garde sa valeur
+  précédente. Sans `PLANNER { ENABLE … }`, il n'est **jamais** posé (`W138`).
+- **Les refus aussi.** `tools.<outil>.denied`, `.unapproved` et `.refused`
+  sont posés pendant `EXECUTE` ; une règle `DECIDE` qui les lit part au tick
+  suivant.
+
+**Un `VERIFY` en échec arrête son bloc, pas l'agent** (v1.12). Le plan qui le
+contient s'arrête, son `ON VERIFY.FAIL` s'exécute, puis la boucle continue :
+les règles `DECIDE`, les `EVENT` et les `MESSAGE` des ticks suivants partent
+normalement. Jusqu'en v1.11, le drapeau d'échec restait armé jusqu'au plan
+suivant, et tout ce qui passait entre-temps — y compris une escalade — était
+avalé sans trace, même sous `ON VERIFY.FAIL`.
+
 ---
 
 ## 2. Ordre d'évaluation de la politique (`policy.py::check`)
@@ -189,7 +219,10 @@ préalable au site. W117/W118 restent des avertissements CHECK mais bloquent TES
 - **T1 — Aucun appel interdit n'aboutit.** `V101` branche morte (l'appel est
   toujours interdit sur ce chemin) ; `V102` exposition (l'appel peut être tenté
   dans un état interdit, sans repli) ; `V110` (info) opérateur sous `NEVER`
-  exclu de la synthèse — comportement correct ; `V114` **preuve dégradée** : la
+  exclu de la synthèse — comportement correct. Quand la garde se lève par
+  `NOT ATTESTED(x, v)`, le détail le dit : la synthèse ne modélise pas
+  l'attestation et n'enchaînera jamais `v` puis l'outil — écrire un plan
+  manuel `v(…)` puis `outil(…)` ; `V114` **preuve dégradée** : la
   condition de chemin a dépassé la borne de clauses du solveur, qui a répondu
   « satisfiable » sans l'établir — le verdict de ce site n'est pas démontré et
   T1 rend « ◐ BORNÉ » au lieu de « DÉMONTRÉ ».
@@ -208,9 +241,16 @@ préalable au site. W117/W118 restent des avertissements CHECK mais bloquent TES
   n'est pas l'absence de route, c'est le fait de **caler en silence** :
   - `V111` (info) route de repli trouvée sous l'interdit ;
   - `V112` (info) aucune route permise **mais escalade déclarée** — conduite
-    attendue, pas un défaut ;
+    attendue, pas un défaut. Trois formes comptent, le détail dit laquelle :
+    `IF planner.exhausted … THEN <plan>` sous un `PLANNER` activé (ou
+    `ON VERIFY.FAIL`) ; une règle `DECIDE` ou une garde `WHEN` que la garde de
+    l'interdit **entraîne** (démontré par le solveur ; un conjoint qui ne lit
+    que ce que l'escalade écrit elle-même, `esc.sent != yes`, est écarté) ;
+    une règle sur `tools.<outil>.denied` (v1.12), si un plan écrit à la main
+    tente l'outil sous la garde. Le plan d'escalade ne doit pas rappeler
+    l'outil interdit ;
   - `V105` **erreur** : aucune route et aucune escalade → l'agent calera.
-    Remède : `IF planner.exhausted … THEN <plan d'escalade>` ;
+    Remède : l'une des trois formes ci-dessus ;
   - `V105` en avertissement : recherche arrêtée avant son point fixe —
     l'absence de repli n'est **pas** prouvée ;
   - `V113` (avert.) but non atteint dans la borne : augmenter `--depth` ;
@@ -270,6 +310,7 @@ dans les listes ci-dessus. La table complète, avec leur théorème, est dans
 | `W125` | texte non fiable suivi d'une action risquée sans garde d'injection |
 | `W136` | champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW` ni garde sur `judge.<champ>.p` |
 | `W137` | garde comparant deux identifiants nus que le programme renseigne tous deux (v1.11) : le runtime lit l'état avant le symbole. Renommer l'un, ou comparer à un littéral |
+| `W138` | `planner.exhausted` lu alors qu'aucun `PLANNER` n'est activé (v1.12) : le fait n'est jamais posé, la règle ne part jamais. T2 ne la crédite plus comme escalade |
 | `V103` | T3 (erreur) — aucune règle `ALLOW` satisfaisable pour cet outil |
 | `V107` | T3 (erreur) — outil que `DEFAULT DENY` n'autorise jamais |
 | `V108` | T3 (avertissement) — tous les sites d'appel ont une condition contradictoire |
@@ -310,6 +351,9 @@ les appels **non tentés** parce que le disjoncteur était ouvert. Un
 `circuit_open` élevé n'est pas un défaut — c'est la preuve que l'agent a cessé
 de marteler un service mort. Mais `circuit_open > 0` avec `tool_failures`
 faible signale un seuil trop bas pour la fiabilité réelle de la dépendance.
+`tool_refused` (v1.12) compte les refus de l'outil lui-même (`Refused`) :
+une réponse, pas une panne — ni le disjoncteur ni `tool_failures` ne les
+voient.
 `reason_degraded` compte les `REASON` dont l'oracle n'a rendu **aucun** champ :
 non nul dans un nominal, c'est une panne d'oracle déguisée en indécision, et
 toute décision prise ce tick-là repose sur des valeurs par défaut.
@@ -319,10 +363,31 @@ les interdits — une propriété du programme —, le second une indisponibilit
 une propriété du monde. Les additionner dans un tableau de bord donne un
 chiffre qui ne veut rien dire.
 
+### Les refus, publiés comme des faits (v1.12)
+
+Un programme ne pouvait pas observer « ma politique a refusé `block_ip` » ni
+« l'opérateur a dit non » : il fallait un marqueur bricolé. Le runtime publie
+désormais l'issue de la **dernière** tentative de chaque outil, comme
+`tools.<nom>.available` :
+
+| Fait | Vrai quand | Remis à `false` |
+|---|---|---|
+| `tools.<nom>.denied` | la politique a refusé (NEVER, DENY, aucun ALLOW, garde inévaluable) | dès qu'une tentative franchit la gouvernance |
+| `tools.<nom>.unapproved` | l'approbation a manqué ou été refusée | idem |
+| `tools.<nom>.refused` | l'outil a levé `agentl.Refused` (validateur) | au prochain appel réussi |
+
+```agentl
+IF tools.block_ip.denied == true AND escalation.sent != yes THEN escalate
+```
+
+Un `Refused` n'atteste rien, n'est pas compté par le disjoncteur et se rejoue
+comme un refus. Une autre exception reste une panne.
+
 ### Comparer un fait booléen
 
 Les faits que le moteur pose lui-même — `sensors.<chemin>.available`,
-`tools.<nom>.available`, `reason.degraded`, `last_action.blocked` — sont des
+`tools.<nom>.available`, `tools.<nom>.denied`, `tools.<nom>.unapproved`,
+`tools.<nom>.refused`, `reason.degraded`, `last_action.blocked` — sont des
 booléens, alors qu'un `.agent` ne sait écrire que des symboles. Les deux
 vocabulaires mordent, `== false` comme `== no`, `== true` comme `== yes` :
 

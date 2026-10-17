@@ -126,7 +126,7 @@ host.sensors["mail.subject"] = lambda: untrusted(read_subject())
 Depuis la v1.9, `host.invoke` et `host.subagents` exigent un permis émis par le [noyau](/core/kernel) après la politique et l’approbation. Un appel direct lève `PermitError`. Pour tester un outil, appelez la fonction enregistrée (`host.tools["x"](**args)`) ou `agentl.kernel.testing.dispatch(host, "x", args)`.
 
 <Warning>
-  Un validateur doit **lever** pour refuser une cible. Tout appel d’outil réussi atteste ses arguments pour `ATTESTED(x, outil)`, même s’il répond « non ».
+  Un validateur doit **lever `agentl.Refused`** pour refuser une cible. Tout appel d’outil réussi atteste ses arguments pour `ATTESTED(x, outil)`, même s’il répond « non ». `Refused` n’atteste rien et n’est pas comptée comme une panne ; toute autre exception l’est.
 </Warning>
 
 ## Garder la frontière honnête

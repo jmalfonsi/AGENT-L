@@ -67,7 +67,7 @@ def test_a_value_copied_from_a_tool_output_stays_untrusted():
     assert [c[0] for c in calls] == ["fetch_ticket"]
     value, label = runtime.state.get_labeled("victim")
     assert value == "prod-db" and TOOL in label.sources
-    assert "interdiction absolue NEVER wipe_host" in runtime.trace.render()
+    assert "interdiction (garde vraie) NEVER wipe_host" in runtime.trace.render()
 
 
 def test_the_same_action_on_an_observed_target_is_allowed():

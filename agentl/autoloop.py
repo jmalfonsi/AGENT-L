@@ -97,6 +97,7 @@ from .core import Symbol, UNDEFINED
 from .nodes import (Agent, BinOp, CallExpr, Literal, Node, PathExpr, Program,
                     Scenario)
 from .scenario import (APPROVAL_PATH, ScenarioHost, ScenarioLLM, _initial_world,
+                       untrusted_paths,
                        _is_yes, initial_expectations, simulated_tool_result)
 from .state import Evaluator
 
@@ -379,13 +380,18 @@ def unconditional_bans(agent: Agent) -> Tuple[Set[str], Set[str]]:
     return forbidden, approval
 
 
-def _prepare(agent: Agent, world: Dict[str, Any]):
-    """Runtime amorcé sur un monde donné, prêt à tourner."""
+def _prepare(agent: Agent, world: Dict[str, Any],
+             untrusted: frozenset = frozenset()):
+    """Runtime amorcé sur un monde donné, prêt à tourner.
+
+    Un chemin posé `UNTRUSTED` le reste sur les cas dérivés : l'étiquette dit
+    d'où vient la donnée, pas ce qu'elle vaut.
+    """
     from .runtime import Runtime
 
-    host = ScenarioHost(agent, world)
+    host = ScenarioHost(agent, world, untrusted)
     runtime = Runtime(agent, host, ScenarioLLM(host.world), echo=False)
-    runtime._apply_initial_values(host.world, "autoloop")
+    runtime._apply_initial_values(host.world, "autoloop", host.untrusted)
     return runtime, host
 
 
@@ -424,7 +430,7 @@ def baseline_breaches(agent: Agent, scenario: Scenario) -> List[str]:
     """
     world = _initial_world(scenario)
     try:
-        runtime, host = _prepare(agent, world)
+        runtime, host = _prepare(agent, world, untrusted_paths(scenario))
         for _ in range(max(1, scenario.within)):
             runtime.tick()
     except Exception as exc:                              # noqa: BLE001
@@ -443,7 +449,7 @@ def run_case(agent: Agent, scenario: Scenario, case: Case,
 
     world = case.world(_initial_world(scenario))
     try:
-        runtime, host = _prepare(agent, world)
+        runtime, host = _prepare(agent, world, untrusted_paths(scenario))
     except Exception as exc:                              # noqa: BLE001
         return CaseResult(case, False, error=f"{type(exc).__name__}: {exc}")
 
@@ -550,6 +556,21 @@ class Gate:
         return f"  {mark} {self.name}" + (f" — {self.detail}" if self.detail else "")
 
 
+def _only_out_of_model(theorem: Any) -> bool:
+    """T5 non démontré pour la seule raison que T5 ne modélise pas la trace.
+
+    Un `V128` n'est pas une recherche tronquée : le scénario porte des stimuli
+    ou des assertions de trace que T5 n'explore pas, et `agentl test` les
+    exécute. Tout autre motif — borne atteinte (`V122`), abandon du solveur
+    (`V114`), énoncé invalide — reste bloquant.
+    """
+    if theorem.key != "T5" or theorem.holds is not None:
+        return False
+    if any(f.severity != "info" for f in theorem.findings):
+        return False
+    return any(f.code == "V128" for f in theorem.findings)
+
+
 def run_gates(program: Program, *, filename: Optional[str] = None,
               depth: Optional[int] = None) -> List[Gate]:
     """Analyse, preuve, frontière, scénarios déclarés — dans cet ordre."""
@@ -566,12 +587,28 @@ def run_gates(program: Program, *, filename: Optional[str] = None,
                       "; ".join(d.render() for d in errors[:5])))
 
     refuted: List[str] = []
+    deferred: List[str] = []
     for agent in program.agents:
         report = verify(agent, **({"depth": depth} if depth else {}))
-        # Une preuve bornée (◐) n'est pas une preuve : `holds is not True`.
-        refuted += [f"{t.key} {t.title} — {t.summary}"
-                    for t in report.theorems if t.holds is not True]
-    gates.append(Gate("preuve", not refuted, "; ".join(refuted[:5])))
+        for theorem in report.theorems:
+            # Une preuve bornée (◐) n'est pas une preuve : `holds is not True`.
+            if theorem.holds is True:
+                continue
+            if _only_out_of_model(theorem):
+                deferred += [f.title.split(" : ")[0] for f in theorem.findings
+                             if f.code == "V128"]
+                continue
+            refuted.append(f"{theorem.key} {theorem.title} — {theorem.summary}")
+    detail = "; ".join(refuted[:5])
+    if deferred and not refuted:
+        # T5 ne modélise ni les stimuli ni les assertions de trace (V128) :
+        # ces scénarios-là ne sont pas une preuve manquante, ils relèvent de
+        # la barrière suivante, qui les **exécute**. Les compter ici rendait
+        # autoloop impossible à franchir avec `EXPECT NEVER CALL` — l'idiome
+        # même que le SKILL prescrit pour éprouver une garde de provenance.
+        detail = (f"T5 : {len(deferred)} scénario(s) hors du modèle renvoyé(s)"
+                  f" à la barrière « scénarios » ({', '.join(deferred[:5])})")
+    gates.append(Gate("preuve", not refuted, detail))
 
     if filename:
         from .boundary import check_pair, render as render_boundary

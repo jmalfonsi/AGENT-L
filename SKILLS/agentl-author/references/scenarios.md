@@ -35,6 +35,8 @@ d'effet (`effect_drift`, `VERIFY`) qui traitent cette question.
 | la sortie d'un outil sans `EFFECT` | `outil.champ = valeur` | le test est **invalide** (sortie manquante) |
 | la branche d'un outil à plusieurs `OUTCOME` | `scenario.outcome.outil = branche` | erreur : « OUTCOME ambigu » |
 | le plan choisi par le modèle (`DECIDE { REASON }`) | `llm.plan = nom_du_plan` | erreur : « sélection LLM non déclarée » |
+| une valeur écrite par un tiers (v1.12) | `auth.offender_ip = "203.0.113.9" UNTRUSTED` | `OBSERVED` : fiable |
+| le refus d'un validateur (v1.12) | `scenario.refuse.validate_ip = yes` | l'appel réussit, donc **atteste** ses arguments |
 
 Plusieurs blocs `GIVEN` s'additionnent. On sépare souvent l'hypothèse du cas
 (l'état du monde) des réponses explicites du monde simulé (sorties d'outils).
@@ -46,8 +48,31 @@ se lit.
 **Provenance (v1.9).** Les valeurs du monde simulé portent les mêmes
 étiquettes qu'en production : un chemin déclaré dans `OBSERVE` est
 `OBSERVED`, une réponse `REASON` est `LLM`, une sortie d'outil est `TOOL`, une
-charge utile de stimulus est `EVENT` ou `MESSAGE`. Une garde
-`NEVER … WHEN UNTRUSTED(x)` se teste donc directement.
+charge utile de stimulus est `EVENT` ou `MESSAGE`.
+
+`OBSERVED` est **fiable** : jusqu'en v1.11, une garde
+`NEVER … WHEN UNTRUSTED(x) AND NOT ATTESTED(x, v)` sur un chemin observé ne
+pouvait pas mordre dans un scénario — seul l'hôte savait rendre
+`untrusted(valeur)` — et elle survivait à sa propre suppression. Depuis la
+v1.12, deux lignes du `GIVEN` la rendent testable :
+
+```agentl
+SCENARIO refus_du_validateur {
+  GIVEN { auth.offender_ip = "203.0.113.9" UNTRUSTED,    // EXTERNAL en plus d'OBSERVED
+          ip.blocked = no,
+          scenario.refuse.validate_ip = yes }           // le validateur lève Refused
+  EXPECT NEVER CALL block_ip
+  EXPECT BLOCKED block_ip
+  WITHIN 2
+}
+```
+
+Le suffixe `UNTRUSTED` n'existe que dans le `GIVEN` d'un scénario (erreur de
+lecture dans un `EFFECT`) ; il s'applique aussi à la sortie posée d'un outil
+(`lookup.owner = "x" UNTRUSTED`). Un chemin posé `UNTRUSTED` le reste sur les
+cas dérivés d'`autoloop`. `scenario.refuse.<outil> = yes` fait lever
+`Refused` à l'outil simulé : l'appel figure dans les appels (`EXPECT CALL`),
+n'atteste rien et pose `tools.<outil>.refused`.
 
 ## 3. Ce qu'on attend
 
@@ -152,15 +177,38 @@ invariants, ni les stimuli, ni les assertions de trace.
 
 ## 7. Le test de mutation — ce qui fait d'un scénario un test
 
-Un scénario qui passe dans tous les cas ne teste rien. Pour chaque scénario de
-sûreté, nommer la **mutation de politique** qui le fait tomber :
+Un scénario qui passe dans tous les cas ne teste rien. Chaque règle de
+politique doit être défendue : la retirer doit faire tomber un scénario.
 
 > Retirer `NEVER isolate_endpoint WHEN asset.criticality == CRITICAL` →
 > `actif_critique_jamais_d_isolement` échoue.
 
-Faire la mutation une fois, à la main ou via `autoloop`, et constater l'échec.
-Un `NEVER` qu'aucun scénario ne fait mordre est une décoration (`W124` le
-signale pour les outils risqués).
+`agentl mutate X.agent` (v1.12) fait ces mutations à la place de l'auteur :
+retrait de chaque `NEVER`, `DENY` et `REQUIRE APPROVAL`, retrait de la garde de
+chaque `ALLOW … WHEN` — tout ce qui **relâche** la politique. Chaque mutant
+rejoue tous les scénarios ; il est tué si l'un d'eux échoue. Code 0 : tout est
+tué ou levé ; 1 : un mutant survit ; 2 : rien n'est jugeable (scénarios déjà
+rouges, ou aucun). `autoloop` ne le fait pas : il fait varier le monde, jamais
+la politique.
+
+Un survivant a trois explications, à trancher dans cet ordre :
+
+1. **aucun scénario ne place l'agent dans l'état interdit** — en écrire un ;
+2. **une autre règle fait le même travail** — un `NEVER` répété par la garde
+   d'une règle `DECIDE`, ou recouvert par un autre `NEVER` : c'est ainsi qu'un
+   interdit devient décoratif ;
+3. **le mutant est équivalent** dans le monde déclaré (un `NEVER` redondant
+   avec `DEFAULT DENY`, un plan qui préempte toujours la synthèse). Le dire :
+
+```agentl
+// MUTATION-OK: close_source_failure s'enfile avant toute synthèse
+NEVER apply_request WHEN source.read_ok != yes
+```
+
+La levée se place sur la ligne de la règle ou dans le commentaire contigu
+juste au-dessus ; une ligne vide l'interrompt. Une levée qui ne couvre aucun
+survivant est signalée (« levée sans effet »). `W124` reste le signal
+statique pour les outils risqués sans scénario de sûreté.
 
 ## 8. Exemple exécutable
 

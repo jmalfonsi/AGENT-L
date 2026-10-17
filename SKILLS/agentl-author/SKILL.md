@@ -1,6 +1,6 @@
 ---
 name: agentl-author
-description: "Crée, modifie, débogue, vérifie et explique des agents AGENT-L et leurs hôtes Python. Utiliser pour tout fichier .agent, TOOL, POLICY, HYPOTHESIS, PLANNER, SCENARIO, FOREACH ou REASON ; pour les gardes de provenance (UNTRUSTED, LLM_DERIVED, ATTESTED), l'exécution durable (--durable, idempotence, réconciliation) et les hôtes asynchrones ; pour automatiser des workflows métier vérifiables ; pour signer et vérifier un journal de rejeu (`agentl seal`, Ed25519/HMAC), importer des outils MCP (`agentl mcp`) ; et pour analyser les ticks, refus, approbations, reprises, inférences, traces ou diagnostics E/W/V/B. Applique le contrat de grammaire versionné puis la chaîne check→test→verify→boundary→autoloop→run→replay."
+description: "Crée, modifie, débogue, vérifie et explique des agents AGENT-L et leurs hôtes Python. Utiliser pour tout fichier .agent, TOOL, POLICY, HYPOTHESIS, PLANNER, SCENARIO, FOREACH ou REASON ; pour les gardes de provenance (UNTRUSTED, LLM_DERIVED, ATTESTED), l'exécution durable (--durable, idempotence, réconciliation) et les hôtes asynchrones ; pour automatiser des workflows métier vérifiables ; pour signer et vérifier un journal de rejeu (`agentl seal`, Ed25519/HMAC), importer des outils MCP (`agentl mcp`) ; et pour analyser les ticks, refus, approbations, reprises, inférences, traces ou diagnostics E/W/V/B. Applique le contrat de grammaire versionné puis la chaîne check→test→mutate→verify→boundary→autoloop→run→replay."
 ---
 
 # Écrire un agent AGENT-L
@@ -184,8 +184,12 @@ invariants, stimuli EVENT/MESSAGE, assertions de trace et exemple exécutable.
   Les erreurs de simulation, traces ERROR et W117/W118 rendent TEST rouge.
 - Une suite vide échoue ; `--allow-empty` est une exception à déclarer comme
   dette de couverture, jamais un moyen de faire passer un agent neuf.
-- Nommer une mutation de politique qui fait échouer le scénario de sûreté.
-  `EXPECT NEVER CALL outil` teste directement la non-exécution d'une action.
+- Chaque règle de politique doit faire tomber un scénario quand on la retire :
+  `agentl mutate` le vérifie (code 1 = un mutant survit). Un mutant équivalent
+  se lève par `// MUTATION-OK: raison` sur la ligne de la règle ou juste
+  au-dessus. `EXPECT NEVER CALL outil` teste directement la non-exécution.
+- Une garde de provenance se teste avec `GIVEN { x = "…" UNTRUSTED }` et, pour
+  un validateur qui refuse, `scenario.refuse.<validateur> = yes` (v1.12).
 
 TEST porte sur le modèle déclaré, pas sur l'hôte réel. T5 ne prouve ni les
 invariants ni les stimuli/assertions de trace ; V128 doit rester présenté
@@ -204,6 +208,7 @@ python3 ~/AGENT-L/SKILLS/agentl-author/scripts/sync_grammar.py --check
 ```
 python3 -m agentl check    examples/xxx.agent     # bonne formation ; 0 erreur E
 python3 -m agentl test     examples/xxx.agent     # SCENARIO contre le monde déclaré
+python3 -m agentl mutate   examples/xxx.agent     # chaque règle défendue par un scénario
 python3 -m agentl verify   examples/xxx.agent     # T1–T7 + T9 (T8 si société) ; 0 erreur
 python3 -m agentl boundary examples/xxx.agent     # motifs couverts et périmètre explicite
 python3 -m agentl autoloop examples/xxx.agent     # tient-il sur d'autres données ?
@@ -217,14 +222,19 @@ Ce que chacune doit montrer :
 - **`check`** — aucune erreur `E`. Les `W` se corrigent ou se justifient une
   par une. `E009` (appel d'outil dans une expression) est l'erreur la plus
   fréquente chez un modèle.
-- **`test`** — une suite non vide, 100 % des scénarios satisfaits, **et** une
-  mutation nommée qui fait échouer le scénario de sûreté. Voir les règles
-  d'oracles et d'observation dans `references/scenarios.md`.
+- **`test`** — une suite non vide, 100 % des scénarios satisfaits. Voir les
+  règles d'oracles et d'observation dans `references/scenarios.md`.
+- **`mutate`** — aucun mutant survivant : retirer n'importe quel `NEVER`,
+  `DENY`, `REQUIRE APPROVAL`, ou la garde d'un `ALLOW … WHEN`, fait tomber au
+  moins un scénario. Un survivant est une règle qu'aucun test ne défend
+  (`references/scenarios.md` §7).
 - **`verify`** — 0 erreur sur T1–T7 et T9 (agent seul), plus T8 pour une
   société. `--require-proved` fait aussi échouer un `◐ BORNÉ` : à mettre en CI
   quand « non réfuté » ne suffit pas (`references/cli.md`). Attention :
   - `V105` est une **erreur** quand un interdit rend le but inatteignable
-    *sans escalade déclarée* → ajouter `IF planner.exhausted … THEN escalate`.
+    *sans escalade déclarée* → ajouter `IF planner.exhausted … THEN escalate`
+    (sous un `PLANNER` activé, sinon `W138`), une règle sur
+    `tools.<outil>.denied`, ou une règle que la garde de l'interdit entraîne.
     Avec l'escalade, c'est `V112` (info) : conduite attendue, pas défaut.
   - `V110`, `V111`, `V112`, `V123` sont des **infos** — comportement correct.
   - `V113`/`V122` (« borné, non réfuté ») ne prouvent rien : augmente `--depth`.
@@ -324,7 +334,7 @@ vérifier un hôte ne doit pas exécuter de code arbitraire.
 | Fichier | Ouvrir quand |
 |---|---|
 | `references/generated/grammar-contract.md` | **toujours avant d'écrire** : versions/hashes et champs extraits de l'AST du parseur. Généré, jamais édité à la main. |
-| `references/generated/canonical.agent` + `.py` | couple minimal exécutable, régénéré et soumis à toutes les portes plus un test de mutation. Le copier, ne pas le réinventer. |
+| `references/generated/canonical.agent` + `.py` | couple minimal exécutable, régénéré et soumis à toutes les portes, `agentl mutate` compris (aucun survivant). Le copier, ne pas le réinventer. |
 | `references/security-authoring.md` | **obligatoire pour effets de bord, cibles ou texte non fiable** : `DEFAULT`, `ATTESTS`, approbation, réobservation, rollback, T6/T7 et W119–W125/B008–B014 ; **provenance v1.9** (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`, `ORIGIN`, E015/E016). |
 | [references/scenarios.md](references/scenarios.md) | **pour écrire ou corriger un test** : sorties et choix explicites, stimuli, assertions, portée de TEST/T5 et codes de sortie. |
 | [references/judge.md](references/judge.md) | **pour faire décider sur une sortie de modèle** : `JUDGE`, `NOUL`/`CHOICE`/`SCORE`, `judge.<champ>.p`, `ABSTAIN BELOW`, E017/W136. |

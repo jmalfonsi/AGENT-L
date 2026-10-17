@@ -214,11 +214,41 @@ class TestTheEditorMirrorsTheLexer(unittest.TestCase):
         block = source.split("const RESERVED_KEYWORDS = new Set([", 1)[1]
         return set(re.findall(r'"([A-Z_0-9]+)"', block.split("])", 1)[0]))
 
-    def test_the_two_lists_are_identical(self):
-        from agentl.core import ORDINAL_SCALE
-        from agentl.lexer import KEYWORDS
+    COMPILED = ROOT / "agentl-vscode" / "out" / "extension.js"
 
-        expected = set(KEYWORDS) | set(ORDINAL_SCALE) | self.BARE_CONSTANTS
+    @staticmethod
+    def _expected() -> set[str]:
+        """Tout mot en majuscules qu'un programme valide peut contenir.
+
+        Les mots-clés du lexeur ne suffisaient pas : les fonctions de garde
+        (`UNTRUSTED`, `ATTESTED`…) et les assertions de SCENARIO (`CALL`,
+        `BLOCKED`) se lisent comme des noms, et l'éditeur les signalait
+        comme des fautes — douze erreurs sur un agent v1.11 valide.
+        """
+        from agentl.core import ORDINAL_SCALE
+        from agentl.kernel.provenance import PROVENANCE_FUNCS
+        from agentl.lexer import KEYWORDS
+        from agentl.parser import SCENARIO_ASSERTIONS
+        from agentl.state import EPISTEMIC_FUNCS
+
+        words = {w for kind in SCENARIO_ASSERTIONS for w in kind.split()}
+        return (set(KEYWORDS) | set(ORDINAL_SCALE)
+                | TestTheEditorMirrorsTheLexer.BARE_CONSTANTS
+                | set(EPISTEMIC_FUNCS) | set(PROVENANCE_FUNCS) | words)
+
+    def test_the_compiled_extension_is_the_source(self):
+        # Le miroir tenait la source ; l'extension installée exécute
+        # `out/extension.js`, resté des mois en arrière — même numéro de
+        # version, donc jamais remplacé.
+        compiled = self.COMPILED.read_text(encoding="utf-8")
+        block = compiled.split("RESERVED_KEYWORDS = new Set([", 1)[1]
+        words = set(re.findall(r'"([A-Z_0-9]+)"', block.split("])", 1)[0]))
+        self.assertEqual(words, self._editor_keywords(),
+                         "out/extension.js n'est pas recompilé depuis src/ : "
+                         "lancer `npx tsc -p .` dans agentl-vscode")
+
+    def test_the_two_lists_are_identical(self):
+        expected = self._expected()
         editor = self._editor_keywords()
 
         self.assertEqual(

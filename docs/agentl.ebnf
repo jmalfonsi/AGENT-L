@@ -1,5 +1,5 @@
 (* =========================================================================
-   AGENT-L v1.11 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+   AGENT-L v1.12 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
 
    Convention lexicale fondamentale :
      les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une
@@ -86,6 +86,13 @@ risk_block       = "{" , { ident , [ sep ] , ident } , "}" ;
    l'agent et non sur le monde. Aucun capteur ne peut la démentir, et T9 ne
    réclame donc pas d'`OBSERVE` sur son chemin. *)
 effect_block     = "{" , { path , [ sep ] , expr , [ "INTERNAL" ] } , "}" ;
+
+(* v1.12 : le GIVEN d'un SCENARIO accepte en plus le suffixe `UNTRUSTED` —
+   la valeur est écrite par un tiers (étiquette EXTERNAL). Ailleurs, il est
+   refusé à la lecture. `UNTRUSTED` reste aussi la fonction de garde : il
+   n'est lu comme suffixe qu'après une valeur, hors appel et hors chemin. *)
+given_block      = "{" , { path , [ sep ] , expr , [ "INTERNAL" ]
+                             , [ "UNTRUSTED" ] , [ "," ] } , "}" ;
 
 (* v1.6 : une durée est un nombre suivi d'une unité — `45s`, `4min`, `2h`. *)
 duration         = number , ( "s" | "sec" | "min" | "m" | "h" ) ;
@@ -241,7 +248,7 @@ message_handler  = "ON" , "MESSAGE" , ident
    `WITHIN` suit le bloc EXPECT ou figure seul ; défaut : 1 tick.
    Un SCENARIO sans EXPECT est refusé à la lecture. *)
 scenario         = "SCENARIO" , ident , "{"
-                 , { "GIVEN" , ( effect_block
+                 , { "GIVEN" , ( given_block
                                 | "EVENT" , path , effect_block
                                 | "MESSAGE" , path , "FROM" , ident , effect_block )
                    | "EXPECT" , ( "{" , { expr , [ "," ] } , "}"

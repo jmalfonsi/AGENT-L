@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Sparkles, ShieldCheck, EyeOff, PlugZap, Infinity as InfinityIcon, Plug,
   Timer, Network, Crosshair, FileSignature, AlertTriangle, Trash2, ArrowRight,
-  KeyRound, DatabaseBackup, Fingerprint, Workflow, Scale, Gavel, Gauge
+  KeyRound, DatabaseBackup, Fingerprint, Workflow, Scale, Gavel, Gauge, Dna
 } from 'lucide-react';
 import { AgentLText } from './AgentLLogo';
 
@@ -52,6 +52,44 @@ const TONES: Record<Entry['tone'], { chip: string; border: string; icon: string 
 };
 
 const ENTRIES: Entry[] = [
+  {
+    version: 'v1.12',
+    tag: 'Sûreté testable',
+    tone: 'rose',
+    icon: Dna,
+    title: 'La sûreté se teste : agentl mutate, GIVEN … UNTRUSTED, le refus comme un fait',
+    spec: 'SPEC §41',
+    body:
+      "Un agent auteur a écrit un agent de blocage d'IP gardé par provenance et listé dix frictions ; quatre étaient " +
+      "des défauts. agentl mutate retire chaque NEVER, DENY, REQUIRE APPROVAL et la garde de chaque ALLOW … WHEN, " +
+      "rejoue les scénarios et liste les règles qu'aucun test ne défend. GIVEN … UNTRUSTED et scenario.refuse.<outil> " +
+      "rendent testable une garde de provenance. Le refus devient un fait (tools.<outil>.denied, .unapproved, " +
+      ".refused) et agentl.Refused refuse sans compter comme une panne. Un VERIFY en échec ne fige plus DECIDE, EVENT " +
+      "et MESSAGE — y compris sous ON VERIFY.FAIL. T2 ne crédite plus une escalade qui ne part jamais (W138).",
+    codes: ['W138'],
+    snippet: `POLICY {
+    NEVER block_ip WHEN UNTRUSTED(ip) AND NOT ATTESTED(ip, validate_ip)
+}
+SCENARIO validator_refuses {
+    GIVEN { auth.offender_ip = "203.0.113.9" UNTRUSTED
+            scenario.refuse.validate_ip = yes }
+    EXPECT NEVER CALL block_ip
+}
+// $ agentl mutate agent.agent  →  ✔ tué par validator_refuses`
+  },
+  {
+    version: 'v1.11',
+    tag: 'Vérité',
+    tone: 'amber',
+    icon: Scale,
+    title: 'Correctifs de vérité : ce que verify, JUDGE et le Studio affirmaient à tort',
+    spec: 'SPEC §40',
+    body:
+      "Un champ d'état nommé comme une constante n'est plus lu comme une constante par le solveur (W137). DENY entre " +
+      "dans T1 et T2, un OBSERVE … WHEN ne couvre plus un EFFECT (V152), et la probabilité d'une réponse JUDGE " +
+      "rejetée part avec elle. Le Studio refuse les origines tierces : Origin et Host contrôlés en HTTP et WebSocket.",
+    codes: ['W137', 'V152']
+  },
   {
     version: 'v1.10',
     tag: 'Jugement',
@@ -361,7 +399,7 @@ agentl replay run.json --require-seal`
   }
 ];
 
-const VERSIONS = ['Toutes', 'v1.10', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
+const VERSIONS = ['Toutes', 'v1.12', 'v1.11', 'v1.10', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
 
 export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
   const [filter, setFilter] = useState<string>('Toutes');
@@ -374,7 +412,7 @@ export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
       <div className="mb-10 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-3 py-1 text-xs font-mono font-semibold text-cyan-400 mb-3">
           <Sparkles className="h-3.5 w-3.5" />
-          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.10'}
+          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.12'}
         </div>
         <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           {compact ? 'Ce qui change dans AGENT-L' : 'Évolutions majeures du langage et du moteur'}

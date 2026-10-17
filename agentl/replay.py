@@ -226,8 +226,8 @@ class ReplayedError(Exception):
 
 
 def _agentl_errors() -> Dict[str, Any]:
-    from .kernel.errors import ActionInDoubt
-    return {"ActionInDoubt": ActionInDoubt}
+    from .kernel.errors import ActionInDoubt, Refused
+    return {"ActionInDoubt": ActionInDoubt, "Refused": Refused}
 
 
 _AGENTL_ERRORS = _agentl_errors()

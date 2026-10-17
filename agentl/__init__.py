@@ -16,6 +16,7 @@ from .analyzer import Analyzer, Diagnostic, check_program
 from .bayes import Inference, infer, reachable_range
 from .core import AgentLError, Belief, ParseError, Symbol, UNDEFINED
 from .host import Host
+from .kernel.errors import ActionInDoubt, Refused
 from .llm import AnthropicLLM, LLM, MockLLM
 from .nodes import Agent, Program
 from .parser import parse_file, parse_source
@@ -29,11 +30,12 @@ from .replay import (Journal, RecordingHost, RecordingLLM, ReplayDivergence,
 from .runtime import Runtime, Trace
 from .state import Evaluator, State
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 __all__ = [
     "Agent", "AgentLError", "Analyzer", "AnthropicLLM", "ActionRequest",
-    "Belief", "Diagnostic", "Evaluator", "Host", "LLM", "MockLLM",
+    "ActionInDoubt", "Belief", "Diagnostic", "Evaluator", "Host", "LLM",
+    "MockLLM", "Refused",
     "Inference", "ParseError", "Planner", "PlanningResult", "PolicyEngine",
     "check_program", "reachable_range",
     "Program", "Report", "Runtime", "Society", "State", "Symbol", "Theorem",

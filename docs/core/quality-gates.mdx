@@ -9,18 +9,20 @@ AGENT-L organise la livraison autour de portes distinctes. Chacune répond à un
 ```mermaid
 flowchart LR
     C[check] --> T[test]
-    T --> V[verify]
+    T --> M[mutate]
+    M --> V[verify]
     V --> B[boundary]
     B --> A[autoloop]
     A --> R[run]
 ```
 
-## Les six portes
+## Les sept portes
 
 | Commande | Question | Travaille sur |
 | --- | --- | --- |
 | `check` | le programme est-il bien formé ? | AST et références |
 | `test` | ses critères d’acceptation tiennent-ils ? | `SCENARIO` |
+| `mutate` | chaque règle de politique est-elle défendue par un scénario ? | `SCENARIO` rejoués sur des politiques relâchées |
 | `verify` | les propriétés de sûreté sont-elles établies ? | AST et espace d’états borné |
 | `boundary` | l’hôte cache-t-il des décisions métier ? | AST Python de `X.py` |
 | `autoloop` | où l’agent casse-t-il sur des cas dérivés et retenus ? | source et campagnes |
@@ -31,6 +33,7 @@ flowchart LR
 ```bash
 agentl check agent.agent && \
 agentl test agent.agent && \
+agentl mutate agent.agent && \
 agentl verify agent.agent && \
 agentl boundary agent.agent
 ```
@@ -70,6 +73,41 @@ SCENARIO critical_asset_is_never_isolated {
 
 L’approbation est volontairement présente : le scénario démontre qu’elle ne lève pas le `NEVER`.
 
+## Prouver que la règle mord : `mutate`
+
+Un scénario qui passe dans tous les cas ne teste rien. `agentl mutate` retire tour à tour chaque `NEVER`, `DENY` et `REQUIRE APPROVAL`, puis la garde de chaque `ALLOW … WHEN`, et rejoue tous les scénarios. Un mutant est **tué** si un scénario tombe, **survivant** sinon.
+
+```bash
+agentl mutate agent.agent
+```
+
+| Code | Sens |
+| --- | --- |
+| `0` | tout mutant est tué ou levé |
+| `1` | au moins une règle n’est défendue par aucun scénario |
+| `2` | rien n’est jugeable : aucun scénario, ou scénarios déjà rouges |
+
+Un survivant a trois causes, à examiner dans cet ordre : aucun scénario ne place l’agent dans l’état interdit ; une autre règle fait le même travail (un `NEVER` répété par une règle `DECIDE` devient décoratif) ; ou le mutant est équivalent. Dans ce dernier cas, dites-le au-dessus de la règle :
+
+```text
+// MUTATION-OK: DEFAULT DENY couvre déjà ce cas
+NEVER purge WHEN dir.protected == yes
+```
+
+Une levée sans justification n’est pas lue, et une levée qui ne couvre aucun survivant est signalée.
+
+Pour tester une garde de provenance, posez la valeur non fiable dans le `GIVEN` et faites refuser le validateur :
+
+```text
+SCENARIO validator_refuses {
+    GIVEN {
+        auth.offender_ip = "203.0.113.9" UNTRUSTED
+        scenario.refuse.validate_ip = yes
+    }
+    EXPECT NEVER CALL block_ip
+}
+```
+
 ## Intégration continue minimale
 
 ```bash
@@ -79,6 +117,7 @@ for source in examples/*.agent; do
   agentl check "$source"
   agentl verify "$source"
   agentl test "$source"
+  agentl mutate "$source"
 done
 ```
 

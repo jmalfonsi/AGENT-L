@@ -32,7 +32,7 @@ import tokenize
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ._boundary_project import UNKNOWN, Symbols, discover
 
@@ -78,6 +78,9 @@ class Report:
     external_imports: List[str] = field(default_factory=list)
     excluded_imports: List[str] = field(default_factory=list)
     complete: bool = True
+    #: Levées qui ne couvrent aucune constatation : `(fichier, ligne, raison,
+    #: instruction trouvée)`. Avertissement, jamais bloquant (v1.12).
+    stray_waivers: List[Tuple[Path, int, str, bool]] = field(default_factory=list)
 
     @property
     def blocking(self) -> List[Finding]:
@@ -102,13 +105,29 @@ def _waivers(source: str, tree: ast.AST) -> Dict[int, str]:
     compréhension multi-lignes serait à moitié levée, ce qui est la pire des
     situations — on croit avoir justifié, et l'outil crie encore.
     """
+    out: Dict[int, str] = {}
+    for _line, reason, covered in _waiver_comments(source, tree):
+        for number in covered:
+            out.setdefault(number, reason)
+    return out
+
+
+def _waiver_comments(source: str, tree: ast.AST
+                     ) -> List[Tuple[int, str, range]]:
+    """Chaque levée : `(ligne du commentaire, raison, lignes couvertes)`.
+
+    Une levée qui ne trouve pas son instruction — séparée par une ligne vide,
+    à une autre indentation, au-dessus d'une docstring — couvre `range(0)` :
+    elle reste listée, pour que `boundary` puisse dire qu'elle ne sert à rien
+    au lieu de l'ignorer en silence.
+    """
     # Étendue de chaque instruction, de la plus imbriquée à la plus large.
     spans = sorted(
         ((node.lineno, getattr(node, "end_lineno", node.lineno))
          for node in ast.walk(tree) if isinstance(node, ast.stmt)),
         key=lambda span: (span[0], span[1] - span[0]))
 
-    out: Dict[int, str] = {}
+    out: List[Tuple[int, str, range]] = []
     source_lines = source.splitlines()
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
         if token.type != tokenize.COMMENT:
@@ -118,33 +137,37 @@ def _waivers(source: str, tree: ast.AST) -> Dict[int, str]:
             continue
         reason = match.group(1)
         number, column = token.start
-        inline = bool(source_lines[number - 1][:column].strip())
-        if inline:
-            candidates = [(start, end) for start, end in spans
-                          if start <= number <= end]
-            if not candidates:
-                continue
-            start, end = min(candidates, key=lambda span: (span[1] - span[0], span[0]))
-        else:
-            # Permit a multi-line explanatory comment, but never jump across
-            # a blank line, a docstring, or another indentation level.
-            following = number + 1
-            while following <= len(source_lines):
-                line = source_lines[following - 1]
-                if not line.lstrip().startswith("#"):
-                    break
-                if len(line) - len(line.lstrip()) != column:
-                    break
-                following += 1
-            candidates = [(start, end) for start, end in spans if start == following]
-            if not candidates:
-                continue
-            start, end = min(candidates, key=lambda span: span[1] - span[0])
-            if len(source_lines[start - 1]) - len(source_lines[start - 1].lstrip()) != column:
-                continue
-        for covered in range(start, end + 1):
-            out.setdefault(covered, reason)
+        out.append((number, reason, _waiver_span(spans, source_lines,
+                                                 number, column)))
     return out
+
+
+def _waiver_span(spans, source_lines, number: int, column: int) -> range:
+    inline = bool(source_lines[number - 1][:column].strip())
+    if inline:
+        candidates = [(start, end) for start, end in spans
+                      if start <= number <= end]
+        if not candidates:
+            return range(0)
+        start, end = min(candidates, key=lambda span: (span[1] - span[0], span[0]))
+        return range(start, end + 1)
+    # Permit a multi-line explanatory comment, but never jump across
+    # a blank line, a docstring, or another indentation level.
+    following = number + 1
+    while following <= len(source_lines):
+        line = source_lines[following - 1]
+        if not line.lstrip().startswith("#"):
+            break
+        if len(line) - len(line.lstrip()) != column:
+            break
+        following += 1
+    candidates = [(start, end) for start, end in spans if start == following]
+    if not candidates:
+        return range(0)
+    start, end = min(candidates, key=lambda span: span[1] - span[0])
+    if len(source_lines[start - 1]) - len(source_lines[start - 1].lstrip()) != column:
+        return range(0)
+    return range(start, end + 1)
 
 
 # ------------------------------------------------------------ heuristiques
@@ -507,13 +530,22 @@ def _analyze(path: Path, project_root: Path | str | None, external_policy: str):
         visitor = _HostVisitor(symbols)
         visitor.visit(source.tree)
         findings = visitor.findings + security_findings(source.tree, symbols)
-        waivers = _waivers(source.source, source.tree)
+        comments = _waiver_comments(source.source, source.tree)
+        waivers = {}
+        for _line, reason, covered in comments:
+            for number in covered:
+                waivers.setdefault(number, reason)
         for finding in findings:
             finding.path = source.path
             reason = waivers.get(finding.line)
             if reason:
                 finding.waived = True
                 finding.reason = reason
+        hit = {finding.line for finding in findings}
+        report.stray_waivers.extend(
+            (source.path, line, reason, bool(covered))
+            for line, reason, covered in comments
+            if not hit.intersection(covered))
         report.findings.extend(findings)
     for origin, line, message in project.issues:
         report.findings.append(Finding(
@@ -662,6 +694,13 @@ def render(report: Report) -> str:
         for finding in report.waivers:
             place = _display_path(finding.path or report.path, report.path)
             lines.append(f"    · {place}:{finding.line} {finding.code} — {finding.reason}")
+    for path, line, reason, found in report.stray_waivers:
+        place = _display_path(path or report.path, report.path)
+        why = ("l'instruction qu'elle couvre n'a aucune constatation" if found
+               else "elle ne couvre aucune instruction : la placer en fin de "
+                    "ligne, ou juste au-dessus, sans ligne vide ni changement "
+                    "d'indentation")
+        lines.append(f"  ! levée sans effet  {place}:{line}  « {reason} » — {why}")
     lines.append("")
     if not report.complete:
         lines.append("  ✘ INCOMPLETE / UNVERIFIABLE — analyse ou contrat incomplet")

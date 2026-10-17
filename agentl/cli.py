@@ -768,8 +768,11 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     for name in ("check", "ast", "run", "plan", "infer", "verify", "viz",
-                 "boundary", "test"):
-        p = sub.add_parser(name)
+                 "boundary", "test", "mutate"):
+        p = sub.add_parser(name, help=(
+            "retire chaque NEVER, DENY, REQUIRE APPROVAL et la garde de chaque "
+            "ALLOW … WHEN, relance les SCENARIO et liste les mutants "
+            "survivants" if name == "mutate" else None))
         p.add_argument("file")
         if name == "boundary":
             p.add_argument("--project-root", metavar="DIR",
@@ -1109,6 +1112,18 @@ def main(argv=None) -> int:
                     print(f"\n── {result.name}\n{result.trace}")
             failed |= not report.passed
         return 1 if failed else (2 if empty else 0)
+
+    if args.cmd == "mutate":
+        from .mutate import mutate_program
+
+        refusal = _refuse_if_malformed(program, "mutate")
+        if refusal is not None:
+            return refusal
+        report = mutate_program(program,
+                                Path(args.file).read_text(encoding="utf-8"))
+        print(f"mutations de politique — {args.file}")
+        print(report.render())
+        return report.exit_code()
 
     if args.cmd in ("plan", "infer"):
         # Comme `check` et `test` : sur une société, on inspecte TOUS les

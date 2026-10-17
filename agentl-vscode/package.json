@@ -2,7 +2,7 @@
   "name": "agentl-vscode",
   "displayName": "AGENT-L Language Support",
   "description": "Coloration syntaxique, contrôle des majuscules réservées et vérification statique (check / verify / test) pour le langage agentique AGENT-L",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "agentl",
   "engines": {
     "vscode": "^1.80.0"

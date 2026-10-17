@@ -38,6 +38,14 @@ agentl test agent.agent --trace
 
 `--trace` affiche la trace de chaque scénario.
 
+### `mutate`
+
+```bash
+agentl mutate agent.agent
+```
+
+Retire tour à tour chaque `NEVER`, `DENY` et `REQUIRE APPROVAL`, puis la garde de chaque `ALLOW … WHEN`, et rejoue les scénarios contre chaque mutant. Code `0` : tout mutant est tué ou levé par `// MUTATION-OK: raison` ; `1` : une règle n’est défendue par aucun scénario ; `2` : rien n’est jugeable (aucun scénario, ou scénarios déjà rouges).
+
 ### `infer` et `plan`
 
 ```bash
@@ -167,4 +175,4 @@ Depuis la 1.11, le serveur refuse toute requête dont l’`Origin` n’est pas l
 
 ## Codes de sortie
 
-Les commandes rendent `0` en cas de succès et une valeur non nulle en cas d’erreur ou de verdict bloquant. Une interruption clavier d’`autoloop` rend `130`.
+Les commandes rendent `0` en cas de succès et une valeur non nulle en cas d’erreur ou de verdict bloquant. Une interruption clavier d’`autoloop` rend `130`. `mutate` rend `1` si une règle de politique n’est défendue par aucun scénario, `2` si rien n’est jugeable.

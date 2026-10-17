@@ -1,0 +1,139 @@
+AGENT TriageSupervisor {
+    VERSION "1.2"
+    DESCRIPTION "Surveille les capteurs du serveur et déclenche l'alerte"
+
+    GOAL triage_goal { MAINTAIN system.incident_resolved == yes }
+
+    OBSERVE {
+        sandbox.alert_triggered
+    }
+
+    PLAN trigger_triage WHEN sandbox.alert_triggered == yes {
+        STEP notify {
+            MESSAGE incident_alert {
+                TO SecurityAnalyst
+                PAYLOAD { target_folder = "suspicious_logs" }
+            }
+        }
+        STEP mark {
+            SET system.incident_resolved = yes
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        RECEIVE OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY
+    }
+}
+
+AGENT SecurityAnalyst {
+    VERSION "1.2"
+    DESCRIPTION "Analyse la menace via inférence bayésienne et délègue l'expertise"
+
+    GOAL analysis_goal { MAINTAIN threat.analyzed == yes }
+
+    OBSERVE {
+        sandbox.suspicious_file_count
+    }
+
+    HYPOTHESIS malware_outbreak {
+        PRIOR 0.10
+        EVIDENCE {
+            GROUP count_check {
+                sandbox.suspicious_file_count > 3 LIKELIHOOD 0.90 GIVEN_NOT 0.05
+            }
+        }
+        THRESHOLD 0.60
+        EXPLAINS threat.confirmed
+    }
+
+    ON MESSAGE incident_alert {
+        THEN run_investigation
+    }
+
+    PLAN run_investigation {
+        STEP analyze {
+            DELEGATE forensic_specialist {
+                TASK "Analyse d'infiltration de logs"
+                INPUT { target_folder }
+                EXPECT { threat_level, forensic_score }
+            }
+        }
+        STEP decide_action {
+            IF threat_level == HIGH THEN {
+                MESSAGE isolate_and_clean {
+                    TO RemediationAgent
+                    PAYLOAD { folder = target_folder, severity = threat_level }
+                }
+            }
+            SET threat.analyzed = yes
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        RECEIVE OBSERVE UPDATE_BELIEFS UPDATE_HYPOTHESES EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY
+    }
+}
+
+AGENT RemediationAgent {
+    VERSION "1.2"
+    DESCRIPTION "Isole et nettoie les répertoires compromis dans le bac à sable"
+
+    GOAL cleanup_goal { MAINTAIN sandbox.cleaned == yes }
+
+    OBSERVE { sandbox.cleaned }
+
+    MEMORY {
+        SHARED { quarantined_items }
+        WRITE { WHEN sandbox.cleaned == yes STORE { quarantined_items } INTO SHARED.quarantined_items }
+    }
+
+    TOOL quarantine_folder {
+        DESCRIPTION "Déplace les fichiers suspects vers le dossier de quarantaine"
+        INPUT { folder: String }
+        OUTPUT { status: Symbol }
+        SIDE_EFFECT { sandbox.cleaned }
+        RISK HIGH
+        REQUIRES { folder != unknown }
+        EFFECT { sandbox.cleaned = yes }
+        COST 5.0
+    }
+
+    // Un sous-agent est une capacité comme une autre : depuis la v1.6,
+    // `DELEGATE` traverse le moteur de politiques. Le contrat homonyme
+    // déclare ce qu'il rend et ce qu'il risque ; sans lui, le runtime lui
+    // prête CRITICAL faute de mieux (W127).
+    TOOL forensic_specialist {
+        INPUT  { }
+        OUTPUT { threat_level: Symbol, forensic_score: Number }
+        RISK   { operational = LOW }
+    }
+
+    POLICY {
+        DEFAULT DENY
+
+        // Sans cette ligne, DEFAULT DENY bloque la délégation —
+        // et c'est bien ce qu'il doit faire.
+        ALLOW forensic_specialist
+        ALLOW quarantine_folder IF severity == HIGH
+        REQUIRE APPROVAL FOR quarantine_folder
+    }
+
+    ON MESSAGE isolate_and_clean {
+        THEN execute_cleanup
+    }
+
+    PLAN execute_cleanup {
+        STEP act {
+            quarantine_folder(folder = folder)
+        }
+        STEP verify {
+            VERIFY "nettoyage effectif" {
+                CONDITION sandbox.cleaned == yes
+            }
+        }
+    }
+
+    LOOP UNTIL goal.satisfied MAX 5 {
+        RECEIVE OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY UPDATE_MEMORY
+    }
+}

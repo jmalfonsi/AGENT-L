@@ -165,7 +165,7 @@ Les wrappers enregistrent ou rejouent les lectures, outils, approbations et rép
     `agentl.kernel` : `Kernel`, `ExecutionPermit`, `ActionRequest`, `current_action`, `require_permit`, `TCB_FILES`. `agentl.durable` : `DurableRun`, `FileStore`, `SQLiteStore`, `MemoryStore`, `NOT_EXECUTED`. `agentl.aio` : `AsyncHost`, `AsyncRuntime`, `AsyncSociety`, `Limits`.
   </Accordion>
   <Accordion title="Erreurs">
-    `AgentLError`, `ParseError`, `ReplayError`, `ReplayDivergence`. Depuis la v1.9 : `PermitError` (appel à l’hôte sans permis), `ActionInDoubt` (action indéterminée), `Cancelled`, `DurableError`.
+    `AgentLError`, `ParseError`, `ReplayError`, `ReplayDivergence`. Depuis la v1.9 : `PermitError` (appel à l’hôte sans permis), `ActionInDoubt` (action indéterminée), `Cancelled`, `DurableError`. Depuis la v1.12 : `Refused` (`from agentl import Refused`), à lever dans un validateur pour refuser une valeur — ni attestation, ni panne.
   </Accordion>
 </AccordionGroup>
 

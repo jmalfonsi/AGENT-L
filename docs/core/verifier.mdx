@@ -65,6 +65,18 @@ Le plan est bien formé, mais il peut tenter l’action dans un état interdit. 
   La preuve porte sur le programme `.agent` et son modèle déclaré. Elle ne certifie ni l’implémentation d’un outil externe, ni la sûreté générale du Python hôte.
 </Info>
 
+## Quand une escalade compte
+
+Sous un interdit sans route de repli, T2 n’exige pas que le but soit atteint, mais que l’agent **ne cale pas en silence**. Il ne crédite que les escalades qui peuvent partir :
+
+- `IF planner.exhausted … THEN <plan>`, **sous un `PLANNER { ENABLE … }`** ; sans planificateur le fait n’est jamais posé et `W138` le signale ;
+- une règle `DECIDE` ou une garde `WHEN` que la garde de l’interdit entraîne (démontré par le solveur) ;
+- une règle sur `tools.<outil>.denied`, si un plan écrit à la main tente l’outil sous la garde.
+
+Le plan d’escalade ne doit pas rappeler l’outil interdit. Quand un `NEVER` se lève par `NOT ATTESTED(x, validateur)`, `V110` rappelle que la synthèse ne l’enchaînera pas : écrivez un plan manuel qui appelle le validateur puis l’outil.
+
+Un `VERIFY` en échec arrête son plan, pas l’agent : depuis la v1.12, les règles `DECIDE`, `EVENT` et `MESSAGE` des ticks suivants partent normalement.
+
 ## Limites à garder visibles
 
 - le solveur n’est pas déclaré complet pour tous les programmes ;

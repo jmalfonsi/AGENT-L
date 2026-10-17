@@ -88,9 +88,14 @@ class PolicyEngine:
         # l'intention. Voir `trivalent.py`.
         for rule in self.rules:
             if rule.effect == "NEVER" and matches(rule):
+                # « Absolue » ne se dit que d'un NEVER sans garde : un NEVER
+                # gardé tombe avec sa garde (un ATTESTED obtenu, par exemple),
+                # et le planificateur comme l'auteur doivent le lire ainsi.
+                kind = ("interdiction absolue" if rule.guard is None
+                        else "interdiction (garde vraie)")
                 return PolicyDecision(
                     DENIED, rule,
-                    f"interdiction absolue NEVER {rule.target} (ligne {rule.line})",
+                    f"{kind} NEVER {rule.target} (ligne {rule.line})",
                 )
 
         for rule in self.rules:

@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from .core import UNDEFINED, Symbol, fmt, truthy
 from .host import Host
-from .kernel import ActionInDoubt, Kernel, KernelAbort
+from .kernel import ActionInDoubt, Kernel, KernelAbort, Refused
 from .kernel import gate as _gate
 from .kernel import provenance as P
 from .kernel.provenance import Prov, UNKNOWN_LABEL, unwrap
@@ -47,6 +47,7 @@ DEFAULT_CYCLE = ["RECEIVE", "OBSERVE", "UPDATE_BELIEFS", "UPDATE_HYPOTHESES",
 _RUNTIME = Prov({P.RUNTIME})
 _DECLARED = Prov({P.DECLARED})
 _OBSERVED = Prov({P.OBSERVED})
+_EXTERNAL = Prov({P.EXTERNAL})
 _HUMAN = Prov({P.HUMAN})
 _LLM = Prov({P.LLM})
 _TOOL = Prov({P.TOOL})
@@ -157,7 +158,7 @@ class Runtime:
                         "tool_contract_failures": 0,
                         "tool_output_dropped": 0,
                         "circuit_open": 0, "reason_degraded": 0,
-                        "judge_abstained": 0}
+                        "judge_abstained": 0, "tool_refused": 0}
         self.society = None                 # branché par Society (v0.6)
         self.inbox: deque = deque()
         self._seen_shared: Dict[str, int] = {}
@@ -320,6 +321,7 @@ class Runtime:
             # La capacité a franchi la gouvernance. Une panne d'invocation
             # reste une panne du monde, pas un refus de politique.
             self.state.set_local("last_action.blocked", False, _RUNTIME)
+            self._publish_refusal(request.tool, denied=False, unapproved=False)
             return auth.permit
 
         self.metrics["blocked"] += 1
@@ -344,7 +346,30 @@ class Runtime:
             self.trace.log(self.state.tick, "BLOCKED",
                            f"{subject} non approuvé")
         self.state.set_local("last_action.blocked", True, _RUNTIME)
+        unapproved = auth.stage not in (_gate.STAGE_ISOLATION,
+                                        _gate.STAGE_POLICY_ERROR,
+                                        _gate.STAGE_POLICY)
+        self._publish_refusal(request.tool, denied=not unapproved,
+                              unapproved=unapproved)
         return None
+
+    def _publish_refusal(self, tool: str, *, denied: bool,
+                         unapproved: bool) -> None:
+        """Le refus devient un fait que le programme peut lire (v1.12).
+
+        Un agent ne pouvait pas observer « ma politique a refusé block_ip » ni
+        « l'opérateur a dit non » : il fallait un marqueur bricolé à la main.
+        Même forme que `tools.<outil>.available` — l'état de la **dernière**
+        tentative, remis à `false` dès qu'une tentative franchit la
+        gouvernance :
+
+            IF tools.block_ip.denied == true THEN escalate
+
+        `denied` : la politique a refusé (NEVER, DENY, aucun ALLOW, garde
+        inévaluable) ; `unapproved` : l'approbation a manqué ou été refusée.
+        """
+        self.state.set_world(f"tools.{tool}.denied", denied, _RUNTIME)
+        self.state.set_world(f"tools.{tool}.unapproved", unapproved, _RUNTIME)
 
     # ------------------------------------------------------- oracle dégradé
     def _flag_reason(self, stmt: Any, missing: Optional[List[str]],
@@ -456,21 +481,25 @@ class Runtime:
                                  _RUNTIME)
         self._load_drift()
 
-    def _apply_initial_values(self, values: Dict[str, Any], source: str) -> None:
+    def _apply_initial_values(self, values: Dict[str, Any], source: str,
+                              untrusted: frozenset = frozenset()) -> None:
         """Route un état initial vers le magasin effectivement lu.
 
         Une croyance déclarée masque le monde dans ``State.get``. Scenario et
         Autoloop doivent donc remplacer cette croyance, tandis que les autres
         valeurs appartiennent au monde. Cette règle vit ici pour que tous les
         Adapters d'exécution observent le même tick zéro.
+
+        `untrusted` : chemins posés `UNTRUSTED` dans le `GIVEN` (v1.12) — ils
+        portent `EXTERNAL` en plus d'`OBSERVED`, dès le tick zéro.
         """
         # Un monde de départ simulé tient lieu d'observation.
         for path, value in values.items():
+            label = _OBSERVED | _EXTERNAL if path in untrusted else _OBSERVED
             if path in self.state.beliefs:
-                self.state.set_belief(path, value, 1.0, source,
-                                      prov=_OBSERVED)
+                self.state.set_belief(path, value, 1.0, source, prov=label)
             else:
-                self.state.set_world(path, value, _OBSERVED)
+                self.state.set_world(path, value, label)
 
     # ------------------------------------------------------------- boucle
     def run(self, max_ticks: Optional[int] = None) -> "Runtime":
@@ -497,6 +526,8 @@ class Runtime:
     def tick(self) -> None:
         self.state.tick += 1
         self.metrics["ticks"] += 1
+        # Filet : aucun échec de VERIFY ne franchit la frontière d'un tick.
+        self.verify_failure = None
         self.trace.log(self.state.tick, "TICK", "")
         for phase in self._cycle():
             self._run_phase(phase)
@@ -514,7 +545,7 @@ class Runtime:
 
     def _run_phase(self, phase: Any) -> None:
         if not isinstance(phase, str):
-            self.exec_stmts([phase])
+            self._run_entry([phase])
             return
         handler = {
             "OBSERVE": self.phase_observe,
@@ -567,7 +598,7 @@ class Runtime:
                 # tout ce qu'il décide en porte la provenance.
                 with self._under(_PAYLOAD["message"]
                                  | self._label(handler.when)):
-                    self.exec_stmts(handler.body)
+                    self._run_entry(handler.body)
 
     def _scope_snapshot(self):
         return (dict(self.state.locals), dict(self.state.untrusted),
@@ -948,7 +979,7 @@ class Runtime:
                 if self._safe_test(rule.cond, on_error=False,
                                    context="règle DECIDE"):
                     with self._under(self._label(rule.cond)):
-                        self.exec_stmts(rule.then)
+                        self._run_entry(rule.then)
         # 4. Synthèse (v0.5) — le déterministe avant le probabiliste
         self.phase_synthesize()
         # 5. Raisonnement LLM, en dernier recours seulement
@@ -984,7 +1015,7 @@ class Runtime:
                 self.trace.log(self.state.tick, "ERROR", f"plan inconnu : {name}")
                 continue
             with self._under(label):
-                self.run_plan(plan)
+                self._run_entry(plan)
 
     def phase_verify(self) -> None:
         """Vérification globale : réévalue les objectifs après action."""
@@ -1067,7 +1098,7 @@ class Runtime:
                                          for k, v in payload.items()))
                 with self._under(_PAYLOAD["event"]
                                  | self._label(handler.when)):
-                    self.exec_stmts(handler.body)
+                    self._run_entry(handler.body)
             else:
                 self._scope_restore(snapshot)
                 self.trace.log(self.state.tick, "EVENT",
@@ -1114,12 +1145,29 @@ class Runtime:
                                f"{attempt}/{retries_allowed}")
                 continue
             self.state.set_local("still_failed", True, _RUNTIME)
-            failed = self.verify_failure
             self.verify_failure = None
             self.exec_stmts([s for s in handler
                              if not (isinstance(s, ControlStmt) and s.kind == "RETRY")])
-            self.verify_failure = failed
             return False
+
+    def _run_entry(self, block: Any) -> None:
+        """Exécute un point d'entrée : plan, règle DECIDE, gestionnaire
+        d'EVENT ou de MESSAGE, instruction de la LOOP.
+
+        Un `VERIFY` en échec arrête le bloc qui le contient, jamais les
+        suivants. Jusqu'en v1.11 le drapeau restait armé après son plan, et
+        `exec_stmts` rendait la main à chaque appel : les règles `DECIDE` et
+        les gestionnaires des ticks suivants ne faisaient plus rien, sans une
+        ligne de trace — y compris sous `ON VERIFY.FAIL`. C'est exactement
+        après un échec qu'une escalade doit pouvoir partir.
+        """
+        try:
+            if isinstance(block, Plan):
+                self.run_plan(block)
+            else:
+                self.exec_stmts(block)
+        finally:
+            self.verify_failure = None
 
     def exec_stmts(self, stmts: List[Stmt]) -> None:
         for stmt in stmts:
@@ -2038,6 +2086,15 @@ class Runtime:
             result = self.kernel.execute(permit, self.host)
         except KernelAbort:
             raise
+        except Refused as exc:
+            # Une réponse, pas une panne : ni disjoncteur, ni attestation.
+            self.metrics["tool_refused"] += 1
+            self.state.set_world(f"tools.{name}.refused", True, _RUNTIME)
+            self.state.set_local("last_action.blocked", True, _RUNTIME)
+            self.trace.log(self.state.tick, "BLOCKED",
+                           f"{request.render()} refusé par l'outil",
+                           str(exc) or "Refused")
+            return None
         except Exception as exc:                      # noqa: BLE001
             self._record_tool_failure(name)
             self.metrics["tool_failures"] += 1
@@ -2075,6 +2132,7 @@ class Runtime:
             return None
 
         self._record_tool_success(name)
+        self.state.set_world(f"tools.{name}.refused", False, _RUNTIME)
         self.metrics["tool_calls"] += 1
         self.state.set_local("last_action.blocked", False, _RUNTIME)
         self.state.set_local(f"result.{name}", safe_result, _TOOL)
@@ -2228,4 +2286,11 @@ def _render_expr(node) -> str:
         return f"{node.op} {_render_expr(node.operand)}"
     if isinstance(node, BinOp):
         return f"{_render_expr(node.left)} {node.op} {_render_expr(node.right)}"
+    from .nodes import CallExpr, ListExpr
+    if isinstance(node, CallExpr):
+        args = [_render_expr(a) for a in node.args]
+        args += [f"{k} = {_render_expr(v)}" for k, v in node.kwargs.items()]
+        return f"{node.name}({', '.join(args)})"
+    if isinstance(node, ListExpr):
+        return f"[{', '.join(_render_expr(i) for i in node.items)}]"
     return type(node).__name__

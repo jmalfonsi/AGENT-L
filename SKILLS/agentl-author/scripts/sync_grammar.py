@@ -87,7 +87,16 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # (`references/cli.md`) et 28 codes absents du glossaire. Deux contrôles
 # nouveaux rendent rouge tout oubli du même genre : option de CLI et code de
 # diagnostic non nommés dans le SKILL : patch.
-AUTHORING_CONTRACT_VERSION = "2.13.1"
+# 2.14.0 : v1.12 — ce qu'un agent auteur a dû contourner à la main. La surface
+# s'élargit : suffixe `UNTRUSTED` dans le `GIVEN` d'un scénario,
+# `scenario.refuse.<outil>`, `agentl mutate` et `MUTATION-OK`, l'exception
+# `Refused`, les faits `tools.<outil>.denied|unapproved|refused`. Les
+# contrôles se resserrent : `W138` (`planner.exhausted` sans PLANNER), T2 ne
+# crédite plus une escalade morte et reconnaît les escalades réelles, la
+# barrière « preuve » d'autoloop renvoie V128 aux scénarios. Le runtime ne
+# laisse plus un VERIFY en échec rendre muets DECIDE, EVENT et MESSAGE —
+# `v1.8.2/complex_soc` ne se rejoue plus, rupture annoncée : mineur.
+AUTHORING_CONTRACT_VERSION = "2.14.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
@@ -106,6 +115,7 @@ TOOLCHAIN_FILES = (
     "agentl/_boundary_security.py",
     "agentl/cli.py",
     "agentl/scenario.py",
+    "agentl/mutate.py",
     "agentl/verifier.py",
     # v1.9 : l'autorisation et l'exécution vivent dans le noyau, et la
     # sémantique des gardes de provenance dans `provenance.py`. Un auteur
@@ -289,6 +299,7 @@ def canonical_agent(version: str) -> str:
             // fournisseur de modèle. USING borne ce qu'un REASON montre,
             // NEVER SEND borne toutes les sorties — select_plan compris.
             NEVER SEND approval.evidence_token
+            // MUTATION-OK: close_source_failure s'enfile avant toute synthèse et clôt le flux ; l'interdit défend un appel écrit à la main
             NEVER apply_request WHEN source.read_ok != yes
             NEVER apply_request WHEN request.pending != yes
             NEVER apply_request WHEN request.capacity <= 0
@@ -422,6 +433,65 @@ def canonical_agent(version: str) -> str:
               request.applied != yes
               workflow.done == yes
             }} WITHIN 1
+          }}
+
+          SCENARIO no_pending_request_blocks_the_action {{
+            GIVEN {{
+              source.read_ok = yes
+              request.pending = no
+              request.capacity = 1
+              approval.message = "Approved."
+              approval.sender_matches = yes
+              approval.evidence_token = \"proof-1\"
+              decision = approved
+              request.applied = no
+              workflow.done = no
+              apply_request.applied = yes
+              finish_workflow.finished = yes
+            }}
+            EXPECT {{
+              request.applied != yes
+            }} WITHIN 3
+          }}
+
+          SCENARIO unclear_message_blocks_the_action {{
+            GIVEN {{
+              source.read_ok = yes
+              request.pending = yes
+              request.capacity = 1
+              approval.message = "Maybe later."
+              approval.sender_matches = yes
+              approval.evidence_token = \"proof-1\"
+              decision = unknown
+              request.applied = no
+              workflow.done = no
+              apply_request.applied = yes
+              finish_workflow.finished = yes
+            }}
+            EXPECT {{
+              request.applied != yes
+              workflow.done == yes
+            }} WITHIN 3
+          }}
+
+          SCENARIO foreign_sender_blocks_the_action {{
+            GIVEN {{
+              source.read_ok = yes
+              request.pending = yes
+              request.capacity = 1
+              approval.message = "Approved."
+              approval.sender_matches = no
+              approval.evidence_token = \"proof-1\"
+              decision = approved
+              request.applied = no
+              workflow.done = no
+              apply_request.applied = yes
+              finish_workflow.finished = yes
+            }}
+            EXPECT {{
+              request.applied != yes
+              workflow.done == yes
+            }} WITHIN 3
           }}
 
           LOOP UNTIL goal.satisfied MAX 4 {{
@@ -700,7 +770,7 @@ def expected_files() -> dict[Path, str]:
 def validate_canonical(files: dict[Path, str]) -> list[str]:
     from agentl import Analyzer, Runtime, parse_source, verify
     from agentl.boundary import check_pair
-    from agentl.scenario import run_scenario, run_scenarios
+    from agentl.scenario import run_scenarios
 
     errors: list[str] = []
     source = files[GENERATED / "canonical.agent"]
@@ -720,20 +790,22 @@ def validate_canonical(files: dict[Path, str]) -> list[str]:
     if verify(agent).refuted:
         errors.append("l'exemple canonique est réfuté par agentl verify")
 
-    mutation = source.replace(
-        "    NEVER apply_request WHEN request.capacity <= 0\n", ""
-    )
-    if mutation == source:
-        errors.append("la mutation canonique de capacité ne trouve pas sa règle")
-    else:
-        mutated = parse_source(mutation, "<canonical-mutated.agent>").agents[0]
-        bite = next(
-            item
-            for item in mutated.scenarios
-            if item.name == "no_capacity_blocks_the_action"
-        )
-        if run_scenario(mutated, bite).passed:
-            errors.append("le scénario de capacité ne mord pas après mutation du NEVER")
+    # Chaque règle de politique doit être défendue par un scénario, ou levée
+    # avec sa raison : c'est ce que `agentl mutate` exige d'un auteur, et
+    # l'exemple qu'on lui demande de copier ne peut pas en être dispensé.
+    from agentl.mutate import mutate_program
+
+    mutation = mutate_program(parse_source(source, "<canonical.agent>"), source)
+    if mutation.unjudged:
+        errors.append("mutation canonique non jugeable : "
+                      + "; ".join(why for _agent, why in mutation.unjudged))
+    errors.extend(f"mutant canonique survivant : {m.kind} — {m.rule}"
+                  for m in mutation.survivors)
+    errors.extend(f"levée MUTATION-OK sans effet ligne {line}"
+                  for line, _reason in mutation.stray_waivers)
+    if not any(m.killed_by == ["no_capacity_blocks_the_action"]
+               for m in mutation.mutants):
+        errors.append("le scénario de capacité ne mord pas après mutation du NEVER")
 
     with tempfile.TemporaryDirectory(prefix="agentl-skill-") as temporary:
         target = Path(temporary) / "canonical.agent"
@@ -888,7 +960,8 @@ def skill_text() -> str:
 
 
 COMMANDS = ("check", "ast", "run", "plan", "infer", "verify", "viz", "boundary",
-            "test", "autoloop", "replay", "durable", "seal", "mcp", "studio")
+            "test", "mutate", "autoloop", "replay", "durable", "seal", "mcp",
+            "studio")
 
 
 def cli_flags() -> dict[str, list[str]]:

@@ -21,6 +21,11 @@ from .nodes import (
 COMPARISONS = {"==", "!=", ">", ">=", "<", "<="}
 
 
+#: Assertions de trace d'un SCENARIO (`EXPECT NEVER CALL x`…). Leurs mots ne
+#: sont pas des mots-clés du lexeur — ils se lisent comme des noms — mais un
+#: auteur les écrit en majuscules : l'éditeur doit les connaître.
+SCENARIO_ASSERTIONS = ("CALL", "NEVER CALL", "BLOCKED", "EVENT", "NO ERROR")
+
 class Parser:
     def __init__(self, tokens: List[Token], filename: str = "<source>"):
         self.toks = tokens
@@ -1085,12 +1090,19 @@ class Parser:
         self.expect("OP", "}")
         return [tool]
 
-    def effect_block(self) -> List[Effect]:
+    def effect_block(self, given: bool = False) -> List[Effect]:
         """`EFFECT { threat.status = contained, cycle.done = yes INTERNAL }`
 
         Le suffixe `INTERNAL` (v1.7) dit que la postcondition porte sur la
         comptabilité de l'agent et non sur le monde : aucun capteur ne peut la
         démentir, et T9 ne la réclame donc pas observable.
+
+        Le suffixe `UNTRUSTED` (v1.12) n'a de sens que dans le `GIVEN` d'un
+        scénario : la valeur posée vient d'un tiers. Sans lui, une garde
+        `NEVER … WHEN UNTRUSTED(x)` était invérifiable par SCENARIO — seul
+        l'hôte savait rendre `untrusted(valeur)`. `UNTRUSTED` reste un nom
+        (la fonction de garde) : il n'est lu comme suffixe qu'après une
+        valeur et quand il n'ouvre ni un appel, ni un chemin.
         """
         out: List[Effect] = []
         self.expect("OP", "{")
@@ -1099,14 +1111,31 @@ class Parser:
             path = ".".join(self.path_parts())
             self.opt_sep()
             value = self.expression()
-            internal = False
+            internal = untrusted = False
             if self.at_kw("INTERNAL"):
                 self.advance()
                 internal = True
-            out.append(Effect(path, value, internal=internal, line=line))
+            if self._at_untrusted_suffix():
+                if not given:
+                    raise ParseError(
+                        f"{self.filename}:{self.cur.line}: suffixe UNTRUSTED "
+                        f"hors du GIVEN d'un SCENARIO — un EFFECT décrit ce que "
+                        f"l'agent produit, pas d'où vient une donnée, et la "
+                        f"charge utile d'un GIVEN EVENT/MESSAGE est déjà non "
+                        f"fiable")
+                self.advance()
+                untrusted = True
+            out.append(Effect(path, value, internal=internal,
+                              untrusted=untrusted, line=line))
             self.opt_comma()
         self.expect("OP", "}")
         return out
+
+    def _at_untrusted_suffix(self) -> bool:
+        if not self.at("IDENT", "UNTRUSTED"):
+            return False
+        nxt = self.peek()
+        return not (nxt.kind == "OP" and nxt.value in ("(", ".", "=", ":"))
 
     # ----- SCENARIO (v1.4)
     def parse_scenario(self) -> Scenario:
@@ -1134,7 +1163,7 @@ class Parser:
                     scenario.stimuli.append(ScenarioStimulus(
                         kind, name, self.effect_block(), sender, line=line))
                 else:
-                    scenario.given.extend(self.effect_block())
+                    scenario.given.extend(self.effect_block(given=True))
             elif self.at_kw("EXPECT"):
                 self.advance()
                 if self.at("OP", "{"):
@@ -1147,7 +1176,7 @@ class Parser:
                     kind = self.name().upper()
                     if kind in ("NEVER", "NO"):
                         kind += " " + self.name().upper()
-                    if kind not in ("CALL", "NEVER CALL", "BLOCKED", "EVENT", "NO ERROR"):
+                    if kind not in SCENARIO_ASSERTIONS:
                         raise ParseError(f"{self.filename}:{line}: assertion EXPECT inconnue : {kind}")
                     target = "" if kind == "NO ERROR" else ".".join(self.path_parts())
                     scenario.assertions.append(ScenarioAssertion(kind, target, line=line))

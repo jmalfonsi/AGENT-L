@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from .action import (ActionRequest, action_digest, canonical, canonical_bytes,
                      coerce_inputs, typecheck, value_digest)
-from .errors import ActionInDoubt, Cancelled, KernelAbort, PermitError
+from .errors import (ActionInDoubt, Cancelled, KernelAbort, PermitError,
+                     Refused)
 from .gate import (APPROVAL_WORDS, Authorization, Kernel, action_from_tool,
                    approval_granted, policy_digest)
 from .permit import (ActionContext, ExecutionPermit, activated,
@@ -43,7 +44,7 @@ TCB_FILES = (
 __all__ = [
     "ActionContext", "ActionInDoubt", "ActionRequest", "APPROVAL_WORDS",
     "Authorization", "Cancelled", "ExecutionPermit", "Kernel", "KernelAbort",
-    "PermitError", "TCB_FILES", "action_digest", "action_from_tool",
+    "PermitError", "Refused", "TCB_FILES", "action_digest", "action_from_tool",
     "activated", "active_dispatch", "approval_granted", "canonical",
     "canonical_bytes", "coerce_inputs", "current_action", "policy_digest",
     "require_permit", "typecheck", "value_digest",

@@ -65,7 +65,7 @@ Un `NEVER` s’évalue **avant** l’approbation. Un opérateur pressé qui appr
 Quand un outil s’exécute avec succès, chaque valeur de ses arguments est **attestée** par cet outil. `ATTESTED(x, check_wipeable)` le lit. L’étiquette de `x` ne change pas : une valeur validée reste une valeur venue du modèle.
 
 <Warning>
-  Tout appel réussi atteste ses arguments, même si l’outil répond `{"ok": "no"}`. Un validateur doit donc **lever une exception** pour refuser une cible.
+  Tout appel réussi atteste ses arguments, même si l’outil répond `{"ok": "no"}`. Un validateur doit donc **refuser en levant `agentl.Refused`** (v1.12) : rien n’est attesté, le refus n’alimente pas le disjoncteur et `tools.<outil>.refused` passe à `true`. Une autre exception refuse aussi, mais passe pour une panne : au troisième refus d’affilée, l’outil est coupé et `tools.<outil>.available` tombe à `false`.
 </Warning>
 
 ```python

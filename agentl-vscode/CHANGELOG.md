@@ -1,5 +1,19 @@
 # Journal des changements — extension VS Code AGENT-L
 
+## [1.4.0] — 2026-10-17
+
+### Corrigé
+- **Les fonctions de garde et les assertions de scénario ne sont plus des
+  fautes.** `UNTRUSTED`, `ATTESTED`, `TRUSTED`, `LLM_DERIVED`, `ORIGIN`,
+  `POSTERIOR`, `PROBABILITY`, `UNCERTAINTY` (fonctions de garde) et `CALL`,
+  `BLOCKED`, `NO`, `ERROR` (`EXPECT NEVER CALL`, `EXPECT NO ERROR`) se lisent
+  comme des noms, pas comme des mots-clés du lexeur : la liste miroir les
+  ignorait, et un agent v1.11 valide affichait douze erreurs.
+- **L'extension installée exécutait un `out/extension.js` de juillet.** La
+  source avait suivi le langage, pas le fichier compilé, et le numéro de
+  version n'avait pas bougé : VS Code ne remplaçait rien. Le test miroir
+  (`tests/test_frontend_aaa.py`) compare désormais aussi le fichier compilé.
+
 ## [1.3.0] — 2026-07-28
 
 ### Corrigé

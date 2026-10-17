@@ -50,6 +50,8 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W133  schéma PRODUCE trop long : risque de troncature silencieuse
   W134  DEFAULT d'un champ PRODUCE qui ne déclenche pas l'interdit qu'il garde
   W135  garde de déclenchement comparant `!=` un chemin que rien ne renseigne
+  W137  constante symbolique qui est aussi une variable d'état
+  W138  `planner.exhausted` lu sans PLANNER activé (jamais posé)
 
 Contrôles inter-agents (`check_program`) :
 
@@ -890,6 +892,7 @@ class Analyzer:
             known = self._known_state_paths() | {APPROVAL_PATH, ANSWER_PATH, "llm.plan"}
             for tool in self.agent.tools:
                 known.add(f"scenario.outcome.{tool.name}")
+                known.add(f"scenario.refuse.{tool.name}")
                 known |= {f"{tool.name}.{key}" for key in tool.outputs}
             for stmt, _ in self._all_statements():
                 if isinstance(stmt, DelegateStmt):
@@ -994,6 +997,7 @@ class Analyzer:
     def _check_planner(self) -> None:
         spec = self.agent.planner
         if spec is None or not spec.enabled:
+            self._check_exhausted_without_planner()
             return
         operators = [t for t in self.agent.tools if t.is_operator]
         if not operators:
@@ -1030,6 +1034,29 @@ class Analyzer:
                     "W110", "warning",
                     "but du planificateur qu'aucun EFFECT ne peut satisfaire",
                     goal.line))
+
+    def _check_exhausted_without_planner(self) -> None:
+        """W138 — `planner.exhausted` lu alors qu'aucun PLANNER n'est activé.
+
+        Le fait n'est posé que par la synthèse : sans `PLANNER { ENABLE … }`,
+        il reste indéfini, et la règle d'escalade qui le lit ne part jamais.
+        `verify` la créditait pourtant (T2, V112 « escalade déclarée ») pour
+        un agent qui calait en silence.
+        """
+        if "planner.exhausted" not in self._referenced_paths():
+            return
+        line = 0
+        if self.agent.decide is not None:
+            line = next((rule.line for rule in self.agent.decide.rules
+                         if any(isinstance(node, PathExpr)
+                                and ".".join(node.parts) == "planner.exhausted"
+                                for node in _walk_expr(rule.cond))), 0)
+        self.diags.append(Diagnostic(
+            "W138", "warning",
+            "`planner.exhausted` est lu, mais aucun PLANNER n'est activé : le "
+            "fait n'est jamais posé et la règle ne se déclenchera pas — "
+            "déclarer PLANNER { ENABLE … }, ou garder l'escalade sur un fait "
+            "que le programme pose (p.ex. tools.<outil>.denied)", line))
 
     # ------------------------------------------------ v1.1 / v1.2 : sûreté
     def _decision_paths(self) -> Set[str]:

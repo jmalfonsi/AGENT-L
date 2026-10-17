@@ -60,6 +60,23 @@ AGENT SOC_ANALYST {
   </Card>
 </Columns>
 
+## Nouveautés de la v1.12
+
+<Columns cols={2}>
+  <Card title="agentl mutate" icon="dna" href="/core/quality-gates">
+    Retire chaque `NEVER`, `DENY`, `REQUIRE APPROVAL` et la garde de chaque `ALLOW … WHEN`, rejoue les scénarios et liste les règles qu’aucun test ne défend.
+  </Card>
+  <Card title="Une garde de provenance se teste" icon="fingerprint" href="/core/provenance">
+    `GIVEN { ip = "…" UNTRUSTED }` pose une valeur écrite par un tiers ; `scenario.refuse.<outil> = yes` fait refuser le validateur simulé.
+  </Card>
+  <Card title="Le refus est un fait" icon="octagon-x" href="/core/policies">
+    `tools.<outil>.denied`, `.unapproved` et `.refused` se lisent dans le programme ; `agentl.Refused` refuse sans compter comme une panne.
+  </Card>
+  <Card title="Un VERIFY en échec ne fige plus l’agent" icon="shield-alert" href="/core/verifier">
+    Les règles `DECIDE`, `EVENT` et `MESSAGE` des ticks suivants partent normalement, y compris sous `ON VERIFY.FAIL`. Rupture annoncée pour les journaux de la 1.8.
+  </Card>
+</Columns>
+
 ## Nouveautés de la v1.11
 
 <Columns cols={2}>
@@ -100,7 +117,7 @@ AGENT SOC_ANALYST {
 </Columns>
 
 <Note>
-  Le paquet est numéroté 1.11.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
+  Le paquet est numéroté 1.12.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
 </Note>
 
 ## Deux façons de travailler
