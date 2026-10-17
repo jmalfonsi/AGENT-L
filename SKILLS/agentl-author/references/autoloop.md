@@ -35,6 +35,20 @@ python3 -m agentl autoloop examples/xxx.agent --host-pass
 4. **Le second temps** (`--host-pass`) — une exécution contre l'hôte réel, en
    lecture seule.
 
+### Ce que la boucle ne fait pas varier, et ce qu'elle ne juge pas (v1.12.1)
+
+- **La réponse simulée d'un outil** (`notify_operator.ack = yes` dans le
+  `GIVEN`) n'est pas une donnée du monde : c'est ce que répond le double de
+  l'hôte. Elle n'est jamais effacée ni déformée par un cas dérivé. Une panne
+  d'outil s'éprouve par `scenario.refuse.<outil>` dans `agentl test`, et au
+  disjoncteur.
+- **Un monde dérivé qui atteint un outil sans réponse posée est « non jugé »**
+  (`·` dans le rapport, hors du score, compté à part). Le double de l'hôte ne
+  sait pas le jouer jusqu'au bout et n'invente rien. `U3`/`U4` et les
+  invariants déclarés restent jugés dans ce cas. Pour qu'un tel chemin soit
+  éprouvé, poser la réponse de l'outil dans le scénario d'origine. Si aucun
+  cas n'est jugé, la boucle n'est pas verte.
+
 ## L'oracle : qui dit ce qui est attendu ?
 
 C'est la question qui décide de la valeur de tout le reste. Faire juger le

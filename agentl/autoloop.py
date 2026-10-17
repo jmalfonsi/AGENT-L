@@ -280,6 +280,31 @@ def _holdout(label: str, ratio: float) -> bool:
     return (digest[0] / 256.0) < ratio
 
 
+def tool_output_paths(agent: Agent) -> Set[str]:
+    """Chemins du `GIVEN` qui sont la **réponse simulée d'un outil**.
+
+    `notify_operator.ack = yes` n'est pas une donnée du monde : c'est ce que le
+    double de l'hôte répond quand l'agent appelle l'outil. L'effacer ou le
+    déformer fait lever le simulateur (« OUTPUT … non posé »), et la boucle
+    imputait au programme une erreur U1 qui est celle de son propre
+    générateur — même piège que les évidences d'hypothèse, un étage plus bas.
+    Une panne d'outil réelle, elle, se joue dans `agentl test` (`Refused`,
+    `scenario.refuse.<outil>`) et au disjoncteur, pas par un monde amputé.
+
+    La forme préfixée (`outil.champ`) est toujours une réponse d'outil ; le nom
+    nu (`champ`) ne l'est que si aucun `OBSERVE` ni `BELIEF` ne le porte aussi.
+    """
+    state = ({o.path for o in agent.observers}
+             | {b.path for b in agent.beliefs})
+    paths: Set[str] = set()
+    for tool in agent.tools:
+        for key in tool.outputs:
+            paths.add(f"{tool.name}.{key}")
+            if key not in state:
+                paths.add(key)
+    return paths
+
+
 def generate_cases(agent: Agent, *, seed: int = 7, max_cases: int = 200,
                    holdout_ratio: float = 0.3) -> List[Case]:
     """Engendre les cas dérivés, une fois pour toutes, de façon reproductible."""
@@ -289,9 +314,16 @@ def generate_cases(agent: Agent, *, seed: int = 7, max_cases: int = 200,
     for scenario in agent.scenarios:
         base = _initial_world(scenario)
         frozen = decision_paths(agent, extra=list(scenario.expect))
-        free = [p for p in base if p not in frozen
+        answers = tool_output_paths(agent)
+        # Les réponses d'outil restent telles que l'auteur les a posées.
+        # …ainsi que les directives du simulateur (`scenario.outcome.X`,
+        # `scenario.refuse.X`) : elles disent comment jouer l'outil, pas ce que
+        # le monde contient. Effacées, elles font lever « OUTCOME ambigu ».
+        movable = [p for p in base if p not in answers
+                   and not p.startswith("scenario.")]
+        free = [p for p in movable if p not in frozen
                 and not p.startswith("operator.")]
-        context = [p for p in base if p not in free]
+        context = [p for p in movable if p not in free]
 
         for tier, paths in (("données", free), ("contexte", context)):
             for path in paths:
@@ -306,8 +338,8 @@ def generate_cases(agent: Agent, *, seed: int = 7, max_cases: int = 200,
 
         # Quelques combinaisons : une faute peut ne se révéler qu'au croisement
         # de deux valeurs inhabituelles, qu'aucune mutation isolée n'atteint.
-        for _ in range(min(8, len(base))):
-            picked = rng.sample(sorted(base), min(2, len(base)))
+        for _ in range(min(8, len(movable))):
+            picked = rng.sample(sorted(movable), min(2, len(movable)))
             changes = tuple(
                 (path, rng.choice(variants(base[path],
                                            compared_literals(agent, path))))
@@ -338,12 +370,29 @@ class CaseResult:
     calls: List[str] = field(default_factory=list)
     error: Optional[str] = None
     trace: str = ""
+    #: Cas que le double de l'hôte ne sait pas jouer jusqu'au bout : un monde
+    #: dérivé a atteint un outil dont la réponse n'a jamais été posée. Ni vert
+    #: ni rouge — on n'invente pas de réponse, elle pèserait sur les décisions
+    #: suivantes. Compté à part, jamais dans le score.
+    inconclusive: str = ""
 
     def render(self) -> str:
+        if self.inconclusive:
+            return f"  · {self.case.label} — non jugé : {self.inconclusive}"
         if self.passed:
             return f"  ✔ {self.case.label}"
         why = self.error or " ∧ ".join(self.broken)
         return f"  ✘ {self.case.label} — {why}"
+
+
+#: Message du double de l'hôte (`ScenarioHost.invoke`) quand un outil est
+#: appelé sans que sa sortie ait été posée.
+UNPOSED_OUTPUT = "non posé dans GIVEN/EFFECT"
+
+
+def _is_unposed(event: Any) -> bool:
+    return event.kind == "ERROR" and UNPOSED_OUTPUT in (
+        f"{event.text} {event.detail}")
 
 
 def unconditional_bans(agent: Agent) -> Tuple[Set[str], Set[str]]:
@@ -395,11 +444,17 @@ def _prepare(agent: Agent, world: Dict[str, Any],
     return runtime, host
 
 
-def universal_breaches(agent: Agent, runtime, host, world: Dict[str, Any]
-                       ) -> List[str]:
-    """U1–U4 : ce qui doit tenir sur n'importe quelle donnée."""
+def universal_breaches(agent: Agent, runtime, host, world: Dict[str, Any],
+                       *, tolerate_unposed: bool = False) -> List[str]:
+    """U1–U4 : ce qui doit tenir sur n'importe quelle donnée.
+
+    `tolerate_unposed` écarte de U1 les erreurs « sortie non posée » : sur un
+    monde dérivé, elles disent que le double de l'hôte est incomplet, pas que
+    le programme est fautif (voir `CaseResult.inconclusive`).
+    """
     broken: List[str] = []
-    errors = [e for e in runtime.trace.events if e.kind == "ERROR"]
+    errors = [e for e in runtime.trace.events if e.kind == "ERROR"
+              and not (tolerate_unposed and _is_unposed(e))]
     if errors:
         first = errors[0]
         detail = f" — {first.detail}" if first.detail else ""
@@ -477,8 +532,21 @@ def run_case(agent: Agent, scenario: Scenario, case: Case,
                           error=f"{type(exc).__name__}: {exc}",
                           trace=runtime.trace.render())
 
-    broken += [b for b in universal_breaches(agent, runtime, host, world)
+    broken += [b for b in universal_breaches(agent, runtime, host, world,
+                                             tolerate_unposed=True)
                if b not in baseline]
+    unposed = sorted({m for e in runtime.trace.events if _is_unposed(e)
+                      for m in [e.detail or e.text]})
+    if unposed:
+        # L'outil a échoué faute de réponse posée : ses `EFFECT` ne se sont pas
+        # appliqués, et un `VERIFY` en aval échoue pour la même raison (U2).
+        # Seuls U3/U4 — qui ne dépendent pas de ce que les outils ont rendu —
+        # et les invariants déclarés restent jugés.
+        broken = [b for b in broken if not b.startswith(("U1", "U2"))]
+    if not broken and unposed:
+        return CaseResult(case, True, calls=list(host.calls),
+                          trace=runtime.trace.render(),
+                          inconclusive=unposed[0].split(" — ")[0][:160])
     return CaseResult(case, not broken, broken, list(host.calls),
                       trace=runtime.trace.render())
 
@@ -816,11 +884,15 @@ class Attempt:
 
     @property
     def passed(self) -> int:
-        return sum(1 for r in self.results if r.passed)
+        return sum(1 for r in self.results if r.passed and not r.inconclusive)
+
+    @property
+    def inconclusive(self) -> int:
+        return sum(1 for r in self.results if r.inconclusive)
 
     @property
     def score(self) -> Tuple[int, int]:
-        return self.passed, len(self.results)
+        return self.passed, len(self.results) - self.inconclusive
 
     def failures(self) -> List[CaseResult]:
         return [r for r in self.results if not r.passed]
@@ -861,9 +933,15 @@ class AutoloopReport:
             and not self.holdout_ok
 
     @property
+    def judged(self) -> int:
+        """Cas réellement jugés : les non jugés ne prouvent rien."""
+        seen = 0 if self.last is None else self.last.score[1]
+        return seen + sum(1 for r in self.holdout if not r.inconclusive)
+
+    @property
     def ok(self) -> bool:
         # Zéro cas éprouvé n'est pas « tout passe » : c'est ne rien avoir testé.
-        return (self.gates_ok and self.seen_total + self.holdout_total > 0
+        return (self.gates_ok and self.judged > 0
                 and self.seen_ok and self.holdout_ok
                 and (self.host.passed if self.host.ran else True))
 
@@ -878,13 +956,20 @@ class AutoloopReport:
             lines.append(head)
             lines += [g.render() for g in attempt.gates]
             if total:
-                lines.append(f"  cas dérivés vus : {passed}/{total}")
+                lines.append(f"  cas dérivés vus : {passed}/{total}"
+                             + (f" · {attempt.inconclusive} non jugé(s)"
+                                if attempt.inconclusive else ""))
                 lines += [r.render() for r in attempt.failures()[:8]]
+                lines += [r.render() for r in attempt.results
+                          if r.inconclusive][:4]
 
         if self.holdout:
-            ok = sum(1 for r in self.holdout if r.passed)
+            ok = sum(1 for r in self.holdout
+                     if r.passed and not r.inconclusive)
+            unjudged = sum(1 for r in self.holdout if r.inconclusive)
             lines.append(f"\n── lot retenu (jamais montré à la boucle) : "
-                         f"{ok}/{len(self.holdout)}")
+                         f"{ok}/{len(self.holdout) - unjudged}"
+                         + (f" · {unjudged} non jugé(s)" if unjudged else ""))
             lines += [r.render() for r in self.holdout if not r.passed][:8]
         if self.host.ran or self.host.detail != "non demandé":
             lines.append("\n── second temps")

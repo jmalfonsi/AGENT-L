@@ -4,6 +4,29 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.12.1] — non publié · autoloop n'accuse plus son propre générateur
+
+`autoloop` signalait des erreurs `U1` du type « OUTPUT de notify_operator non
+posé dans GIVEN/EFFECT », deux fois par la faute de son générateur de cas :
+
+- **un monde dérivé effaçait la réponse d'un outil.** `notify_operator.ack =
+  yes`, dans le `GIVEN`, est ce que répond le double de l'hôte, pas une donnée
+  du monde ; l'étage « données » en faisait pourtant un chemin libre et le
+  remplaçait par `∅`, ce qui fait lever le simulateur. Les chemins
+  `outil.champ` (et le nom nu d'un `OUTPUT` qu'aucun `OBSERVE` ni `BELIEF` ne
+  porte) ne sont plus jamais dérivés (`tool_output_paths`) ;
+- **un monde dérivé atteignait un outil dont la réponse n'avait jamais été
+  posée.** `alert.level = 4` entre dans un plan que le scénario d'origine ne
+  jouait pas, et son outil n'a pas de réponse dans le `GIVEN`. Inventer une
+  réponse fausserait les décisions suivantes : le cas est **non jugé**
+  (`CaseResult.inconclusive`), compté à part et hors du score. Les `U1` et les
+  `U2` qui en découlent (l'outil a échoué, ses `EFFECT` ne se sont pas
+  appliqués, un `VERIFY` en aval échoue) sont écartés ; `U3`, `U4` et les
+  invariants déclarés restent jugés. Une exécution sans aucun cas jugé n'est
+  pas un succès.
+
+Contrat d'auteur 2.14.1. Aucune grammaire ne change.
+
 ## [1.12.0] — non publié · ce qu'un auteur devait contourner à la main
 
 Un agent auteur a écrit un agent de blocage d'IP gardé par provenance, puis

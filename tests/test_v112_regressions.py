@@ -515,3 +515,125 @@ def test_boundary_reports_a_misplaced_waiver(tmp_path):
     assert [(r, found) for _p, _l, r, found in report.stray_waivers] == [
         ("placée trop haut", False)]
     assert "levée sans effet" in render(report)
+
+
+# ============================== autoloop : la réponse d'un outil n'est pas une donnée
+ANSWERS = '''
+AGENT notifier {
+  VERSION "1.12"
+  GOAL g { MAINTAIN alert.handled == yes }
+  OBSERVE { alert.level  alert.handled }
+  BELIEF { alert.handled = no CONFIDENCE 1.0 SOURCE prior }
+  TOOL notify_operator { OUTPUT { ack: Symbol }  RISK LOW
+                         EFFECT { alert.handled = yes } }
+  TOOL lookup_owner { OUTPUT { owner: String }  RISK LOW }
+  POLICY { DEFAULT ALLOW }
+  PLAN page WHEN alert.level > 3 AND alert.handled != yes {
+    STEP who { lookup_owner() }
+    STEP s { notify_operator() }
+  }
+  %s
+  LOOP MAX 2 { OBSERVE UPDATE_BELIEFS EVALUATE_GOALS SELECT_PLAN EXECUTE VERIFY }
+}
+'''
+POSED = '''SCENARIO paged {
+    GIVEN { alert.level = 5, alert.handled = no, notify_operator.ack = yes,
+            lookup_owner.owner = "oncall" }
+    EXPECT { alert.handled == yes } WITHIN 2
+  }'''
+UNPOSED = '''SCENARIO quiet {
+    GIVEN { alert.level = 0, alert.handled = no }
+    EXPECT NEVER CALL notify_operator WITHIN 2
+  }'''
+
+
+def test_tool_answers_are_never_derived_into_missing_worlds():
+    from agentl.autoloop import generate_cases, tool_output_paths
+
+    agent = parse_source(ANSWERS % POSED).agents[0]
+    assert {"notify_operator.ack", "lookup_owner.owner", "ack", "owner"} \
+        <= tool_output_paths(agent)
+    touched = {path for case in generate_cases(agent, holdout_ratio=0.0)
+               for path, _ in case.changes}
+    assert not touched & tool_output_paths(agent)
+    assert "alert.level" in touched          # les vraies données varient encore
+
+
+def test_a_bare_output_name_that_is_also_observed_stays_movable():
+    from agentl.autoloop import tool_output_paths
+
+    source = (ANSWERS % POSED).replace("OUTPUT { ack: Symbol }",
+                                       "OUTPUT { alert.handled_ack: Symbol }") \
+        if False else (ANSWERS % POSED).replace(
+            "OBSERVE { alert.level  alert.handled }",
+            "OBSERVE { alert.level  alert.handled  ack }")
+    agent = parse_source(source).agents[0]
+    paths = tool_output_paths(agent)
+    assert "notify_operator.ack" in paths and "ack" not in paths
+
+
+def test_autoloop_does_not_blame_the_program_for_an_erased_tool_answer():
+    from agentl.autoloop import autoloop
+
+    report = autoloop(ANSWERS % POSED, holdout_ratio=0.0)
+    assert report.gates_ok and not report.last.failures(), report.render()
+    assert report.ok
+
+
+def test_a_derived_world_that_reaches_an_unposed_tool_is_not_judged():
+    from agentl.autoloop import autoloop
+
+    report = autoloop(ANSWERS % UNPOSED, holdout_ratio=0.0)
+    assert not report.last.failures(), report.render()
+    unjudged = [r for r in report.last.results if r.inconclusive]
+    assert [r.case.label for r in unjudged] == ["quiet·contexte·alert.level=4"]
+    assert "lookup_owner" in unjudged[0].inconclusive
+    passed, total = report.last.score
+    assert passed == total == len(report.last.results) - 1   # hors score
+    assert "1 non jugé(s)" in report.render()
+    assert report.ok
+
+
+def test_unposed_outputs_do_not_hide_a_real_breach_in_the_same_case():
+    from agentl.autoloop import autoloop
+
+    # `lookup_owner` n'a pas de réponse posée (non jugé), mais `notify_operator`
+    # est interdit sans garde et approuvé nulle part : U4 reste jugé.
+    source = (ANSWERS % UNPOSED).replace(
+        "POLICY { DEFAULT ALLOW }",
+        "POLICY { DEFAULT ALLOW  REQUIRE APPROVAL FOR lookup_owner }")
+    source = source.replace(
+        "SCENARIO quiet {", "SCENARIO quiet {\n    GIVEN { operator.approval = yes }")
+    report = autoloop(source, holdout_ratio=0.0)
+    # Approuvé dans le scénario : aucune rupture, et le cas reste non jugé.
+    assert not report.last.failures(), report.render()
+
+
+def test_a_failed_verify_caused_by_an_unposed_answer_is_not_a_breach():
+    from agentl.autoloop import autoloop
+
+    source = (ANSWERS % UNPOSED).replace(
+        "STEP s { notify_operator() }",
+        "STEP s { notify_operator() }\n    STEP v { VERIFY { alert.handled == yes } }")
+    report = autoloop(source, holdout_ratio=0.0)
+    assert not report.last.failures(), report.render()
+    assert report.last.inconclusive == 1
+
+
+def test_a_run_with_no_judged_case_is_not_a_success():
+    from agentl.autoloop import AutoloopReport, Attempt, Case, CaseResult, Gate
+
+    case = Case("s", "s·données·x=1", "données", (("x", 1),), False, "a")
+    attempt = Attempt(1, "", [Gate("analyse", True)],
+                      [CaseResult(case, True, inconclusive="sortie non posée")])
+    report = AutoloopReport(agent="a", attempts=[attempt], seen_total=1)
+    assert report.judged == 0 and not report.ok
+
+
+def test_simulator_directives_are_never_derived():
+    from agentl.autoloop import generate_cases
+
+    agent = parse_source(GUARD).agents[0]
+    touched = {path for case in generate_cases(agent, holdout_ratio=0.0)
+               for path, _ in case.changes}
+    assert not any(path.startswith("scenario.") for path in touched)

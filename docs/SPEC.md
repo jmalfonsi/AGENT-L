@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.12.0)
+# AGENT-L — sémantique de référence (v1.12.1)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2570,6 +2570,11 @@ rien et n'alimente pas le disjoncteur.
 valeur `EXTERNAL` ; `scenario.refuse.<outil> = yes` fait refuser l'outil
 simulé. `agentl mutate` vérifie que chaque règle de politique fait tomber un
 scénario quand on la retire.
+
+**autoloop n'accuse pas son générateur (1.12.1).** La réponse simulée d'un
+outil (`outil.champ` dans le `GIVEN`) n'est jamais dérivée ; un monde dérivé
+qui atteint un outil sans réponse posée est « non jugé », hors du score, et ses
+`U1`/`U2` induits sont écartés — `U3`, `U4` et les invariants restent jugés.
 
 **T2 ne crédite que des escalades qui partent.** `planner.exhausted` compte
 sous un `PLANNER` activé (sinon `W138`) ; une règle `DECIDE` ou une garde

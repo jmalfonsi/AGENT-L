@@ -96,7 +96,11 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # barrière « preuve » d'autoloop renvoie V128 aux scénarios. Le runtime ne
 # laisse plus un VERIFY en échec rendre muets DECIDE, EVENT et MESSAGE —
 # `v1.8.2/complex_soc` ne se rejoue plus, rupture annoncée : mineur.
-AUTHORING_CONTRACT_VERSION = "2.14.0"
+# 2.14.1 : v1.12.1 — autoloop cesse d'imputer au programme une erreur U1 qui
+# est celle de son générateur de cas : la réponse simulée d'un outil n'est plus
+# une donnée à effacer, et un monde dérivé qui atteint un outil sans réponse
+# posée est « non jugé ». Aucune surface d'auteur ne change : patch.
+AUTHORING_CONTRACT_VERSION = "2.14.1"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

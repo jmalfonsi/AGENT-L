@@ -112,6 +112,8 @@ agentl autoloop agent.agent [options]
 
 Sans `--out`, la source originale reste intacte. Sans `--model`, la boucle diagnostique sans réécrire.
 
+Les réponses simulées des outils (`outil.champ` dans le `GIVEN`) ne sont jamais dérivées. Un monde dérivé qui atteint un outil sans réponse posée est affiché « non jugé » (`·`) : il n’entre pas dans le score, et une exécution sans aucun cas jugé n’est pas un succès. Pour éprouver ce chemin, posez la réponse de l’outil dans le scénario d’origine.
+
 ## Rejeu et scellement
 
 ### `replay`

@@ -1,12 +1,12 @@
 {
-  "authoring_contract_version": "2.14.0",
+  "authoring_contract_version": "2.14.1",
   "authoring_surface": {
-    "combined_sha256": "bd2984bb2d7c20c0e792c991157525f0bef05db5049638ef2858d298f31dff48",
+    "combined_sha256": "5389758802002e4464ad112701fbf61c8968ff9c07aaed2c5077b85d36c3069b",
     "files": {
       "SKILLS/agentl-author/SKILL.md": "0b4b3fcc68acb10731dc03ea3c13d60b2c861efb85c43461b5bda091cec55cca",
       "SKILLS/agentl-author/agents/openai.yaml": "77d03386d40b24dbb2216ee80870d3248fc4f509c3299f69edf1079049f78f25",
       "SKILLS/agentl-author/references/authoring.md": "88eb508809ee0620ba212bb95ba1971e232f49880aeca2976f62fe06f8e1bb48",
-      "SKILLS/agentl-author/references/autoloop.md": "365f74a935f9ad1a7bbc5162a9a6ec511875bd3e0bb2fcd763fa18ae3d310189",
+      "SKILLS/agentl-author/references/autoloop.md": "93b0dd5e855798a71cd10c1294c146608416097edc6a4af5ecaf0402a14aeedf",
       "SKILLS/agentl-author/references/business-workflows.md": "4bde33ab10d7f68b5796909ad05731b6d49d4afb18e3eb6a5ddbf4541e056bc8",
       "SKILLS/agentl-author/references/cli.md": "05813bc0fd24a28c3bcffb06abb6d3661252f0f0e3e6a3a579630d7f1ff8f356",
       "SKILLS/agentl-author/references/composition.md": "161d8d91d096589c2d4102801c345470097764a059080267139f17329d3b5e36",
@@ -14,15 +14,15 @@
       "SKILLS/agentl-author/references/scenarios.md": "7fdafc4af5d92bfa96c2af5b714c600ffecdc87fbafdea471238d66d52cbecb8",
       "SKILLS/agentl-author/references/security-authoring.md": "dd8043dea432160b73645cfe4f79754df2c06be9e6f142a50561250f0016c74b",
       "SKILLS/agentl-author/references/visual-trace.md": "0f220164120f985a62724ebadb080a65532989e0dc9fcb9cb57516999c17226a",
-      "SKILLS/agentl-author/scripts/sync_grammar.py": "82a126a3ffc268fa2a5988c08030bfba192ce19e22035557d7781842300f8d79"
+      "SKILLS/agentl-author/scripts/sync_grammar.py": "5e944865e236c1b3599bf2a43316d75650ce3455e5570b688066f4aedf54852d"
     }
   },
   "canonical_examples": {
-    "canonical.agent": "779b4fa40c6c91a83f10ce34c72fe5363dd35b2258e823d37a4c8a1bb017c72b",
+    "canonical.agent": "b32c173221e6e315ed6036d8c88d4dd99e8333d00d26918d3165e26bb3ead861",
     "canonical.py": "0732da0962aaffd462dd12d095b00e42d18e4a07fb2ca74cf6ea2458e0f623ce"
   },
   "compatibility": {
-    "agentl_package_version": "1.12.0",
+    "agentl_package_version": "1.12.1",
     "ebnf_version": "1.12",
     "language_version": "1.12"
   },
@@ -38,13 +38,13 @@
   "schema_version": 1,
   "skill": "agentl-author",
   "validation_toolchain": {
-    "combined_sha256": "d5499a11d471719f796de82031936f19d6f7ba6dfa43780d62c3871b00f52635",
+    "combined_sha256": "3ceae6141730904f849645dec7ea50b64a1462a6b15780e1329c668a218e7f4e",
     "files": {
       "agentl/_boundary_project.py": "deda80a0447454411fe5fba4361c2e48b9b33890de0c8934279ae51dd60f650c",
       "agentl/_boundary_security.py": "26186a9381e465b68f702b9465c95d93d9043f04daee00497865d410ab3ee290",
       "agentl/_check_flow.py": "349e6603514654b08e108e8f897736875129013d08cc454303a34fdb871f402b",
       "agentl/analyzer.py": "2a34e8c60fbb936078d119b70754df9876781956600d08a09386c3f58049252d",
-      "agentl/autoloop.py": "0422f4d6abaf4f00e861511ee118e2e48f1578c23038c24dc206082357e6f97e",
+      "agentl/autoloop.py": "3b95aceb0bea70ddcda28a231e3aabbbba0b35fe0853b240e33b3834efe0aac0",
       "agentl/boundary.py": "11471e9646e3d2dd00a30fa580a757206e7c0cfc4bb17d570b7f475e5acb42d8",
       "agentl/cli.py": "4f81dd38a7dd83a672bd66928712ac5c3ef2942d119ac6f21e553f88c792550f",
       "agentl/durable.py": "0992479e246a905bf4cf407aef02db95662b6f954d4b067e20ad61320993ad2a",
