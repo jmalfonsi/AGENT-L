@@ -87,7 +87,8 @@ l'écho de la trace dans le terminal.
 
 Code de sortie 3 : appris par cœur (voir `autoloop.md`). La barrière
 « preuve » ne bloque plus sur un T5 indéterminé pour la seule raison `V128`
-(stimuli ou assertions de trace, v1.12) : ces scénarios sont renvoyés à la
+(stimuli, v1.12 ; depuis la 1.12.2 une assertion de trace n'en produit plus) :
+ces scénarios sont renvoyés à la
 barrière « scénarios », qui les exécute. Un `V122` ou un `V114` bloque
 toujours.
 

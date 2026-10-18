@@ -7,7 +7,7 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.12.1** —
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.12.2** —
 la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
 défendue par un scénario, une garde de provenance se teste par
 `GIVEN … UNTRUSTED`, un refus devient un fait (`tools.<outil>.denied`), et un
@@ -807,8 +807,10 @@ Les scénarios acceptent `GIVEN EVENT source { ... }`,
 `EXPECT NEVER CALL outil`, `EXPECT BLOCKED outil`, `EXPECT EVENT source`
 et `EXPECT NO ERROR`. W117/W118, une erreur dans GIVEN/EFFECT ou une trace
 ERROR rendent le scénario invalide, même si une attente est satisfaite.
-Une suite vide retourne 2 (dérogation : `--allow-empty`). T5 ne prouve pas
-les stimuli et assertions de trace : il les signale hors de son modèle (V128).
+Une suite vide retourne 2 (dérogation : `--allow-empty`). T5 ne modélise pas
+les stimuli (V128, indéterminé). `EXPECT NEVER CALL outil` retire l'outil de sa
+recherche (v1.12.2) : la route trouvée le respecte, et une attente que seul cet
+outil atteint est réfutée. La trace elle-même reste vérifiée par `agentl test`.
 Contrat complet et constats vérifiés : [suivi des audits](docs/audit-followup.md).
 
 ## Tenir sur d'autres données — `autoloop`
@@ -1687,6 +1689,7 @@ WEBSITE/                site de présentation
 | **v1.9.0** | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
 | **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
+| **v1.12.2** | **T5 : `EXPECT NEVER CALL` contraint la route au lieu de sortir le scénario du modèle ; un résumé qui distingue « hors modèle » (stimuli) et « non atteint à la profondeur »** |
 | **v1.12.1** | **autoloop : la réponse simulée d'un outil n'est plus effacée, et un monde dérivé qui atteint un outil sans réponse posée est « non jugé » au lieu d'une fausse erreur U1** |
 | **v1.12.0** | **la sûreté se teste : `agentl mutate`, `GIVEN … UNTRUSTED`, `scenario.refuse.<outil>`, `Refused` et faits de refus (`tools.<outil>.denied`/`unapproved`/`refused`), `VERIFY` en échec qui ne fige plus `DECIDE`/`EVENT`/`MESSAGE`, T2 sans escalade morte (`W138`)** |
 

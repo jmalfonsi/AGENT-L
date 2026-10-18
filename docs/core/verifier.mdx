@@ -31,7 +31,9 @@ Le rapport couvre notamment :
 | --- | --- |
 | démontré | la propriété tient dans le modèle analysé |
 | réfuté | un contre-exemple ou une exposition a été trouvé |
-| borné | l’exploration a atteint sa limite sans preuve complète |
+| borné | l’exploration a atteint sa limite sans preuve complète, ou une partie du programme est hors du modèle |
+
+Pour T5, le résumé dit lequel : « N hors modèle » (scénarios à stimuli, que T5 n’explore pas) ou « N non atteint(s) à la profondeur D » (augmenter `--depth` peut aider). `EXPECT NEVER CALL outil` ne sort pas un scénario du modèle : T5 cherche la route sans cet outil, et réfute une attente que seul l’outil interdit permettrait d’atteindre.
 
 Une branche sûre ne produit pas nécessairement une ligne de rapport. Le vérificateur cherche à rester silencieux sur les sites qu’il peut établir sans ambiguïté.
 

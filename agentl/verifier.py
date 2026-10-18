@@ -756,8 +756,9 @@ class Verifier:
 
         from .runtime import _render_expr
         refuted = 0
-        bounded = 0
-        from .scenario import initial_expectations
+        bounded = 0          # V122 : la profondeur a arrêté la recherche
+        out_of_model = 0     # V128 : stimuli, que T5 n'explore pas
+        from .scenario import initial_expectations, never_called
         for scenario in scenarios:
             initial = _as_conditions([(e.path, _literal_of(e.value))
                                       for e in scenario.given])
@@ -772,61 +773,102 @@ class Verifier:
                 theorem.findings.append(Finding("V127", "error",
                     f"{scenario.name} : GIVEN invalide", str(exc), scenario.line))
                 continue
-            if scenario.stimuli or scenario.assertions:
-                bounded += 1
+            if scenario.stimuli:
+                # Un stimulus injecte des faits en cours d'exécution, par un
+                # gestionnaire que T5 n'explore pas : sans lui la recherche
+                # pourrait réfuter une attente qu'il rend atteignable.
+                out_of_model += 1
                 theorem.findings.append(Finding("V128", "info",
-                    f"{scenario.name} : stimuli/assertions de trace hors du modèle T5",
-                    "exécuter agentl test ; T5 n'explore pas les gestionnaires ni la trace", scenario.line))
+                    f"{scenario.name} : stimuli hors du modèle T5",
+                    "exécuter agentl test ; T5 n'explore pas les gestionnaires "
+                    "d'EVENT ni de MESSAGE", scenario.line))
                 continue
+            # Une assertion de trace ne change pas l'état : seule `NEVER CALL`
+            # contraint la route — l'outil ne s'exécute jamais, ses EFFECT ne
+            # s'appliquent pas. Un outil que le GIVEN fait refuser non plus.
+            # `BLOCKED` n'exclut rien : une tentative bloquée n'empêche pas un
+            # appel approuvé ensuite. Le reste de la trace relève d'`agentl test`.
+            forbidden = never_called(scenario)
+            trace = ", ".join(f"{a.kind} {a.target}".strip()
+                              for a in scenario.assertions)
+            delegated = (f"assertions de trace ({trace}) vérifiées par "
+                         f"agentl test" if scenario.assertions else "")
+            without = (" sans " + ", ".join(sorted(forbidden))
+                       if forbidden else "")
             if invariants:
                 theorem.findings.append(Finding(
                     "V124", "info",
                     f"{scenario.name} : "
                     + " ∧ ".join(_render_expr(e) for e in invariants)
                     + " — invariant sous l'énoncé",
-                    "hors de portée de ce théorème : c'est `agentl test` qui "
-                    "vérifie qu'il tient à chaque tick", scenario.line))
+                    " ; ".join(filter(None, [
+                        "hors de portée de ce théorème : c'est `agentl test` "
+                        "qui vérifie qu'il tient à chaque tick", delegated])),
+                    scenario.line))
             if not eventualities:
+                if scenario.assertions and not invariants:
+                    theorem.findings.append(Finding(
+                        "V129", "info",
+                        f"{scenario.name} : trace seule, rien à atteindre",
+                        delegated, scenario.line))
                 continue
             route, exhausted = self._search_route(
-                set(), [], goals=eventualities, initial=initial)
+                set(forbidden), [], goals=eventualities, initial=initial)
             attentes = " ∧ ".join(_render_expr(e) for e in eventualities)
             if route is not None:
                 theorem.findings.append(Finding(
                     "V123", "info",
                     f"{scenario.name} : atteignable par "
-                    + (" → ".join(route) if route else "l'énoncé lui-même"),
-                    "" if route else
-                    "l'attente est déjà vraie sous GIVEN — elle ne teste "
-                    "rien de l'agent",
+                    + (" → ".join(route) if route else "l'énoncé lui-même")
+                    + without,
+                    " ; ".join(filter(None, [
+                        "" if route else
+                        "l'attente est déjà vraie sous GIVEN — elle ne teste "
+                        "rien de l'agent",
+                        delegated])),
                     scenario.line))
             elif exhausted:
                 # Espace d'états épuisé : l'inatteignabilité est démontrée.
                 refuted += 1
                 theorem.findings.append(Finding(
                     "V121", "error",
-                    f"{scenario.name} : attente inatteignable",
-                    f"aucune combinaison d'EFFECT permise n'entraîne "
-                    f"« {attentes} » — politique trop stricte, ou attente "
-                    f"fausse", scenario.line))
+                    f"{scenario.name} : attente inatteignable{without}",
+                    (f"aucune combinaison d'EFFECT permise n'entraîne "
+                     f"« {attentes} »{without} — le scénario se contredit "
+                     f"(il interdit le seul moyen d'atteindre son attente)"
+                     if forbidden and self._search_route(
+                         set(), [], goals=eventualities, initial=initial)[0]
+                     is not None else
+                     f"aucune combinaison d'EFFECT permise n'entraîne "
+                     f"« {attentes} »{without} — politique trop stricte, ou "
+                     f"attente fausse"), scenario.line))
             else:
                 bounded += 1
                 theorem.findings.append(Finding(
                     "V122", "warning",
                     f"{scenario.name} : attente non atteinte dans la borne de "
-                    f"{self.depth} opérateurs",
+                    f"{self.depth} opérateurs{without}",
                     "l'inatteignabilité n'est PAS prouvée — augmenter la "
                     "profondeur (--depth)", scenario.line))
 
         if refuted:
             theorem.holds = False
-        elif bounded:
+        elif bounded or out_of_model:
             theorem.holds = None
         else:
             theorem.holds = True
-        theorem.summary = (f"{len(scenarios) - refuted - bounded}/"
-                           f"{len(scenarios)} scénario(s) sans obstacle "
-                           f"(recherche bornée à {self.depth})")
+        # Deux indéterminations distinctes : « hors modèle » ne se résout pas
+        # en augmentant la profondeur, « non atteint » peut-être.
+        parts = [f"{len(scenarios) - refuted - bounded - out_of_model}/"
+                 f"{len(scenarios)} scénario(s) sans obstacle"]
+        if refuted:
+            parts.append(f"{refuted} réfuté(s)")
+        if out_of_model:
+            parts.append(f"{out_of_model} hors modèle (stimuli → agentl test)")
+        if bounded:
+            parts.append(f"{bounded} non atteint(s) à la profondeur "
+                         f"{self.depth}")
+        theorem.summary = " · ".join(parts)
         return theorem
 
     def _goals(self) -> List[Node]:

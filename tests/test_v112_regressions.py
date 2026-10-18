@@ -151,8 +151,23 @@ AGENT blocker {
 '''
 
 
-def test_a_trace_assertion_scenario_does_not_block_the_proof_gate():
+def test_a_never_call_scenario_is_proved_not_deferred():
+    # 1.12.2 : `NEVER CALL` ne sort plus le scénario du modèle de T5, il
+    # contraint la route. Rien n'est renvoyé : T5 l'a démontré lui-même.
     gates = {g.name: g for g in run_gates(parse_source(TRACE_ONLY))}
+    proof = gates["preuve"]
+    assert proof.passed and proof.detail == "", proof.detail
+    assert next(g for n, g in gates.items() if n.startswith("scénarios")).passed
+
+
+def test_a_stimulus_scenario_does_not_block_the_proof_gate():
+    program = parse_source(TRACE_ONLY.replace(
+        "  SCENARIO allowlisted_never_blocked {",
+        "  EVENT probe { THEN { alert() } }\n"
+        "  SCENARIO allowlisted_never_blocked {").replace(
+        "EXPECT NEVER CALL block_ip",
+        "GIVEN EVENT probe {}\n    EXPECT NEVER CALL block_ip"))
+    gates = {g.name: g for g in run_gates(program)}
     proof = gates["preuve"]
     assert proof.passed, proof.detail
     assert "allowlisted_never_blocked" in proof.detail
@@ -171,6 +186,79 @@ def test_a_bounded_t5_still_blocks_the_proof_gate():
               if t.key == "T5")
     assert t5.holds is None and [f.code for f in t5.findings] == ["V122"]
     assert not _only_out_of_model(t5)
+    assert "non atteint(s) à la profondeur 0" in t5.summary
+    assert "hors modèle" not in t5.summary
+
+
+# ============================ T5 : NEVER CALL contraint la route (1.12.2)
+def _t5(scenarios: str, extra: str = ""):
+    agent = parse_source('''
+AGENT t5 {
+  VERSION "1.12"
+  TOOL block_ip { RISK LOW EFFECT { ip.blocked = yes  alert.sent = yes } }
+  TOOL notify { RISK LOW EFFECT { alert.sent = yes } }
+  TOOL validate { RISK LOW EFFECT { ip.valid = yes } }
+  POLICY { DEFAULT ALLOW }
+''' + extra + scenarios + "\n}").agents[0]
+    return next(t for t in verify(agent).theorems if t.key == "T5")
+
+
+def test_t5_searches_the_route_without_the_never_called_tool():
+    # Avant : V128, « borné ». Ignorer l'assertion aurait été pire : la route
+    # trouvée passait par block_ip — un témoin que le scénario interdit.
+    t5 = _t5('''SCENARIO s { GIVEN { ip.blocked = no }
+      EXPECT NEVER CALL block_ip  EXPECT { alert.sent == yes } }''')
+    assert t5.holds is True, t5.summary
+    [found] = t5.findings
+    assert found.code == "V123"
+    assert found.title == "s : atteignable par notify sans block_ip"
+    assert "NEVER CALL block_ip" in found.detail and "agentl test" in found.detail
+    assert t5.summary == "1/1 scénario(s) sans obstacle"
+
+
+def test_t5_refutes_a_scenario_that_forbids_its_only_route():
+    t5 = _t5('''SCENARIO s { GIVEN { ip.blocked = no }
+      EXPECT NEVER CALL block_ip  EXPECT { ip.blocked == yes } }''')
+    assert t5.holds is False
+    [refuted] = t5.findings
+    assert refuted.code == "V121" and refuted.severity == "error"
+    assert "se contredit" in refuted.detail
+    assert "1 réfuté(s)" in t5.summary
+
+
+def test_t5_does_not_exclude_a_tool_that_is_only_expected_blocked():
+    # Une tentative bloquée n'empêche pas un appel approuvé ensuite :
+    # exclure block_ip ici réfuterait à tort.
+    t5 = _t5('''SCENARIO s { GIVEN { ip.blocked = no }
+      EXPECT BLOCKED block_ip  EXPECT { ip.blocked == yes } }''')
+    assert t5.holds is True
+    assert t5.findings[0].title == "s : atteignable par block_ip"
+
+
+def test_t5_excludes_a_tool_the_given_makes_refuse():
+    t5 = _t5('''SCENARIO s { GIVEN { scenario.refuse.validate = yes }
+      EXPECT { ip.valid == yes } }''')
+    assert t5.holds is False and t5.findings[0].code == "V121"
+    t5 = _t5('''SCENARIO s { GIVEN { scenario.refuse.validate = no }
+      EXPECT { ip.valid == yes } }''')
+    assert t5.holds is True
+
+
+def test_t5_trace_only_scenario_has_nothing_to_reach():
+    t5 = _t5("SCENARIO s { EXPECT NEVER CALL block_ip }")
+    assert t5.holds is True
+    assert [f.code for f in t5.findings] == ["V129"]
+
+
+def test_t5_stimuli_stay_out_of_the_model_without_blaming_depth():
+    t5 = _t5('''SCENARIO s { GIVEN EVENT alarm {}
+      EXPECT { alert.sent == yes } }''',
+             extra="EVENT alarm { THEN { notify() } }\n")
+    assert t5.holds is None
+    assert [f.code for f in t5.findings] == ["V128"]
+    assert t5.summary == ("0/1 scénario(s) sans obstacle · 1 hors modèle "
+                          "(stimuli → agentl test)")
+    assert "profondeur" not in t5.summary
 
 
 # ================================================ T2 : escalade réellement vive

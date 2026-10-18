@@ -23,8 +23,9 @@ python3 -m agentl autoloop examples/xxx.agent --host-pass
    La barrière « preuve » exige chaque théorème **démontré** : un `◐ BORNÉ`
    (`V122`, `V113`) ou un abandon du solveur (`V114`) la bloque. Seule
    exception (v1.12) : un T5 indéterminé pour la seule raison `V128` — un
-   scénario à stimuli ou à assertions de trace (`EXPECT NEVER CALL`,
-   `EXPECT BLOCKED`, `GIVEN EVENT`), que T5 ne modélise pas. Ces scénarios ne
+   scénario à stimuli (`GIVEN EVENT`, `GIVEN MESSAGE`), que T5 ne modélise
+   pas. Depuis la 1.12.2, `EXPECT NEVER CALL` et `EXPECT BLOCKED` n'en
+   produisent plus : T5 les prend en compte lui-même. Ces scénarios ne
    sont pas une preuve manquante : la barrière « scénarios » les exécute, et le
    détail de la barrière « preuve » les nomme. Avant la v1.12, l'idiome même
    que `security-authoring.md` prescrit pour une garde de provenance rendait

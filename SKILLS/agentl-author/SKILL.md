@@ -192,8 +192,9 @@ invariants, stimuli EVENT/MESSAGE, assertions de trace et exemple exécutable.
   un validateur qui refuse, `scenario.refuse.<validateur> = yes` (v1.12).
 
 TEST porte sur le modèle déclaré, pas sur l'hôte réel. T5 ne prouve ni les
-invariants ni les stimuli/assertions de trace ; V128 doit rester présenté
-comme indéterminé.
+invariants, ni les stimuli, ni la trace elle-même ; `EXPECT NEVER CALL`
+contraint sa route (v1.12.2). V128 (stimuli) doit rester présenté comme
+indéterminé.
 
 ## Les portes de qualité, non négociables
 

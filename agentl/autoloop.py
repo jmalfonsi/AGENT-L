@@ -628,8 +628,8 @@ def _only_out_of_model(theorem: Any) -> bool:
     """T5 non démontré pour la seule raison que T5 ne modélise pas la trace.
 
     Un `V128` n'est pas une recherche tronquée : le scénario porte des stimuli
-    ou des assertions de trace que T5 n'explore pas, et `agentl test` les
-    exécute. Tout autre motif — borne atteinte (`V122`), abandon du solveur
+    que T5 n'explore pas, et `agentl test` les exécute. (Depuis la 1.12.2 une
+    assertion de trace n'en produit plus : `NEVER CALL` contraint la route.) Tout autre motif — borne atteinte (`V122`), abandon du solveur
     (`V114`), énoncé invalide — reste bloquant.
     """
     if theorem.key != "T5" or theorem.holds is not None:
@@ -669,11 +669,10 @@ def run_gates(program: Program, *, filename: Optional[str] = None,
             refuted.append(f"{theorem.key} {theorem.title} — {theorem.summary}")
     detail = "; ".join(refuted[:5])
     if deferred and not refuted:
-        # T5 ne modélise ni les stimuli ni les assertions de trace (V128) :
-        # ces scénarios-là ne sont pas une preuve manquante, ils relèvent de
-        # la barrière suivante, qui les **exécute**. Les compter ici rendait
-        # autoloop impossible à franchir avec `EXPECT NEVER CALL` — l'idiome
-        # même que le SKILL prescrit pour éprouver une garde de provenance.
+        # T5 ne modélise pas les stimuli (V128) : ces scénarios-là ne sont pas
+        # une preuve manquante, ils relèvent de la barrière suivante, qui les
+        # **exécute**. (En 1.12.0, `EXPECT NEVER CALL` passait aussi par ici ;
+        # depuis la 1.12.2 T5 le démontre lui-même.)
         detail = (f"T5 : {len(deferred)} scénario(s) hors du modèle renvoyé(s)"
                   f" à la barrière « scénarios » ({', '.join(deferred[:5])})")
     gates.append(Gate("preuve", not refuted, detail))

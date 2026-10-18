@@ -4,6 +4,40 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.12.2] — non publié · T5 tient compte de `NEVER CALL` au lieu de le fuir
+
+Un agent auteur l'a relevé sur `ssh_sentinel.agent` : T5 restait « ◐ BORNÉ ·
+1/9 scénario(s) sans obstacle (recherche bornée à 64) » alors que la
+profondeur n'y était pour rien. Huit scénarios portaient `EXPECT NEVER CALL
+block_ip` — l'idiome que le SKILL prescrit — et T5 sortait du modèle **tout**
+scénario à assertion de trace (`V128`), sans même chercher son attente d'état.
+
+- **`NEVER CALL` contraint la route.** Une assertion de trace ne change pas
+  l'état ; `EXPECT NEVER CALL outil` garantit seulement qu'aucun `EFFECT` de
+  l'outil ne s'applique. T5 cherche donc la route sans lui (`V123 … sans
+  block_ip`). Simplement ignorer l'assertion aurait été faux : sur
+  `ssh_sentinel`, trois routes passaient alors par `block_ip`, l'outil même
+  que le scénario interdit. Un outil que le `GIVEN` fait refuser
+  (`scenario.refuse.outil = yes`) est exclu de même. `EXPECT BLOCKED` n'exclut
+  rien : une tentative bloquée n'empêche pas un appel approuvé ensuite.
+- **Un scénario qui se contredit est réfuté.** Une attente que seul l'outil
+  interdit permet d'atteindre donne `V121` (« le scénario se contredit »).
+  La réfutation reste sûre : une exécution qui respecte l'assertion n'emploie
+  que les autres outils.
+- **`V129`** (info) : scénario de trace seule, rien à atteindre, renvoyé à
+  `agentl test` — comme un invariant (`V124`).
+- **Seuls les stimuli restent hors du modèle** (`V128`, verdict indéterminé).
+- **Le résumé distingue les deux indéterminations** : « N hors modèle (stimuli
+  → agentl test) » et « N non atteint(s) à la profondeur D ». La profondeur
+  n'est plus citée quand elle n'a rien arrêté.
+
+Effet mesuré sur les 37 agents à scénarios du dépôt et `ssh_sentinel` : aucun
+ne bascule en réfuté ; `mention_triage` et `ssh_sentinel` passent de ◐ BORNÉ
+à ✔ DÉMONTRÉ ; les autres ne changent que de libellé. `--require-proved`
+devient satisfiable pour l'idiome `NEVER CALL` sans maquiller le verdict.
+
+Contrat d'auteur 2.14.3. Aucune grammaire ne change.
+
 ## [1.12.1] — non publié · autoloop n'accuse plus son propre générateur
 
 `autoloop` signalait des erreurs `U1` du type « OUTPUT de notify_operator non

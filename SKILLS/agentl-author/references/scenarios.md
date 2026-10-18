@@ -170,10 +170,16 @@ l'état, `EXPECT` devient le but, la politique s'applique.
 | `V122` | « ◐ BORNÉ » : la profondeur a arrêté la recherche, rien n'est prouvé (augmenter `--depth`) |
 | `V124` | invariant : hors de portée de T5, renvoyé entièrement à `agentl test` |
 | `V127` | `GIVEN` invalide : l'énoncé ne se laisse pas poser (erreur) |
-| `V128` | stimuli ou assertions de trace : T5 ne les modélise pas, verdict **indéterminé** |
+| `V128` | stimuli (`GIVEN EVENT`, `GIVEN MESSAGE`) : T5 n'explore pas les gestionnaires, verdict **indéterminé** |
+| `V129` | trace seule (ex. `EXPECT NEVER CALL` sans attente d'état) : rien à atteindre, renvoyé à `agentl test` |
 
-Ne jamais présenter `V122` ou `V128` comme un succès. T5 ne prouve ni les
-invariants, ni les stimuli, ni les assertions de trace.
+Ne jamais présenter `V122` ou `V128` comme un succès. Depuis la 1.12.2, une
+assertion de trace ne sort plus le scénario du modèle : `EXPECT NEVER CALL
+outil` retire l'outil de la recherche, comme `scenario.refuse.outil = yes`. La
+route trouvée (`V123 … sans outil`) respecte donc le scénario, et une attente
+que seul cet outil atteint est réfutée (`V121`, « le scénario se contredit »).
+`EXPECT BLOCKED` n'exclut rien. T5 ne prouve toujours ni les invariants, ni
+les stimuli, ni la trace elle-même : c'est `agentl test` qui l'exécute.
 
 ## 7. Le test de mutation — ce qui fait d'un scénario un test
 

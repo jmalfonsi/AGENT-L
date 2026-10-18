@@ -267,8 +267,11 @@ préalable au site. W117/W118 restent des avertissements CHECK mais bloquent TES
   d'`EFFECT` permise n'entraîne l'attente — politique trop stricte ou attente
   fausse ; `V122` (avert.) « ◐ BORNÉ », la profondeur a arrêté la recherche ;
   `V124` (info) invariant, hors de portée du théorème → renvoyé à `agentl test` ;
-  V127 signale un GIVEN invalide ; V128 rend les stimuli et assertions de trace
-  explicitement hors du modèle de T5 (verdict indéterminé).
+  V127 signale un GIVEN invalide ; V128 rend les stimuli explicitement hors du
+  modèle de T5 (verdict indéterminé). `EXPECT NEVER CALL outil` et
+  `scenario.refuse.outil = yes` retirent l'outil de la recherche (v1.12.2) ;
+  `V129` (info) : scénario de trace seule, rien à atteindre, renvoyé à
+  `agentl test`.
 
 **Portée des verdicts** : le solveur symbolique ne déclare une condition
 insatisfiable que sur démonstration dans son modèle. Cette propriété ne fait

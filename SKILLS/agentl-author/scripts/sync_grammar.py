@@ -102,7 +102,12 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # posée est « non jugé ». Aucune surface d'auteur ne change : patch.
 # 2.14.2 : même chantier — les directives `scenario.outcome.X` et
 # `scenario.refuse.X` sont exemptées de la dérivation, elles aussi : patch.
-AUTHORING_CONTRACT_VERSION = "2.14.2"
+# 2.14.3 : v1.12.2 — T5 ne sort plus du modèle un scénario à assertions de
+# trace : `NEVER CALL` (et `scenario.refuse.X = yes`) retire l'outil de la
+# recherche, `V129` nomme le scénario de trace seule, le résumé distingue
+# « hors modèle » et « non atteint à la profondeur ». Des T5 « bornés »
+# deviennent démontrés, ou réfutés quand le scénario se contredit : patch.
+AUTHORING_CONTRACT_VERSION = "2.14.3"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

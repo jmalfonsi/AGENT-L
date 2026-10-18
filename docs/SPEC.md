@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.12.1)
+# AGENT-L — sémantique de référence (v1.12.2)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -1146,6 +1146,9 @@ sélection de plan et l'on signale ceux de risque `HIGH` ou plus dont la règle
 | `V122` | avert. | T5 — attente non atteinte dans la borne de profondeur (§27) |
 | `V123` | info | T5 — scénario atteignable, avec sa route |
 | `V124` | info | T5 — attente déjà vraie sous l'énoncé : invariant, renvoyé à `agentl test` (§27) |
+| `V127` | erreur | T5 — `GIVEN` invalide : l'énoncé ne se laisse pas poser |
+| `V128` | info | T5 — scénario à stimuli (`GIVEN EVENT`/`MESSAGE`) : hors du modèle, verdict indéterminé (§41) |
+| `V129` | info | T5 — scénario de trace seule : rien à atteindre, renvoyé à `agentl test` (§41) |
 | `V125` | info | T6 — garantie de provenance statique satisfaite (§25) |
 | `V126` | info | T7 — garantie de terminaison statique satisfaite |
 | `V130-137` | — | T8, vivacité de la société — table détaillée sous « T8 » plus bas dans ce §21 |
@@ -1619,6 +1622,14 @@ de sûreté : il ne réfute qu'espace d'états épuisé, et rend « ◐ BORNÉ �
 Un invariant, lui, est **hors de portée** de T5 : chercher quelle action rend
 vrai que l'isolement n'a pas eu lieu n'a pas de sens. Il est signalé (`V124`)
 et renvoyé à `agentl test`, qui vérifie qu'il tient à chaque tick.
+
+Une assertion de trace ne change pas l'état ; une seule contraint la route.
+`EXPECT NEVER CALL outil` garantit qu'aucun `EFFECT` de l'outil ne s'applique :
+T5 cherche la route sans lui (v1.12.2), de même pour un outil que le `GIVEN`
+fait refuser (`scenario.refuse.outil = yes`). La réfutation reste sûre — une
+exécution qui respecte l'assertion n'emploie que les autres outils. Un
+stimulus, lui, injecte des faits par un gestionnaire que T5 n'explore pas : le
+scénario est hors du modèle (`V128`), verdict indéterminé.
 
 ### Le test de mutation
 
@@ -2170,8 +2181,8 @@ scénario rouge. Une suite vide retourne 2, sauf `--allow-empty` explicite.
 injectent les stimuli au début. EXPECT accepte un bloc d'expressions ou
 `CALL outil`, `NEVER CALL outil`, `BLOCKED outil`, `EVENT source`, `NO ERROR`.
 Ce test reste celui d'un runtime isolé, sans transport inter-agents réel.
-T5 ne prouve pas ces nouveaux stimuli/assertions (`V128`, indéterminé) et
-signale les GIVEN invalides (`V127`).
+T5 ne modélise pas les stimuli (`V128`, indéterminé) ; `NEVER CALL` contraint
+sa route (v1.12.2, §41). Il signale les GIVEN invalides (`V127`).
 
 Les détails, reproductions, adaptations des exemples et limites sont décrits
 dans [audit-followup.md](audit-followup.md). La grammaire EBNF fait foi pour
@@ -2575,6 +2586,20 @@ scénario quand on la retire.
 outil (`outil.champ` dans le `GIVEN`) n'est jamais dérivée ; un monde dérivé
 qui atteint un outil sans réponse posée est « non jugé », hors du score, et ses
 `U1`/`U2` induits sont écartés — `U3`, `U4` et les invariants restent jugés.
+
+**T5 compte les assertions de trace au lieu de les fuir (1.12.2).** Un
+scénario qui portait `EXPECT NEVER CALL` ou `EXPECT BLOCKED` sortait en
+entier du modèle (`V128`) : T5 restait « ◐ BORNÉ » pour tout agent qui suit
+l'idiome prescrit, et `--require-proved` était insatisfiable. Ignorer
+l'assertion aurait été pire : la route trouvée passait par l'outil même que le
+scénario interdit. Désormais `NEVER CALL outil` (et `scenario.refuse.outil =
+yes`) retire l'outil de la recherche ; `BLOCKED` n'exclut rien, une tentative
+bloquée n'empêchant pas un appel approuvé ensuite. Une attente que seul
+l'outil interdit atteint est réfutée (`V121`, « le scénario se contredit »).
+Un scénario de trace seule n'a rien à atteindre (`V129`). Seuls les stimuli
+restent hors du modèle (`V128`), et le résumé distingue « N hors modèle » de
+« N non atteint(s) à la profondeur D » — la profondeur n'est citée que si elle
+a arrêté la recherche.
 
 **T2 ne crédite que des escalades qui partent.** `planner.exhausted` compte
 sous un `PLANNER` activé (sinon `W138`) ; une règle `DECIDE` ou une garde

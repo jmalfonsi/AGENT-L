@@ -76,6 +76,30 @@ def _is_yes(value: Any) -> bool:
 REFUSE_PREFIX = "scenario.refuse."
 
 
+def never_called(scenario: Scenario) -> frozenset:
+    """Outils dont aucun EFFECT ne peut s'appliquer dans ce scénario (v1.12.2).
+
+    `EXPECT NEVER CALL outil` : l'outil ne s'exécute jamais.
+    `GIVEN { scenario.refuse.outil = yes }` : chaque appel lève `Refused`.
+    T5 cherche la route sans eux — sinon il exhiberait pour témoin une route
+    que le scénario lui-même interdit. `EXPECT BLOCKED` n'en fait pas partie :
+    une tentative bloquée n'empêche pas un appel approuvé ensuite.
+    """
+    from .nodes import Literal, PathExpr
+    tools = {a.target for a in scenario.assertions if a.kind == "NEVER CALL"}
+    for effect in scenario.given:
+        if not effect.path.startswith(REFUSE_PREFIX):
+            continue
+        value = effect.value
+        if isinstance(value, PathExpr) and len(value.parts) == 1:
+            value = Symbol(value.parts[0])
+        elif isinstance(value, Literal):
+            value = value.value
+        if _is_yes(value):
+            tools.add(effect.path[len(REFUSE_PREFIX):])
+    return frozenset(tools)
+
+
 def untrusted_paths(scenario: Scenario) -> frozenset:
     """Chemins que le `GIVEN` déclare écrits par un tiers (`UNTRUSTED`)."""
     return frozenset(e.path for e in scenario.given if e.untrusted)
