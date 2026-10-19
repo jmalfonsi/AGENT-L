@@ -137,6 +137,7 @@ class Runtime:
         #: `nom d'outil → (échecs consécutifs, tick du dernier échec)`.
         self._tool_failures: Dict[str, tuple] = {}
         self.state = State()
+        self.state.secret_paths = tuple(red.path for red in agent.redactions)
         #: Seule autorité capable d'appeler l'hôte. Le moteur de politiques
         #: est le sien : le runtime le partage (planificateur, affichage) mais
         #: ne décide plus avec.
@@ -188,7 +189,13 @@ class Runtime:
     # ---------------------------------------------------- provenance (v1.9)
     def _pc(self) -> Prov:
         """Étiquette du contexte de contrôle courant."""
-        return P.join(*self._control) if self._control else P.NONE
+        if not self._control:
+            return P.NONE
+        label = P.join(*self._control)
+        # Un `NEVER SEND` suit les flux explicites. Lire un secret dans une
+        # garde (`IF api.key != unknown`) ne rend pas secret ce que la branche
+        # écrit : le modèle serait privé de tout le plan pour un test de présence.
+        return Prov(label.sources - {P.SECRET}) if label.secret else label
 
     @contextmanager
     def _under(self, label: Prov):
@@ -1788,8 +1795,7 @@ class Runtime:
             # sur des faits datés a besoin de savoir quand. Ni outils ni
             # plans : `REASON` produit des valeurs, il ne choisit pas d'action.
             return {"tick": self.state.tick,
-                    "focus": {name: str(self._sendable(name,
-                                                       self.state.get(name)))
+                    "focus": {name: str(self._sendable_state(name))
                               for name in using}}
         ctx: Dict[str, Any] = {
             "tick": self.state.tick,
@@ -1797,7 +1803,9 @@ class Runtime:
                 "mode": g.mode,
                 "score": self.state.world.get(f"goals.{g.name}.score"),
             } for g in self.agent.goals},
-            "beliefs": {k: {"value": str(self._sendable(k, v.value)),
+            "beliefs": {k: {"value": str(self._sendable(
+                                k, v.value,
+                                self.state.label_at(label_key("B", k)))),
                             "confidence": v.confidence, "source": v.source}
                         for k, v in self.state.beliefs.items()},
             "tools": {t.name: {"risk": t.risk, "inputs": t.inputs}
@@ -1839,7 +1847,15 @@ class Runtime:
         return any(red.path.startswith(path + ".")
                    for red in self.agent.redactions)
 
-    def _sendable(self, path: str, value: Any) -> Any:
+    def _sendable_state(self, path: str) -> Any:
+        """Valeur d'un chemin de l'état, prête à partir (avec son étiquette)."""
+        value, label = self.state.get_labeled(path)
+        if value is UNDEFINED:
+            return self._sendable(path, value)
+        return self._sendable(path, value, label)
+
+    def _sendable(self, path: str, value: Any,
+                  label: Optional[Prov] = None) -> Any:
         """Rend la valeur telle qu'elle peut partir vers le fournisseur.
 
         Trois cas. Le chemin est lui-même interdit : rien ne part. Un
@@ -1854,6 +1870,11 @@ class Runtime:
         """
         if self._redacted(path):
             self._log_redaction(path)
+            return self.REDACTED
+        if label is not None and label.secret and not self._covers_below(path):
+            # Copie ou calcul d'une valeur lue sur un chemin protégé : le
+            # chemin n'est plus le sien, l'origine l'est (v1.12.3).
+            self._log_redaction(path, derived=True)
             return self.REDACTED
         if self._covers_below(path):
             return self._redact_within(path, value)
@@ -1883,10 +1904,13 @@ class Runtime:
         self._log_redaction(path, whole=True)
         return self.REDACTED
 
-    def _log_redaction(self, path: str, whole: bool = False) -> None:
+    def _log_redaction(self, path: str, whole: bool = False,
+                       derived: bool = False) -> None:
         self.metrics["redactions"] += 1
         self.trace.log(self.state.tick, "BLOCKED",
                        f"{path} retenu — NEVER SEND",
+                       "valeur dérivée d'un chemin protégé : retenue par son "
+                       "origine, pas par son nom" if derived else
                        "la valeur n'atteint pas le fournisseur de modèle"
                        if not whole else
                        "valeur non parcourable dont un descendant est "

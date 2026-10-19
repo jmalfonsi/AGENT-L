@@ -20,6 +20,7 @@ from .nodes import BinOp, CallExpr, ListExpr, Literal, Node, PathExpr, UnOp
 _DECLARED = Prov({_prov.DECLARED})
 _RUNTIME = Prov({_prov.RUNTIME})
 _SHARED = Prov({_prov.SHARED})
+_SECRET = Prov({_prov.SECRET})
 
 
 def label_key(store: str, key: str) -> str:
@@ -47,6 +48,14 @@ class State:
         self.labels: Dict[str, Prov] = {}
         #: Attestations : empreinte d'une valeur → outils qui l'ont acceptée.
         self.attestations: Dict[str, Set[str]] = {}
+        #: Chemins que `NEVER SEND` retient (posés par le runtime). Toute
+        #: lecture d'un de ces chemins — ou de leur parent composite — porte
+        #: l'origine SECRET, que les copies héritent par l'union.
+        self.secret_paths = ()
+
+    #: Défaut de classe : les vues d'état (action, scénario, planificateur)
+    #: ne passent pas par `__init__`.
+    secret_paths: Tuple[str, ...] = ()
 
     # ------------------------------------------------------------------ accès
     def get(self, path: str) -> Any:
@@ -62,9 +71,12 @@ class State:
         value, where = self._resolve(path)
         if value is UNDEFINED:
             return UNDEFINED, UNKNOWN_LABEL
-        if isinstance(where, Prov):
-            return value, where
-        return value, self.label_at(where)
+        label = where if isinstance(where, Prov) else self.label_at(where)
+        if self.secret_paths and any(
+                path == p or path.startswith(p + ".") or p.startswith(path + ".")
+                for p in self.secret_paths):
+            label = label | _SECRET
+        return value, label
 
     def label_at(self, key: str) -> Prov:
         overlay = getattr(self, "_label_overlay", None)

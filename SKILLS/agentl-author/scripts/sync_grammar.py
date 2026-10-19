@@ -107,7 +107,12 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # recherche, `V129` nomme le scénario de trace seule, le résumé distingue
 # « hors modèle » et « non atteint à la profondeur ». Des T5 « bornés »
 # deviennent démontrés, ou réfutés quand le scénario se contredit : patch.
-AUTHORING_CONTRACT_VERSION = "2.14.3"
+# 2.14.4 : v1.12.3 — `W139` (garde de politique sur une confiance que rien ne
+# produit) à nommer dans le glossaire ; `durable status|export` accepte
+# `--sign-key` ; `NEVER SEND` retient désormais une valeur *copiée* d'un chemin
+# protégé (origine `SECRET`). Surface d'auteur élargie d'un code et d'une
+# option : patch, comme la 2.14.0 l'a été pour ses ajouts.
+AUTHORING_CONTRACT_VERSION = "2.14.4"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

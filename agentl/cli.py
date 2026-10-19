@@ -12,7 +12,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .analyzer import Analyzer
 from .core import AgentLError
@@ -820,7 +820,10 @@ def main(argv=None) -> int:
                                 "privée Ed25519 (PEM), chemin d'un fichier de "
                                 "secret, ou secret littéral. À défaut, la "
                                 "variable AGENTL_JOURNAL_KEY est utilisée. Le "
-                                "journal est chaîné dans tous les cas.")
+                                "journal est chaîné dans tous les cas. Avec "
+                                "--durable (jamais depuis l'environnement) : "
+                                "clé HMAC de la chaîne du journal durable, "
+                                "exigée ensuite pour le reprendre.")
             p.add_argument("--durable", metavar="RÉPERTOIRE", default=None,
                            help="exécution durable : intention journalisée et "
                                 "synchronisée avant chaque action. Relancer la "
@@ -889,6 +892,9 @@ def main(argv=None) -> int:
     dur.add_argument("directory", help="répertoire passé à `run --durable`")
     dur.add_argument("-o", "--out", metavar="FICHIER", default=None,
                      help="export : journal de rejeu standard (JSON)")
+    dur.add_argument("--sign-key", metavar="CLÉ", default=None,
+                     help="clé du journal à clé (la même que `run --durable "
+                          "--sign-key`)")
 
     # `seal` inspecte un journal sans le rejouer : c'est le geste de
     # l'auditeur qui veut d'abord savoir si la pièce est authentique.
@@ -1210,6 +1216,7 @@ def _run_durable(program, host, llm, args) -> int:
     """
     from .durable import DurableError, DurableRun, FileStore
     from .replay import ReplayDivergence
+    from .seal import SealError
 
     if getattr(args, "record", None):
         print("✗ --durable et --record sont exclusifs : le journal durable "
@@ -1220,8 +1227,9 @@ def _run_durable(program, host, llm, args) -> int:
         source = Path(args.file).read_text(encoding="utf-8")
         run = DurableRun(program.agents, host, llm, store=store,
                          run_id=args.run_id, echo=not args.quiet,
-                         source=(str(args.file), source))
-    except DurableError as exc:
+                         source=(str(args.file), source),
+                         key=_durable_key(args))
+    except (DurableError, SealError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
     if run.resumed:
@@ -1260,10 +1268,24 @@ _RESOLUTION_LABEL = {
 }
 
 
+def _durable_key(args) -> Optional[bytes]:
+    """Clé HMAC du journal durable : explicite, jamais tirée de l'environnement.
+
+    `AGENTL_JOURNAL_KEY` sert aux journaux de rejeu ; l'appliquer ici
+    rendrait illisible, sans avertissement, un journal durable existant.
+    """
+    spec = getattr(args, "sign_key", None)
+    if not spec:
+        return None
+    from .seal import load_signing_key
+    return load_signing_key(spec).material
+
+
 def run_durable_admin(args) -> int:
     """`agentl durable status|export RÉPERTOIRE`."""
     from .durable import DurableError, DurableJournal, FileStore
     from .replay import Journal, decode
+    from .seal import SealError
 
     directory = Path(args.directory)
     if not (directory / FileStore.WAL).exists():
@@ -1271,8 +1293,8 @@ def run_durable_admin(args) -> int:
         return 2
     store = FileStore(directory)
     try:
-        journal = DurableJournal.open(store)
-    except DurableError as exc:
+        journal = DurableJournal.open(store, _durable_key(args), repair=False)
+    except (DurableError, SealError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
     meta = journal.meta

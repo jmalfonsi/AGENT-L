@@ -4,6 +4,41 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.12.3] — non publié · fuites fermées : la valeur, pas son nom
+
+Audit du 2026-10-19 sur 1.12.2 : trois écarts entre ce que le runtime promet
+et ce qu'il garantissait, reproduits puis refermés, et la CI de nouveau verte.
+
+- **`NEVER SEND` suit la valeur.** `SET note = api.secret` puis
+  `USING { note }` envoyait le secret au fournisseur, sans diagnostic : le
+  filtre comparait des noms de chemin. Toute lecture d'un chemin retenu porte
+  maintenant l'origine `SECRET` (SPEC §35), héritée par les copies et calculs ;
+  le filtre retient toute valeur qui la porte (`REASON` comme `JUDGE`). Un test
+  de présence dans une garde ne rend pas secret ce que la branche écrit : les
+  flux implicites restent hors de portée, dit en toutes lettres.
+- **Journal durable : une approbation de queue ne vaut rien, et la chaîne peut
+  avoir une clé.** Un refus changé en accord en dernière ligne du journal,
+  chaîne recalculée (SHA-256 sans clé), faisait exécuter l'action à la reprise
+  sans reconsulter l'humain. Une réponse d'approbateur qui *termine* le journal
+  est maintenant retirée à l'ouverture et redemandée ; `durable status|export`
+  restent en lecture seule. `--sign-key` (`key=` en Python) passe la chaîne en
+  HMAC-SHA256 : réécriture impossible sans la clé, clé exigée à la reprise,
+  clé fournie à un journal sans clé refusée (rétrogradation). Elle ne vient
+  jamais de l'environnement.
+- **`W139`** : une garde de politique sur `action.confidence` / `confidence`
+  alors qu'aucun `REASON` ne produit `confidence` est toujours vraie (une
+  décision non notée vaut 1.0) ; un `NEVER` correspondant ne part jamais.
+  *Correction d'un constat de l'audit* : l'audit décrivait une confiance
+  *périmée* qui ouvrirait une action ; vérifié, une valeur périmée ne peut
+  qu'égaler ou abaisser le défaut de 1.0, et l'effacer aurait rendu des actions
+  plus permissives. La locale n'est donc pas modifiée.
+- **CI** : TLC épinglé sur la `v1.7.4` stable (la `v1.8.0`, pré-release, avait
+  été republiée en amont le 2026-10-15), empreinte recalculée ; le détecteur
+  de mutants accepte la formule de violation de TLC 1.7 (sans nom de
+  propriété). Modèle vérifié, 5 mutants sur 5 attrapés.
+
+Contrat d'auteur 2.14.4. Aucune grammaire ne change.
+
 ## [1.12.2] — non publié · T5 tient compte de `NEVER CALL` au lieu de le fuir
 
 Un agent auteur l'a relevé sur `ssh_sentinel.agent` : T5 restait « ◐ BORNÉ ·

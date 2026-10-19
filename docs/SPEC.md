@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.12.2)
+# AGENT-L — sémantique de référence (v1.12.3)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2074,6 +2074,7 @@ permis — il est parfois le bon choix — mais il ne doit pas être silencieux.
 | `W135` | avertissement | garde de déclenchement (`WHEN`, `IF`, `DECIDE`) comparant `!=` un chemin que rien ne renseigne |
 | `W136` | avertissement | champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW` ni garde sur `judge.<champ>.p` (§39) |
 | `W137` | avertissement | garde comparant deux identifiants nus que le programme renseigne tous deux : le runtime lit l'état avant le symbole, le solveur de `verify` aussi depuis la 1.11 (§40) |
+| `W139` | avertissement | garde de politique sur `action.confidence` / `confidence` alors qu'aucun `REASON` ne produit `confidence` : la confiance d'une décision non notée vaut 1.0, la garde ne borne rien (v1.12.3, §36) |
 
 ### L'oracle en panne mène au `DEFAULT` explicite, sinon à `UNDEFINED`
 
@@ -2147,6 +2148,16 @@ dans la direction de la sûreté, mais le `REASON` raisonnera sur un trou dont
 son auteur se croit protégé. Il signale aussi **le sens inverse** — un `USING`
 qui nomme le parent d'un chemin retenu — et invite alors à nommer ce qui doit
 sortir plutôt que le nœud au-dessus du secret.
+
+**Par origine, et non par nom (v1.12.3).** Jusqu'en 1.12.2 le filtre ne
+comparait que des noms de chemin : `SET note = api.secret` puis
+`USING { note }` envoyait le secret, sans diagnostic. Toute lecture d'un chemin
+retenu (ou de son parent composite) porte maintenant l'origine `SECRET` (§35),
+que les copies et calculs héritent par l'union ; le filtre de sortie retient
+toute valeur qui la porte, sous son nouveau nom, et le dit en trace. Un test de
+présence dans une garde (`IF api.key != unknown`) ne rend pas secret ce que la
+branche écrit : seuls les flux **explicites** sont suivis, pas le bit
+d'information d'un flux implicite.
 
 Ce que `NEVER SEND` ne fait pas : il ne couvre pas ce qu'un **hôte** envoie
 lui-même à un fournisseur. La frontière du §28 reste la frontière.
@@ -2336,6 +2347,13 @@ Avant la v1.9, tout appel en position d'expression était signalé `E009`,
 fonctions pures comprises (`CONFIDENCE(x)`, `len(xs)`), et un nom inconnu dans
 une garde passait sans diagnostic.
 
+### Origine `SECRET` (1.12.3)
+
+`SECRET` n'est pas une source non fiable : elle marque une valeur lue sur un
+chemin qu'un `NEVER SEND` retient (§32). Elle s'ajoute à l'étiquette de la
+valeur, survit aux `SET`, aux `EFFECT` et au calcul comme les autres sources,
+et n'est pas portée par le contexte de contrôle. `UNTRUSTED(x)` ne la voit pas.
+
 ### Limite actuelle
 
 Les gardes de provenance sont évaluées **à l'exécution**. `W119`, `W125` et T6
@@ -2393,20 +2411,34 @@ de l'action. La clé est stable d'une reprise à l'autre. Un outil la lit par
   d'un `drain` en vol sont perdus (au plus une fois).
 
 La clé ne se fait respecter que par le service de l'hôte : le runtime la
-génère, il ne peut pas l'imposer à un tiers. La chaîne du journal est un
-SHA-256 sans clé : elle détecte la corruption, pas un faussaire qui recalcule
-tout.
+génère, il ne peut pas l'imposer à un tiers. Par défaut la chaîne du journal
+est un SHA-256 sans clé : elle détecte la corruption, pas un faussaire qui
+recalcule tout. Depuis la 1.12.3 elle peut être **à clé** (HMAC-SHA256, `key=`
+ou `--sign-key`) : personne sans la clé ne peut réécrire un journal et en
+recalculer la chaîne. La clé est exigée pour reprendre un journal à clé ; en
+fournir une à un journal qui n'en a pas est refusé (rétrogradation). Elle ne
+vient jamais de l'environnement : `AGENTL_JOURNAL_KEY` sert aux journaux de
+rejeu, et l'appliquer ici rendrait illisibles, sans avertissement, des
+journaux existants.
+
+**Une approbation de queue n'engage rien (1.12.3).** Une réponse d'approbateur
+est suivie, quand elle autorise, de l'intention de l'action. Si le journal
+*se termine* par une réponse d'approbateur, elle n'a rien engagé et rien ne
+prouve qu'elle est authentique : à l'ouverture elle est retirée du magasin, et
+l'humain est reconsulté. Un faussaire qui change un refus en accord en queue
+de journal, chaîne recalculée comprise, obtenait sinon l'exécution sans
+nouvelle question. `agentl durable status|export` n'y touche pas (lecture seule).
 
 ### Interface
 
 ```
-agentl run FICHIER.agent --durable RÉPERTOIRE [--run-id ID]
-agentl durable status RÉPERTOIRE
-agentl durable export RÉPERTOIRE [-o journal.json]     # puis agentl replay
+agentl run FICHIER.agent --durable RÉPERTOIRE [--run-id ID] [--sign-key CLÉ]
+agentl durable status RÉPERTOIRE [--sign-key CLÉ]
+agentl durable export RÉPERTOIRE [-o journal.json] [--sign-key CLÉ]   # puis agentl replay
 ```
 
 `DurableRun(agents, host, llm, store=FileStore(dir) | SQLiteStore(path, id)
-| MemoryStore())`, `.run(max_ticks)`, `.export()`. Une société s'exécute sous
+| MemoryStore(), key=None)`, `.run(max_ticks)`, `.export()`. Une société s'exécute sous
 un seul journal.
 
 ## 37. Exécution asynchrone (v1.9)

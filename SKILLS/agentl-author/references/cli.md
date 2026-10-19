@@ -25,7 +25,7 @@ documenter ici rend le contrôle rouge.
 | `autoloop F` | cas dérivés, lot retenu, correction | voir ci-dessous |
 | `run F` | exécute l'agent (hôte `F.py` implicite) | `--ticks`, `--quiet`, `--html`, `--events`, `--record`, `--sign-key`, `--durable`, `--run-id` |
 | `replay J` | re-dérive un journal | `--source`, `--ticks`, `--quiet`, `--events`, `--force`, `--key`, `--require-seal` |
-| `durable status\|export DIR` | état ou export d'une exécution durable | `-o/--out FICHIER` (export) |
+| `durable status\|export DIR` | état ou export d'une exécution durable | `-o/--out FICHIER` (export), `--sign-key CLÉ` (journal à clé) |
 | `seal [J]` | vérifie ou produit les clés de scellement | `--key`, `--keygen DIR`, `--name` |
 | `mcp list\|import SRC` | inspecte ou importe les outils d'un serveur MCP | `--server`, `-o/--out`, `--force`, `--strip-descriptions`, `--unsafe-import-descriptions` |
 | `studio [F]` | interface web locale | `--port`, `--host`, `--open`, `--no-save`, `--root` |

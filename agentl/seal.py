@@ -90,7 +90,8 @@ def chain_hashes(entries: List[Dict[str, Any]]) -> List[str]:
     return out
 
 
-def chain_step(previous: str, raw: Dict[str, Any]) -> str:
+def chain_step(previous: str, raw: Dict[str, Any],
+               key: Optional[bytes] = None) -> str:
     """Un maillon : le condensat de `raw` à la suite de `previous`.
 
     Exposé pour le journal durable (v1.9), qui chaîne **au fil de l'eau** —
@@ -100,9 +101,12 @@ def chain_step(previous: str, raw: Dict[str, Any]) -> str:
     # L'entrée est hachée *sans* son propre condensat : il en est le
     # résultat, il ne peut pas en être une entrée.
     body = {k: v for k, v in raw.items() if k != "h"}
-    return hashlib.sha256(
-        CHAIN_DOMAIN + previous.encode("ascii") + canonical(body)
-    ).hexdigest()
+    payload = CHAIN_DOMAIN + previous.encode("ascii") + canonical(body)
+    if key is not None:
+        # Chaîne à clé (journal durable signé, v1.12.3) : sans la clé, on ne
+        # peut pas recalculer les maillons d'un journal réécrit.
+        return hmac.new(key, payload, hashlib.sha256).hexdigest()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def chain_head(entries: List[Dict[str, Any]]) -> str:

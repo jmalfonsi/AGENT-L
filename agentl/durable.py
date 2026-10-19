@@ -111,6 +111,9 @@ class MemoryStore:
     def write_meta(self, meta: Dict[str, Any]) -> None:
         self.meta = dict(meta)
 
+    def drop_last(self) -> None:
+        self.lines.pop()
+
     def close(self) -> None:
         pass
 
@@ -184,6 +187,19 @@ class FileStore:
             self._fh.write(line.encode("utf-8") + b"\n")
             self._fh.flush()
             os.fsync(self._fh.fileno())
+
+    def drop_last(self) -> None:
+        """Retire la dernière ligne du journal (voir `DurableJournal.open`)."""
+        with self._lock:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+            data = self.wal.read_bytes().rstrip(b"\n")
+            keep = data.rfind(b"\n") + 1
+            with open(self.wal, "r+b") as fh:
+                fh.truncate(keep)
+                fh.flush()
+                os.fsync(fh.fileno())
 
     def write_meta(self, meta: Dict[str, Any]) -> None:
         tmp = self.dir / (self.META + ".tmp")
@@ -259,6 +275,13 @@ class SQLiteStore:
                 self._db.execute("ROLLBACK")
                 raise
 
+    def drop_last(self) -> None:
+        with self._lock:
+            self._db.execute(
+                "DELETE FROM entries WHERE run_id = ? AND seq = "
+                "(SELECT MAX(seq) FROM entries WHERE run_id = ?)",
+                (self.run_id, self.run_id))
+
     def write_meta(self, meta: Dict[str, Any]) -> None:
         with self._lock:
             self._db.execute(
@@ -295,29 +318,54 @@ class DurableJournal(Journal):
     """
 
     def __init__(self, store: Any, meta: Dict[str, Any],
-                 raws: List[Dict[str, Any]]) -> None:
+                 raws: List[Dict[str, Any]],
+                 key: Optional[bytes] = None) -> None:
         super().__init__(entries=[Entry.from_json(raw) for raw in raws],
                          meta=dict(meta))
         self.store = store
+        self._key = key
         self._prefix = len(self.entries)
         self._head = raws[-1]["h"] if raws else ""
         self.completed = meta.get("status") == "completed"
         self.resolutions: List[Dict[str, Any]] = []
 
     @classmethod
-    def open(cls, store: Any) -> "DurableJournal":
+    def open(cls, store: Any, key: Optional[bytes] = None, *,
+             repair: bool = True) -> "DurableJournal":
         meta, raws = store.load()
+        fresh = not (meta or raws)
+        keyed = bool(meta.get("keyed")) or (fresh and key is not None)
+        if keyed and key is None:
+            raise DurableError("journal durable à clé : la clé est requise "
+                               "pour le reprendre (--sign-key)")
+        if key is not None and not keyed:
+            raise DurableError(
+                "une clé est fournie mais ce journal n'est pas à clé : il a "
+                "pu être réécrit sans elle (ou rétrogradé) — reprise refusée")
         previous = ""
         for index, raw in enumerate(raws):
             if raw.get("seq") != index:
                 raise DurableError(f"journal durable : entrée #{index} hors "
                                    f"séquence — reprise refusée")
-            digest = chain_step(previous, raw)
+            digest = chain_step(previous, raw, key if keyed else None)
             if raw.get("h") != digest:
                 raise DurableError(f"journal durable altéré au franchissement "
                                    f"#{index} — reprise refusée")
             previous = digest
-        return cls(store, meta, raws)
+        # Une réponse d'approbateur n'est jamais le dernier mot : l'action
+        # qu'elle autorisait doit avoir laissé son intention. En queue de
+        # journal, elle n'a rien engagé — et rien ne prouve qu'elle est
+        # authentique. On la retire : l'humain est reconsulté (v1.12.3).
+        if repair and raws and raws[-1].get("kind") == "approve" \
+                and meta.get("status") != "completed":
+            drop = getattr(store, "drop_last", None)
+            if drop is None:
+                raise DurableError(
+                    "le journal se termine par une approbation, que ce "
+                    "magasin ne sait pas retirer (drop_last) — reprise refusée")
+            drop()
+            raws = raws[:-1]
+        return cls(store, meta, raws, key if keyed else None)
 
     # ------------------------------------------------------------ curseur
     @property
@@ -355,7 +403,7 @@ class DurableJournal(Journal):
         super().record(kind, key, args=args, value=value, error=error)
         entry = self.entries[-1]
         raw = entry.to_json()
-        raw["h"] = chain_step(self._head, raw)
+        raw["h"] = chain_step(self._head, raw, self._key)
         self.store.append(raw)                      # durable au retour
         self._head = entry.hash = raw["h"]
         self._cursor = len(self.entries)
@@ -475,7 +523,9 @@ class DurableJournal(Journal):
     def finish(self, trace_text: str, ticks: int) -> None:
         self.meta.update({"status": "completed", "ticks": ticks,
                           "trace_sha256": sha256(trace_text),
-                          "chain_sha256": self._head or chain_head([]),
+                          "chain_sha256": (chain_head(self.entry_bodies())
+                                           if self._key is not None
+                                           else self._head or chain_head([])),
                           "completed": _now()})
         self.store.write_meta(self.meta)
         self.completed = True
@@ -715,6 +765,7 @@ class DurableRun:
     def __init__(self, agents: Any, host: Any = None, llm: Any = None, *,
                  store: Any, run_id: Optional[str] = None, echo: bool = False,
                  source: Optional[Tuple[str, str]] = None,
+                 key: Optional[bytes] = None,
                  **runtime_options: Any) -> None:
         from .host import Host
         from .llm import MockLLM
@@ -724,7 +775,7 @@ class DurableRun:
         self.agents = list(agents) if isinstance(agents, (list, tuple)) \
             else [agents]
         self.store = store
-        self.journal = DurableJournal.open(store)
+        self.journal = DurableJournal.open(store, key)
         meta = self.journal.meta
         digest = program_digest(self.agents)
         if meta:
@@ -748,7 +799,7 @@ class DurableRun:
             meta.update({"format": DURABLE_FORMAT, "run_id": self.run_id,
                          "agents": [a.name for a in self.agents],
                          "program_sha256": digest, "status": "running",
-                         "created": _now()})
+                         "keyed": key is not None, "created": _now()})
             if source is not None:
                 # Pour que l'export se rejoue avec `agentl replay` : le rejeu
                 # retrouve le programme et vérifie que c'est le même.

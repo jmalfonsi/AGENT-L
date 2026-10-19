@@ -93,9 +93,12 @@ Ce que cela ne dit pas :
 - Le comportement d'un modèle de langage tiers.
 - Un hôte qui se déclare idempotent (`idempotent=True`) sans honorer la clé :
   la promesse est la sienne, le runtime ne peut pas la vérifier.
-- La réécriture délibérée d'un journal **durable** par quelqu'un qui peut
-  écrire sur son répertoire : sa chaîne est un SHA-256 sans clé, qui détecte
-  la corruption mais pas un faussaire qui recalcule toute la chaîne.
+- La réécriture délibérée d'un journal **durable sans clé** par quelqu'un qui
+  peut écrire sur son répertoire : sa chaîne est un SHA-256 sans clé, qui
+  détecte la corruption mais pas un faussaire qui recalcule toute la chaîne.
+  Depuis la 1.12.3, `--sign-key` la rend infalsifiable sans la clé, et une
+  réponse d'approbateur laissée en queue de journal est redemandée au lieu
+  d'être crue.
 - L'absence d'**horodatage par un tiers** des journaux : la chaîne et les
   signatures HMAC/Ed25519 attestent l'intégrité et, avec une clé de confiance,
   l'authenticité ; elles n'attestent pas la date de l'exécution (SPEC §26.1).

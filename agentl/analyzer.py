@@ -52,6 +52,7 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W135  garde de déclenchement comparant `!=` un chemin que rien ne renseigne
   W137  constante symbolique qui est aussi une variable d'état
   W138  `planner.exhausted` lu sans PLANNER activé (jamais posé)
+  W139  garde de politique sur la confiance (`action.confidence`) que rien ne produit
 
 Contrôles inter-agents (`check_program`) :
 
@@ -137,6 +138,7 @@ class Analyzer:
         self._check_redactions()
         self._check_sensor_unknown()
         self._check_policy_guard_names()
+        self._check_vacuous_confidence_guard()
         self._check_symbol_shadowing()
         self._check_undefined_inequality()
         self._check_risky_tools()
@@ -1057,6 +1059,34 @@ class Analyzer:
             "fait n'est jamais posé et la règle ne se déclenchera pas — "
             "déclarer PLANNER { ENABLE … }, ou garder l'escalade sur un fait "
             "que le programme pose (p.ex. tools.<outil>.denied)", line))
+
+    def _check_vacuous_confidence_guard(self) -> None:
+        """W139 — garde de politique sur une confiance que rien ne produit.
+
+        Une action dont la décision n'a pas été notée porte la confiance 1.0.
+        `ALLOW wipe IF action.confidence >= 0.95` est donc vraie à chaque fois
+        dans un programme où aucun `REASON` ne produit `confidence` : la
+        garde ne borne rien, et `NEVER … WHEN action.confidence < 0.5` ne se
+        déclenche jamais. Le dire plutôt que de laisser la politique avoir
+        l'air d'un contrôle.
+        """
+        if "confidence" in self._declared_names() \
+                or self.agent.events or self.agent.messages:
+            return                     # une charge utile peut la lier : on se tait
+        for rule in self.agent.policies:
+            if rule.guard is None:
+                continue
+            if any(isinstance(node, PathExpr)
+                   and ".".join(node.parts) in ("action.confidence", "confidence")
+                   for node in _walk_expr(rule.guard)):
+                self.diags.append(Diagnostic(
+                    "W139", "warning",
+                    f"la règle {rule.effect.replace('_', ' ')} {rule.target} "
+                    f"garde sur la confiance, mais aucun REASON ne produit "
+                    f"`confidence` : le runtime la fixe à 1.0, la garde ne "
+                    f"borne rien — ajouter PRODUCE {{ confidence: Number IN "
+                    f"[0, 1] }}, ou garder sur un fait que le programme pose",
+                    rule.line))
 
     # ------------------------------------------------ v1.1 / v1.2 : sûreté
     def _decision_paths(self) -> Set[str]:

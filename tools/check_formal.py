@@ -29,9 +29,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "docs" / "formal" / "AgentLKernel.tla"
 CFG = ROOT / "docs" / "formal" / "AgentLKernel.cfg"
-TLC_URL = ("https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/"
+TLC_URL = ("https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/"
            "tla2tools.jar")
-TLC_SHA256 = "9d36716ffb5e49d1ba8fae4651eba59f3189887e12eb90e204a42d2e6e993fef"
+TLC_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
 #: (nom, texte d'origine, texte muté, invariant qui doit tomber)
 MUTANTS = [
@@ -118,8 +118,13 @@ def main(argv=None) -> int:
             spec.parent.mkdir()
             spec.write_text(source.replace(original, mutated), encoding="utf-8")
             out = tlc(java, jar, spec, CFG, work)
+            # TLC 1.7.x ne nomme pas la propriété temporelle violée ; le
+            # fichier .cfg n'en déclare qu'une (Termination), donc la formule
+            # générique lui est attribuable sans ambiguïté.
             if (f"Invariant {invariant} is violated" in out
-                    or f"Temporal property {invariant} was violated" in out):
+                    or f"Temporal property {invariant} was violated" in out
+                    or (invariant == "Termination"
+                        and "Temporal properties were violated" in out)):
                 print(f"✓ mutant attrapé — {name} ({invariant})")
             else:
                 print(f"✗ mutant NON attrapé — {name} : {invariant} attendu")

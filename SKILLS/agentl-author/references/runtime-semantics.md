@@ -314,6 +314,7 @@ dans les listes ci-dessus. La table complète, avec leur théorème, est dans
 | `W136` | champ `JUDGE` gardant un interdit sans `ABSTAIN BELOW` ni garde sur `judge.<champ>.p` |
 | `W137` | garde comparant deux identifiants nus que le programme renseigne tous deux (v1.11) : le runtime lit l'état avant le symbole. Renommer l'un, ou comparer à un littéral |
 | `W138` | `planner.exhausted` lu alors qu'aucun `PLANNER` n'est activé (v1.12) : le fait n'est jamais posé, la règle ne part jamais. T2 ne la crédite plus comme escalade |
+| `W139` | garde de politique sur `action.confidence` / `confidence` alors qu'aucun `REASON` ne produit `confidence` (v1.12.3) : le runtime fixe la confiance d'une décision non notée à 1.0, la garde est donc toujours vraie (ou le `NEVER` ne part jamais) |
 | `V103` | T3 (erreur) — aucune règle `ALLOW` satisfaisable pour cet outil |
 | `V107` | T3 (erreur) — outil que `DEFAULT DENY` n'autorise jamais |
 | `V108` | T3 (avertissement) — tous les sites d'appel ont une condition contradictoire |

@@ -62,6 +62,11 @@ SHARED = "SHARED"          # mémoire écrite par un autre agent
 MEMORY = "MEMORY"          # mémoire rechargée depuis l'hôte
 EXTERNAL = "EXTERNAL"      # donnée qu'un hôte déclare non fiable
 UNKNOWN = "UNKNOWN"        # aucune étiquette connue — fail-closed
+#: Valeur lue sur un chemin que `NEVER SEND` retient (v1.12.3). Ce n'est pas
+#: une question de confiance : la source n'est pas dans `UNTRUSTED_SOURCES`.
+#: Elle survit à toute copie ou calcul (union), et le filtre de sortie vers
+#: le fournisseur de modèle retient toute valeur qui la porte.
+SECRET = "SECRET"
 
 #: Sources dont une valeur peut avoir été écrite par un tiers. `UNKNOWN` en
 #: fait partie : ne pas savoir d'où vient une valeur, c'est ne pas pouvoir
@@ -70,7 +75,7 @@ UNTRUSTED_SOURCES = frozenset({TOOL, MESSAGE, EVENT, DELEGATE, LLM, SHARED,
                                MEMORY, EXTERNAL, UNKNOWN})
 
 SOURCES = frozenset({DECLARED, RUNTIME, OBSERVED, HUMAN, EFFECT, INFERRED,
-                     FALLBACK}) | UNTRUSTED_SOURCES
+                     FALLBACK, SECRET}) | UNTRUSTED_SOURCES
 
 
 class Prov:
@@ -125,6 +130,10 @@ class Prov:
     @property
     def llm_derived(self) -> bool:
         return LLM in self.sources
+
+    @property
+    def secret(self) -> bool:
+        return SECRET in self.sources
 
     @property
     def names(self) -> FrozenSet[str]:
