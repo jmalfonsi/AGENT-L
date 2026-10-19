@@ -20,7 +20,11 @@ import time
 import urllib.error
 from typing import Any, Callable, Dict, List, Optional
 
-from .core import UNDEFINED, Symbol
+from .core import UNDEFINED, AgentLError, Symbol
+
+class LLMError(AgentLError):
+    """Réponse du fournisseur qu'on ne doit pas lire comme une réponse."""
+
 
 # ------------------------------------------------------- reprise sur panne
 #: Codes HTTP qu'il vaut la peine de rejouer : 408 (délai dépassé), 429
@@ -302,6 +306,23 @@ class AnthropicLLM(LLM):  # pragma: no cover - nécessite le réseau
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode())
+        return self.text_of(data)
+
+    @staticmethod
+    def text_of(data: Dict[str, Any]) -> str:
+        """Le texte d'une réponse, sauf si le fournisseur n'a pas répondu.
+
+        Un refus (`refusal`) ou une troncature (`max_tokens`) ne sont pas des
+        réponses : lue comme du JSON, une réponse coupée était complétée par
+        des valeurs par défaut, et l'agent raisonnait sur des zéros plausibles.
+        """
+        reason = data.get("stop_reason")
+        if reason in ("refusal", "max_tokens"):
+            raise LLMError(f"réponse du modèle inutilisable : stop_reason "
+                           f"{reason} (augmenter AGENTL_MAX_OUTPUT_TOKENS ou "
+                           f"réduire le schéma)" if reason == "max_tokens" else
+                           "réponse du modèle inutilisable : stop_reason "
+                           "refusal (le fournisseur a décliné)")
         return "".join(b.get("text", "") for b in data.get("content", []))
 
     def reason(self, task, context, produce):

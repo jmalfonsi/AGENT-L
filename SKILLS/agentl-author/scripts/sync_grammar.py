@@ -112,7 +112,13 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # `--sign-key` ; `NEVER SEND` retient désormais une valeur *copiée* d'un chemin
 # protégé (origine `SECRET`). Surface d'auteur élargie d'un code et d'une
 # option : patch, comme la 2.14.0 l'a été pour ses ajouts.
-AUTHORING_CONTRACT_VERSION = "2.14.4"
+# 2.15.0 : v1.13.0 — surface élargie : `W140`, `V153`, `agentl --version`. Les
+# contrôles se resserrent : T1 examine tous les corps exécutables (un appel dans
+# un EVENT, ON MESSAGE, ON VERIFY.FAIL, DECIDE ou LOOP n'échappe plus au
+# rapport), T4 ne tient plus une approbation conditionnelle pour une borne,
+# W102/T6 couvrent ces mêmes corps, autoloop rejoue les GIVEN EVENT/MESSAGE.
+# Un programme qui passait peut désormais être réfuté : mineur.
+AUTHORING_CONTRACT_VERSION = "2.15.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

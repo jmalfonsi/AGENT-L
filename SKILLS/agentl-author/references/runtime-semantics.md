@@ -324,6 +324,8 @@ dans les listes ci-dessus. La table complète, avec leur théorème, est dans
 | `V133` | T8 (avertissement) — cycle de messages vivant qui n'écrit rien : livelock présumé |
 | `V134` | T8 (info) — vivacité démontrée (vrai à vide pour un programme mono-agent) |
 | `V151` | T9 (info) — chaque `EFFECT` sur le monde est confrontable à une perception |
+| `W140` | une charge utile externe (`payload.*`, ou recopiée par `SET`) est passée au paramètre-cible d'un outil `HIGH`/`CRITICAL` sans `ATTESTS` (v1.13) : l'expéditeur choisit la cible. T6 le compte |
+| `V153` | T1 (avertissement, v1.13) — outil `HIGH`/`CRITICAL` qu'aucune règle de `POLICY` ne gouverne et sans `DEFAULT DENY` : T1 n'a rien à démontrer pour lui |
 | `V152` | T9 (avertissement, v1.11) — `EFFECT` dont la seule `OBSERVE` est conditionnelle (`WHEN`) : non créditée, elle peut ne jamais démentir la postcondition. Observer sans `WHEN` |
 | `B002` | filtrage d'une collection sur un critère métier dans l'hôte (erreur) |
 | `B003` | `break`/`continue` : un élément écarté dans l'hôte (avertissement) |

@@ -9,6 +9,8 @@ pont MCP et le Studio.
 --help` n'est nommée nulle part dans le SKILL : ajouter une option sans la
 documenter ici rend le contrôle rouge.
 
+`agentl --version` affiche la version du paquet (v1.13).
+
 ## Carte des sous-commandes
 
 | Commande | Rôle | Options à connaître |

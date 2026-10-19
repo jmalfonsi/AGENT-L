@@ -1,5 +1,5 @@
 (* =========================================================================
-   AGENT-L v1.12 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+   AGENT-L v1.13 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
 
    Convention lexicale fondamentale :
      les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une
@@ -87,6 +87,7 @@ risk_block       = "{" , { ident , [ sep ] , ident } , "}" ;
    réclame donc pas d'`OBSERVE` sur son chemin. *)
 effect_block     = "{" , { path , [ sep ] , expr , [ "INTERNAL" ] } , "}" ;
 
+(* v1.13 : aucune production ne change (diagnostics W140/V153, `agentl --version`). *)
 (* v1.12 : le GIVEN d'un SCENARIO accepte en plus le suffixe `UNTRUSTED` —
    la valeur est écrite par un tiers (étiquette EXTERNAL). Ailleurs, il est
    refusé à la lecture. `UNTRUSTED` reste aussi la fonction de garde : il

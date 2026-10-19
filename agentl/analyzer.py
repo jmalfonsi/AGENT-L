@@ -53,6 +53,7 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W137  constante symbolique qui est aussi une variable d'état
   W138  `planner.exhausted` lu sans PLANNER activé (jamais posé)
   W139  garde de politique sur la confiance (`action.confidence`) que rien ne produit
+  W140  charge utile externe passée au paramètre-cible d'un outil risqué, sans attestation
 
 Contrôles inter-agents (`check_program`) :
 
@@ -77,7 +78,7 @@ KNOWN_FUNCS = frozenset(PURE_FUNCS) | frozenset(EPISTEMIC_FUNCS) \
 from .nodes import (
     Agent, CallExpr, CallStmt, ControlStmt, Decide, DelegateStmt, IfStmt,
     ForEachStmt, ListExpr, LoopStmt, MessageStmt, Node, PathExpr, Plan, Program,
-    JudgeStmt, ReasonStmt, SetStmt, Stmt, ThenPlan, UnOp, BinOp, VerifyStmt,
+    JudgeStmt, ReasonStmt, SetStmt, Step, Stmt, ThenPlan, UnOp, BinOp, VerifyStmt,
 )
 
 
@@ -136,9 +137,9 @@ class Analyzer:
         self._check_reason_surface()
         self._check_judge()
         self._check_redactions()
+        self._check_vacuous_confidence_guard()
         self._check_sensor_unknown()
         self._check_policy_guard_names()
-        self._check_vacuous_confidence_guard()
         self._check_symbol_shadowing()
         self._check_undefined_inequality()
         self._check_risky_tools()
@@ -818,9 +819,37 @@ class Analyzer:
                     f"outil {tool.name}() de risque {tool.risk} sans politique",
                     tool.line))
 
+    def _executable_units(self) -> List[Plan]:
+        """Les plans, et chaque autre corps que le runtime exécute, en plans.
+
+        `EVENT`, `ON MESSAGE`, règles `DECIDE`, `ON VERIFY.FAIL` et le corps de
+        `LOOP` exécutent des appels d'outils exactement comme un `PLAN`. Les
+        contrôles qui ne bouclaient que sur `agent.plans` (W102, W119, W125,
+        T6) les laissaient donc sortir du rapport. Chaque corps devient ici un
+        plan à une étape, étiqueté comme l'auteur le lit.
+        """
+        units: List[Plan] = list(self.agent.plans)
+
+        def virtual(label: str, body, line: int) -> None:
+            if body:
+                units.append(Plan(label, [Step("corps", list(body))], None, 0,
+                                  line=line))
+
+        for event in self.agent.events:
+            virtual(f"EVENT {event.source}", event.body, event.line)
+        for handler in self.agent.messages:
+            virtual(f"ON MESSAGE {handler.name}", handler.body, handler.line)
+        if self.agent.decide:
+            for rule in self.agent.decide.rules:
+                virtual("DECIDE", [rule], rule.line)
+        virtual("ON VERIFY.FAIL", self.agent.on_verify_fail, 0)
+        if self.agent.loop:
+            virtual("LOOP", self.agent.loop.body, self.agent.loop.line)
+        return units
+
     def _check_verification(self) -> None:
         from ._check_flow import unverified_actions
-        for plan in self.agent.plans:
+        for plan in self._executable_units():
             for call in unverified_actions(self.agent, plan):
                 self.diags.append(Diagnostic("W102", "warning",
                     f"plan {plan.name} : {call.call.name}() agit sur le monde sans "
@@ -854,6 +883,10 @@ class Analyzer:
         used = used | {effect.path for tool in self.agent.tools
                        for branch in tool.branches
                        for effect in branch.effects if not effect.internal}
+        # `DECIDE { REASON { USING { … } } }` montre ces chemins au modèle : c'est
+        # une lecture (ces instructions-là ne sont pas dans `_all_statements`).
+        if self.agent.decide is not None and self.agent.decide.reason is not None:
+            used = used | set(self.agent.decide.reason.using)
         observed = {o.path for o in self.agent.observers}
         refreshed = self._refreshed_paths()
         for path in sorted(observed - used):
@@ -1279,6 +1312,55 @@ class Analyzer:
         return any(isinstance(node, PathExpr) and node.parts in aliases
                    for node in _walk_expr(guard))
 
+    #: Mots qui désignent la cible d'une action (même heuristique de noms que
+    #: W119 : un signal, pas une preuve).
+    _TARGET_WORDS = ("target", "host", "ip", "pid", "user", "account", "file",
+                     "path", "recipient", "address", "resource", "device",
+                     "object", "entity", "vm", "container", "key", "id",
+                     "repository")
+
+    def _check_payload_targets(self, plan: Plan, stmts, risky, tools) -> None:
+        """W140 — une charge utile externe choisit la cible d'un outil risqué.
+
+        `EVENT`/`ON MESSAGE` lient `payload.*` : une donnée écrite par un tiers.
+        La passer — directement ou recopiée par `SET` — au paramètre-cible d'un
+        outil HIGH/CRITICAL sans attestation, c'est laisser l'expéditeur
+        choisir l'hôte à effacer. Même regard que W119 sur les sorties du
+        modèle ; T6 le compte.
+        """
+        tainted: Set[str] = set()
+        changed = True
+        while changed:
+            before = set(tainted)
+            for stmt in stmts:
+                if isinstance(stmt, SetStmt):
+                    paths: Set[str] = set()
+                    _collect_paths(stmt.value, paths)
+                    if any(p == "payload" or p.startswith("payload.")
+                           or p in tainted for p in paths):
+                        tainted.add(stmt.target)
+            changed = before != tainted
+        for stmt in stmts:
+            if not isinstance(stmt, CallStmt) or stmt.call.name not in risky:
+                continue
+            tool = tools[stmt.call.name]
+            attested = set(tool.attestations.values())
+            for param, expr in _call_arguments(stmt.call, tool).items():
+                if param in attested or not any(
+                        word in param.lower() for word in self._TARGET_WORDS):
+                    continue
+                paths = set()
+                _collect_paths(expr, paths)
+                hit = sorted(p for p in paths if p == "payload"
+                             or p.startswith("payload.") or p in tainted)
+                if hit:
+                    self.diags.append(Diagnostic(
+                        "W140", "warning",
+                        f"{stmt.call.name}().{param} reçoit une donnée externe "
+                        f"({', '.join(hit)}) dans {plan.name} sans paramètre "
+                        f"ATTESTS {param} : l'expéditeur choisit la cible",
+                        stmt.line))
+
     def _check_security_authoring(self) -> None:
         """Provenance, approbation, réobservation et clôture sûre (v1.5)."""
         tools = {tool.name: tool for tool in self.agent.tools}
@@ -1312,8 +1394,9 @@ class Analyzer:
                     f"sans OBSERVE post-action : {', '.join(sorted(self_only))}",
                     stmt.line))
 
-        for plan in self.agent.plans:
+        for plan in self._executable_units():
             stmts = list(self._plan_statements(plan))
+            self._check_payload_targets(plan, stmts, risky, tools)
             reasons = [stmt for stmt in stmts if isinstance(stmt, ReasonStmt)]
             llm_fields = {alias for stmt in reasons for field in stmt.produce
                           for alias in (field, f"reason.{field}")}

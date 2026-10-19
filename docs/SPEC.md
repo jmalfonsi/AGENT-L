@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.12.3)
+# AGENT-L — sémantique de référence (v1.13.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2638,3 +2638,41 @@ sous un `PLANNER` activé (sinon `W138`) ; une règle `DECIDE` ou une garde
 `WHEN` compte si la garde de l'interdit l'entraîne, hors conjoints qui ne
 lisent que ce que l'escalade écrit ; une règle sur `tools.<outil>.denied`
 compte si un plan écrit à la main tente l'outil sous la garde.
+
+---
+
+## 42. Ce que `verify` n'affirme plus sans l'avoir examiné (v1.13)
+
+Un audit (2026-10-19) a relevé quatre endroits où `verify` annonçait
+« démontré » sur un périmètre plus étroit que celui de l'exécution.
+
+- **T1 voit tout ce que le runtime exécute.** Les sites d'appel viennent d'un
+  énumérateur unique des corps exécutables : `PLAN`, `EVENT`, `ON MESSAGE`,
+  règles `DECIDE`, `ON VERIFY.FAIL` et corps de `LOOP`. Auparavant seul le `PLAN`
+  l'était : un `wipe()` écrit dans un `EVENT` s'exécutait sans figurer au
+  rapport, dont le total « bouclait » pourtant. Un test compare le nombre de
+  sites au nombre d'appels de l'AST. `W102`, `W119`, `W125` et `W140` (donc T6)
+  parcourent les mêmes corps.
+- **T4 : seule une borne borne.** Une `REQUIRE APPROVAL … WHEN` dit *quand
+  demander* ; hors de sa condition, le LLM déclenche l'outil sans accord. Elle
+  n'est plus comptée comme une borne ; une approbation **inconditionnelle**, ou
+  une garde d'état sur l'`ALLOW`, l'est.
+- **T6 et la charge utile.** `W140` signale une donnée externe passée au
+  paramètre-cible d'un outil à fort impact sans attestation (même heuristique
+  de noms que `W119`). T6 reste un contrôle par noms de paramètres, pas une
+  preuve de flot : les 21 exemples qui le satisfont n'ont pas été rétrogradés en
+  « borné », ce qui aurait rendu `--require-proved` inutilisable.
+- **Gouvernance (`V153`).** Un outil `HIGH`/`CRITICAL` qu'aucune règle ne
+  gouverne n'est pas « sûr faute d'interdit » : T1 l'avertit.
+
+`autoloop` rejoue les `GIVEN EVENT` / `GIVEN MESSAGE` dans ses mondes dérivés,
+par la même fonction que `agentl test` (`inject_stimuli`). `W103` compte un
+`USING` de `DECIDE { REASON }` comme une lecture. L'adaptateur Anthropic
+refuse une réponse `refusal` ou `max_tokens` au lieu de la lire comme du JSON
+(`LLMError`). `agentl --version` existe.
+
+| code | nature | contrôle |
+|---|---|---|
+| `W140` | avertissement | charge utile externe passée au paramètre-cible d'un outil risqué sans `ATTESTS` (T6) |
+| `V153` | avertissement | T1 — outil `HIGH`/`CRITICAL` sans règle de `POLICY` ni `DEFAULT DENY` |
+

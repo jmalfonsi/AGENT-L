@@ -7,7 +7,7 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.12.3** —
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.13.0** —
 la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
 défendue par un scénario, une garde de provenance se teste par
 `GIVEN … UNTRUSTED`, un refus devient un fait (`tools.<outil>.denied`), et un
@@ -1689,6 +1689,7 @@ WEBSITE/                site de présentation
 | **v1.9.0** | **noyau à permis, exécution durable (`--durable`), provenance portée par les valeurs (`UNTRUSTED`, `LLM_DERIVED`, `ATTESTED`), exécution asynchrone (`agentl.aio`), tests de propriétés, modèle TLA+, banc comparatif** |
 | **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
+| **v1.13.0** | **`verify` n'affirme plus ce qu'il n'a pas examiné : T1 voit tous les corps exécutables (`EVENT`, `ON MESSAGE`, `ON VERIFY.FAIL`, `DECIDE`, `LOOP`), T4 distingue approbation conditionnelle et inconditionnelle, `W140` (charge utile externe → cible d'un outil risqué), `V153` (outil risqué sans politique), `autoloop` rejoue les stimuli, `agentl --version`** |
 | **v1.12.3** | **fuites fermées : `NEVER SEND` suit la valeur (origine `SECRET`) et non son nom, journal durable à clé (`--sign-key`) dont une approbation de queue est redemandée, `W139` (garde sur une confiance que rien ne produit), TLC épinglé sur une version stable** |
 | **v1.12.2** | **T5 : `EXPECT NEVER CALL` contraint la route au lieu de sortir le scénario du modèle ; un résumé qui distingue « hors modèle » (stimuli) et « non atteint à la profondeur »** |
 | **v1.12.1** | **autoloop : la réponse simulée d'un outil n'est plus effacée, et un monde dérivé qui atteint un outil sans réponse posée est « non jugé » au lieu d'une fausse erreur U1** |

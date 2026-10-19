@@ -4,6 +4,33 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.13.0] — non publié · `verify` n'affirme plus ce qu'il n'a pas examiné
+
+Quatre « démontré » portaient sur un périmètre plus étroit que l'exécution
+(audit du 2026-10-19). Détail et raisons : SPEC §42.
+
+- **T1 examine tous les corps exécutables** (`PLAN`, `EVENT`, `ON MESSAGE`,
+  `DECIDE`, `ON VERIFY.FAIL`, `LOOP`) par un énumérateur unique. Sonde : trois
+  `wipe()` sous un `NEVER`, un seul examiné → cinq sur cinq. `W102`, `W119`,
+  `W125` et T6 parcourent les mêmes corps.
+- **T4** ne tient plus une `REQUIRE APPROVAL … WHEN` pour une borne du LLM ;
+  une approbation inconditionnelle, ou une garde d'état sur l'`ALLOW`, en est une.
+- **`W140`** (T6) : une charge utile externe, directe ou recopiée par `SET`,
+  passée au paramètre-cible d'un outil `HIGH`/`CRITICAL` sans `ATTESTS`.
+  T6 n'est pas rétrogradé en « borné » : 21 exemples sur 23 le satisfont, et
+  `--require-proved` serait devenu inutilisable.
+- **`V153`** (T1) : un outil à fort impact qu'aucune règle ne gouverne.
+- **autoloop** rejoue les `GIVEN EVENT`/`MESSAGE` dans ses mondes dérivés (même
+  fonction que `agentl test`). Un monde dont la charge utile ne se construit pas
+  est « non jugé ».
+- `W103` : un `USING` de `DECIDE { REASON }` est une lecture.
+- L'adaptateur Anthropic lève `LLMError` sur `refusal` / `max_tokens`.
+- `agentl --version`.
+
+Aucun verdict de théorème ne change sur les 23 exemples ni sur les tâches du
+banc (comparé au dernier commit) ; des avertissements peuvent s'ajouter. Contrat
+d'auteur 2.15.0. Aucune grammaire ne change.
+
 ## [1.12.3] — non publié · fuites fermées : la valeur, pas son nom
 
 Audit du 2026-10-19 sur 1.12.2 : trois écarts entre ce que le runtime promet

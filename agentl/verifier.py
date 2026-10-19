@@ -378,7 +378,7 @@ class Verifier:
     def theorem_provenance(self) -> Theorem:
         return self._security_theorem(
             "T6", "Toute action risquée possède une provenance corrélée",
-            {"W119", "W121", "W122", "W125"})
+            {"W119", "W121", "W122", "W125", "W140"})
 
     def theorem_termination_liveness(self) -> Theorem:
         return self._security_theorem(
@@ -446,25 +446,59 @@ class Verifier:
         self._entries = direct
         return direct
 
+    def executable_bodies(self) -> List[Tuple[str, List[Stmt],
+                                              List[Tuple[List[Node], str]]]]:
+        """Tout ce que le runtime exécute, et sous quelle condition d'entrée.
+
+        `(étiquette, instructions, [(conditions d'entrée, origine)])`. Source
+        unique : T1 ne regardait que les `PLAN`, alors qu'un appel écrit dans un
+        `EVENT`, un `ON MESSAGE`, `ON VERIFY.FAIL`, une règle `DECIDE` ou le
+        corps de `LOOP` s'exécute tout autant — et sort du rapport sans trace.
+        """
+        entries = self.entry_conditions()
+        bodies: List[Tuple[str, List[Stmt],
+                           List[Tuple[List[Node], str]]]] = []
+        for plan in self.agent.plans:
+            bodies.append((plan.name, _plan_body(plan),
+                           entries.get(plan.name)
+                           or [([], "plan non déclenché")]))
+        for event in self.agent.events:
+            label = f"EVENT {event.source}"
+            bodies.append((label, list(event.body),
+                           [([event.when] if event.when is not None else [],
+                             label)]))
+        for handler in self.agent.messages:
+            label = f"ON MESSAGE {handler.name}"
+            bodies.append((label, list(handler.body),
+                           [([handler.when] if handler.when is not None
+                             else [], label)]))
+        if self.agent.decide and self.agent.decide.rules:
+            # Chaque règle est un `IF` : sa condition entre par la garde.
+            bodies.append(("DECIDE", list(self.agent.decide.rules),
+                           [([], "règle DECIDE")]))
+        if self.agent.on_verify_fail:
+            bodies.append(("ON VERIFY.FAIL", list(self.agent.on_verify_fail),
+                           [([], "ON VERIFY.FAIL")]))
+        if self.agent.loop and self.agent.loop.body:
+            bodies.append(("LOOP", list(self.agent.loop.body),
+                           [([], "corps de LOOP")]))
+        return bodies
+
     def call_sites(self, tool: str) -> List[CallSite]:
         sites: List[CallSite] = []
-        entries = self.entry_conditions()
         fallback = bool(self.agent.on_verify_fail)
-        for plan in self.agent.plans:
-            for stmt, guards, flow in _walk_guarded(_plan_body(plan),
-                                                    self.flow_ctx):
+        for label, stmts, entry in self.executable_bodies():
+            walked = list(_walk_guarded(stmts, self.flow_ctx))
+            local_fallback = fallback or any(
+                isinstance(s, VerifyStmt) and s.on_fail for s, _, _ in walked)
+            for stmt, guards, flow in walked:
                 if not isinstance(stmt, CallStmt) or stmt.call.name != tool:
                     continue
-                local_fallback = fallback or any(
-                    isinstance(s, VerifyStmt) and s.on_fail
-                    for s, _, _ in _walk_guarded(_plan_body(plan),
-                                                 self.flow_ctx))
-                for conds, origin in (entries.get(plan.name)
-                                      or [([], "plan non déclenché")]):
-                    # Les conditions d'entrée valaient au *déclenchement* du
-                    # plan ; ce que le plan a réécrit depuis les périme au
-                    # même titre que ses gardes internes.
-                    sites.append(CallSite(tool, plan.name, stmt.line,
+                for conds, origin in entry:
+                    # Les conditions d'entrée valaient au *déclenchement* ;
+                    # ce que le corps a réécrit depuis les périme au même
+                    # titre que ses gardes internes.
+                    sites.append(CallSite(tool, label, stmt.line,
                                           flow.surviving(conds), list(guards),
                                           origin, local_fallback))
         return sites
@@ -472,6 +506,22 @@ class Verifier:
     # ------------------------------------------------------- T1 : interdits
     def theorem_forbidden(self) -> Theorem:
         theorem = Theorem("T1", "Aucun appel interdit n'aboutit")
+        # Un outil à fort impact qu'aucune règle ne gouverne n'est pas « sûr
+        # faute d'interdit » : il n'est pas gouverné du tout (V153). Sous
+        # DEFAULT DENY, c'est T3 qui le dit (V107).
+        if self.agent.policy_default != "DENY" and not any(
+                r.target == "*" for r in self.agent.policies):
+            covered = {r.target for r in self.agent.policies}
+            for tool in self.agent.tools:
+                if tool.risk in ("HIGH", "CRITICAL") and tool.name not in covered:
+                    theorem.findings.append(Finding(
+                        "V153", "warning",
+                        f"{tool.name}() (risque {tool.risk}) n'est gouverné par "
+                        f"aucune règle de POLICY",
+                        "T1 n'a rien à démontrer pour lui : aucun NEVER ne le "
+                        "borne, aucune approbation ne le précède. Déclarer "
+                        "REQUIRE APPROVAL, un NEVER, ou DEFAULT DENY",
+                        tool.line))
         if not self.never_rules:
             theorem.holds = True
             theorem.summary = "aucune règle NEVER déclarée"
@@ -1186,9 +1236,15 @@ class Verifier:
         for name, decl in sorted(exposed.items()):
             if decl.risk not in ("HIGH", "SEVERE", "CRITICAL"):
                 continue
+            # Ce qui borne le LLM : un humain dans la boucle **sans condition**,
+            # ou une garde d'état sur l'`ALLOW`. Une `REQUIRE APPROVAL … WHEN`
+            # dit seulement *quand demander* : hors de sa condition, le LLM
+            # déclenche l'outil sans accord (1.13).
+            if any(r.effect == "REQUIRE_APPROVAL" and r.guard is None
+                   and r.target in ("*", name) for r in self.agent.policies):
+                continue
             guards = [r.guard for r in self.agent.policies
-                      if r.effect in ("ALLOW", "REQUIRE_APPROVAL")
-                      and r.target in ("*", name)]
+                      if r.effect == "ALLOW" and r.target in ("*", name)]
             # Une garde absente — mais aussi une garde *constante et vraie*
             # (`IF true`, `IF 1 == 1`, `IF 2 > 1`) — ne borne rien : le LLM
             # déclenche l'outil sans condition d'état. On ne signale que les

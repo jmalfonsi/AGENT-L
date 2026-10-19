@@ -470,6 +470,32 @@ def initial_expectations(agent: Agent, scenario: Scenario
     return invariants, eventualities
 
 
+def inject_stimuli(agent: Agent, scenario: Scenario, runtime: Any,
+                   host: Any) -> None:
+    """Dépose les `GIVEN EVENT` / `GIVEN MESSAGE` du scénario dans le runtime.
+
+    Une seule implémentation pour `agentl test` et `agentl autoloop` : le
+    second dérivait des mondes sans jamais déclencher les gestionnaires que le
+    scénario exerce (1.13).
+    """
+    for stimulus in scenario.stimuli:
+        payload = {}
+        evaluator = Evaluator(_WorldState(dict(host.world)))
+        for effect in stimulus.payload:
+            value = evaluator.eval(effect.value)
+            if value is UNDEFINED:
+                raise ValueError(f"stimulus {stimulus.name}.{effect.path} indéfini")
+            payload[effect.path] = value
+        if stimulus.kind == "EVENT":
+            if not any(h.source == stimulus.name for h in agent.events):
+                raise ValueError(f"EVENT sans gestionnaire : {stimulus.name}")
+            host.emit(stimulus.name, **payload)
+        else:
+            if not any(h.name == stimulus.name for h in agent.messages):
+                raise ValueError(f"MESSAGE sans gestionnaire : {stimulus.name}")
+            runtime.inbox.append({"name": stimulus.name, "from": stimulus.sender, "payload": payload})
+
+
 def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
                  ) -> ScenarioResult:
     """Exécute le modèle déclaré avec oracles explicites et moniteurs d'état."""
@@ -528,22 +554,7 @@ def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
         runtime = MonitoredRuntime(agent, host, ScenarioLLM(host.world), echo=echo)
         host.state = runtime.state
         runtime._apply_initial_values(host.world, "scenario", host.untrusted)
-        for stimulus in scenario.stimuli:
-            payload = {}
-            evaluator = Evaluator(_WorldState(dict(host.world)))
-            for effect in stimulus.payload:
-                value = evaluator.eval(effect.value)
-                if value is UNDEFINED:
-                    raise ValueError(f"stimulus {stimulus.name}.{effect.path} indéfini")
-                payload[effect.path] = value
-            if stimulus.kind == "EVENT":
-                if not any(h.source == stimulus.name for h in agent.events):
-                    raise ValueError(f"EVENT sans gestionnaire : {stimulus.name}")
-                host.emit(stimulus.name, **payload)
-            else:
-                if not any(h.name == stimulus.name for h in agent.messages):
-                    raise ValueError(f"MESSAGE sans gestionnaire : {stimulus.name}")
-                runtime.inbox.append({"name": stimulus.name, "from": stimulus.sender, "payload": payload})
+        inject_stimuli(agent, scenario, runtime, host)
 
         for expectation in scenario.expect:
             (invariants if holds(expectation) else eventualities).append(expectation)

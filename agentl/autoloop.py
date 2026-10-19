@@ -97,6 +97,7 @@ from .core import Symbol, UNDEFINED
 from .nodes import (Agent, BinOp, CallExpr, Literal, Node, PathExpr, Program,
                     Scenario)
 from .scenario import (APPROVAL_PATH, ScenarioHost, ScenarioLLM, _initial_world,
+                       inject_stimuli,
                        untrusted_paths,
                        _is_yes, initial_expectations, simulated_tool_result)
 from .state import Evaluator
@@ -507,6 +508,12 @@ def run_case(agent: Agent, scenario: Scenario, case: Case,
         runtime, host = _prepare(agent, world, untrusted_paths(scenario))
     except Exception as exc:                              # noqa: BLE001
         return CaseResult(case, False, error=f"{type(exc).__name__}: {exc}")
+    try:
+        inject_stimuli(agent, scenario, runtime, host)
+    except Exception as exc:                              # noqa: BLE001
+        # Le monde dérivé ne permet pas de construire la charge utile : le
+        # générateur de cas en est responsable, pas le programme.
+        return CaseResult(case, True, inconclusive=f"stimulus : {exc}"[:160])
 
     def holds(expectation: Node) -> bool:
         try:

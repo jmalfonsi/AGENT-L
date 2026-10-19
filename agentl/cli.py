@@ -764,7 +764,10 @@ def _inspect(agent, args) -> int:
 
 
 def main(argv=None) -> int:
+    from . import __version__
     parser = argparse.ArgumentParser(prog="agentl", description="AGENT-L")
+    parser.add_argument("--version", action="version",
+                        version=f"agentl {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     for name in ("check", "ast", "run", "plan", "infer", "verify", "viz",
