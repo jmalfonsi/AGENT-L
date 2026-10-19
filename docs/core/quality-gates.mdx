@@ -108,6 +108,12 @@ SCENARIO validator_refuses {
 }
 ```
 
+## Un cliquet pour la dette de sûreté
+
+Dans le dépôt, `tools/check_mutation.py` compare, pour chaque exemple, les règles survivantes à `docs/mutation-baseline.json` et échoue en CI si une règle non défendue **s’ajoute**, ou si un exemple jugé cesse de l’être. Une règle désormais défendue n’échoue pas : le contrôle demande de resserrer la référence (`--write`).
+
+Une règle que le programme ne permet pas d’exercer se **lève avec sa raison** (`// MUTATION-OK:`) plutôt que de recevoir un scénario vide. Un scénario qui passe sans tuer un mutant ne défend rien : le planificateur, par exemple, ignore qu’un outil est refusé.
+
 ## Intégration continue minimale
 
 ```bash

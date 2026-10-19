@@ -88,6 +88,12 @@ host.sensors["mail.subject"] = lambda: untrusted(read_subject())
 
 La valeur reçoit `EXTERNAL` en plus d’`OBSERVED`. L’hôte peut dégrader une valeur, jamais l’élever : aucune fonction ne rend une valeur fiable.
 
+## Un secret suit sa valeur, pas son nom
+
+`NEVER SEND api.secret` retient le chemin protégé quand un `REASON` ou un `JUDGE` prépare le contexte envoyé au fournisseur. Depuis la v1.12.3, toute lecture d’un chemin retenu porte l’origine `SECRET`, héritée par les copies et les calculs : `SET note = api.secret` puis `USING { note }` envoie `⟦retenu⟧`, pas la valeur.
+
+Seuls les flux explicites sont suivis. Un test de présence dans une garde (`IF api.secret != unknown THEN …`) ne rend pas secret ce que la branche écrit.
+
 ## Sens de sûreté
 
 - Une valeur sans étiquette connue est `UNKNOWN`, donc non fiable.
@@ -100,6 +106,8 @@ La valeur reçoit `EXTERNAL` en plus d’`OBSERVED`. L’hôte peut dégrader un
 | --- | --- |
 | `E015` | fonction inconnue dans une expression : elle serait inévaluable à l’exécution |
 | `E016` | fonction de provenance mal employée : argument qui n’est pas un chemin, `action` hors d’une garde de politique, `ATTESTED(action)`, second argument qui ne nomme pas un `TOOL` |
+| `W140` | une charge utile externe atteint le paramètre-cible d’un outil `HIGH`/`CRITICAL` sans `ATTESTS` |
+| `W141` | un argument d’outil risqué reçoit une source non fiable (flot statique), sans attestation ni règle de politique qui lise la provenance |
 
 ## Tester une garde de provenance
 
@@ -120,14 +128,5 @@ SCENARIO llm_target_is_refused {
 ## Limite actuelle
 
 <Info>
-  Les gardes de provenance agissent **à l’exécution**. Les diagnostics statiques `W119` et `W125` et le théorème T6 ne les créditent pas encore. Pour une cible risquée, écrivez les deux : le paramètre `ATTESTS`, qui rend T6 démontrable, et la garde `UNTRUSTED`, qui tient quand la valeur arrive par un chemin que l’analyse statique ne suit pas.
+  Les gardes de provenance agissent **à l’exécution**. Depuis la v1.14, `W141` calcule par le flot (`SET`, `FOREACH`, branches, boucles) la relation que le runtime calcule, et un `NEVER` dont la garde lit la provenance (`UNTRUSTED`, `LLM_DERIVED`, `ORIGIN`, `ATTESTED`) est crédité. Ce n’est qu’un avertissement : T6 ne devient pas une preuve, car il faudrait décider quelles sources valent un accord. Le contrôle implicite (`IF payload.x THEN f("const")`) reste suivi à l’exécution seulement. Pour une cible risquée, écrivez les deux : le paramètre `ATTESTS` et la garde `UNTRUSTED`.
 </Info>
-
-<Columns cols={2}>
-  <Card title="Politiques" icon="shield-check" href="/core/policies">
-    Ordre de décision et gardes indéterminées.
-  </Card>
-  <Card title="Banc comparatif" icon="scale" href="/core/benchmarks">
-    La même injection face à LangGraph, PydanticAI et CrewAI.
-  </Card>
-</Columns>

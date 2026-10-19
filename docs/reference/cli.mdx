@@ -7,6 +7,7 @@ icon: "terminal"
 ```bash
 agentl <commande> [options]
 python3 -m agentl <commande> [options]
+agentl --version
 ```
 
 ## Analyse et inspection
@@ -75,7 +76,7 @@ agentl run agent.agent [options]
 | `--quiet` | n’affiche la trace qu’à la fin |
 | `--html FILE` | écrit la trace visuelle autonome |
 | `--record FILE` | enregistre les frontières dans un journal JSON |
-| `--sign-key KEY` | signe le journal avec une clé ou un secret |
+| `--sign-key KEY` | signe le journal avec une clé ou un secret ; en `--durable`, la chaîne passe en HMAC et la clé est exigée à la reprise |
 | `--durable DIR` | exécution durable : démarre, ou reprend si `DIR` contient un journal (exclusif avec `--record`) |
 | `--run-id ID` | identifiant de l’exécution durable |
 
@@ -89,7 +90,7 @@ agentl durable status runs/agent                 # état, sans reprendre
 agentl durable export runs/agent -o journal.json # pour agentl replay
 ```
 
-`durable status` affiche la chaîne, les intentions sans résultat et la façon dont chaque action interrompue a été tranchée. `durable export` refuse une exécution non terminée. Voir [Exécution durable](/core/durable-execution).
+Les trois commandes acceptent `--sign-key` pour un journal signé. `durable status` affiche la chaîne, les intentions sans résultat et la façon dont chaque action interrompue a été tranchée. `durable export` refuse une exécution non terminée. Voir [Exécution durable](/core/durable-execution).
 
 ## Autoloop
 

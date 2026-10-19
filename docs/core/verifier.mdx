@@ -25,6 +25,15 @@ Le rapport couvre notamment :
 - les effets déclarés qui ne peuvent pas être démentis par une observation ;
 - les seuils probabilistes inatteignables.
 
+## Ce que chaque verdict examine
+
+Un verdict « démontré » ne vaut que pour le périmètre qu’il a parcouru. Depuis la v1.13, T1, `W102`, `W119`, `W125` et T6 parcourent les mêmes **corps exécutables** : `PLAN`, `EVENT`, `ON MESSAGE`, `DECIDE`, `ON VERIFY.FAIL` et `LOOP`. Un `wipe()` dans un gestionnaire d’événement est donc examiné comme celui d’un plan.
+
+- **T4** ne compte une `REQUIRE APPROVAL … WHEN` comme borne du LLM que si l’approbation est inconditionnelle, ou si une garde d’état porte sur l’`ALLOW`.
+- **`V153`** (T1) signale un outil à fort impact qu’aucune règle ne gouverne.
+- **`W140`** (T6) signale une charge utile externe, directe ou recopiée par `SET`, passée au paramètre-cible d’un outil `HIGH`/`CRITICAL` sans `ATTESTS`.
+- **`V154`** (T6, info) dit combien d’appels à sources non fiables le flot statique voit et que T6 n’a pas jugés. T6 reste un verdict de noms ; la provenance fine est contrôlée à l’exécution.
+
 ## Lire les verdicts
 
 | Verdict | Sens |

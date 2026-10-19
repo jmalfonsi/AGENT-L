@@ -53,6 +53,57 @@ const TONES: Record<Entry['tone'], { chip: string; border: string; icon: string 
 
 const ENTRIES: Entry[] = [
   {
+    version: 'v1.14',
+    tag: 'Dette mesurée',
+    tone: 'purple',
+    icon: Fingerprint,
+    title: "La dette de sûreté se mesure, et ne peut que baisser : cliquet de mutation, provenance statique",
+    spec: 'SPEC §43',
+    body:
+      "tools/check_mutation.py versionne, par exemple, la liste des règles de politique qu'aucun scénario ne défend " +
+      "(125 sur 20 exemples) ; la CI échoue si une règle s'y ajoute. Sept exemples reçoivent de vrais scénarios, et " +
+      "une règle que le programme n'exerce jamais se lève avec sa raison (// MUTATION-OK:) au lieu de recevoir un " +
+      "scénario vide. Côté analyse, provflow calcule par le flot (SET, FOREACH, branches, boucles) la relation que le " +
+      "runtime calcule : W141 signale un argument d'outil HIGH/CRITICAL issu d'une source non fiable, sans attestation " +
+      "ni garde de provenance. T6 ne change pas de verdict ; V154 dit ce qu'il n'a pas jugé.",
+    codes: ['W141', 'V154'],
+    snippet: `// MUTATION-OK: DEFAULT DENY couvre déjà ce cas
+NEVER purge WHEN dir.protected == yes
+// $ python tools/check_mutation.py  →  0 régression (125 règles suivies)`
+  },
+  {
+    version: 'v1.13',
+    tag: 'Périmètre honnête',
+    tone: 'amber',
+    icon: Scale,
+    title: "verify n'affirme plus ce qu'il n'a pas examiné",
+    spec: 'SPEC §42',
+    body:
+      "Quatre « démontré » portaient sur un périmètre plus étroit que l'exécution. T1 examine désormais tous les corps " +
+      "exécutables (PLAN, EVENT, ON MESSAGE, DECIDE, ON VERIFY.FAIL, LOOP) par un énumérateur unique : trois wipe() sous " +
+      "un NEVER, un seul était examiné, cinq sur cinq le sont. T4 ne tient plus une approbation conditionnelle pour une " +
+      "borne du LLM. W140 signale une charge utile externe vers la cible d'un outil risqué, V153 un outil à fort impact " +
+      "sans règle. autoloop rejoue les GIVEN EVENT/MESSAGE, et agentl --version existe.",
+    codes: ['W140', 'V153']
+  },
+  {
+    version: 'v1.12.3',
+    tag: 'Fuites fermées',
+    tone: 'rose',
+    icon: EyeOff,
+    title: "NEVER SEND suit la valeur, le journal durable peut être signé",
+    spec: 'SPEC §35',
+    body:
+      "SET note = api.secret puis USING { note } envoyait le secret au fournisseur : le filtre comparait des noms de " +
+      "chemin. Toute lecture d'un chemin retenu porte maintenant l'origine SECRET, héritée par les copies. Côté journal " +
+      "durable, une approbation en queue est redemandée à la reprise, et --sign-key passe la chaîne en HMAC-SHA256 : " +
+      "réécriture impossible sans la clé. W139 signale une garde sur action.confidence que rien ne produit. La CI TLA+ " +
+      "est de nouveau verte (TLC épinglé sur la v1.7.4 stable).",
+    codes: ['W139'],
+    snippet: `$ agentl run payments.agent --durable runs/payments --sign-key "$CLE"
+$ agentl durable status runs/payments --sign-key "$CLE"`
+  },
+  {
     version: 'v1.12',
     tag: 'Sûreté testable',
     tone: 'rose',
@@ -399,7 +450,7 @@ agentl replay run.json --require-seal`
   }
 ];
 
-const VERSIONS = ['Toutes', 'v1.12', 'v1.11', 'v1.10', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
+const VERSIONS = ['Toutes', 'v1.14', 'v1.13', 'v1.12.3', 'v1.12', 'v1.11', 'v1.10', 'v1.9', 'v1.8.1', 'v1.8', 'v1.7', 'v1.6'];
 
 export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
   const [filter, setFilter] = useState<string>('Toutes');
@@ -412,7 +463,7 @@ export function WhatsNew({ compact = false, onViewAll }: WhatsNewProps) {
       <div className="mb-10 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-3 py-1 text-xs font-mono font-semibold text-cyan-400 mb-3">
           <Sparkles className="h-3.5 w-3.5" />
-          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.12'}
+          {compact ? 'Dernières évolutions' : 'Journal des évolutions · v1.6 → v1.14'}
         </div>
         <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           {compact ? 'Ce qui change dans AGENT-L' : 'Évolutions majeures du langage et du moteur'}

@@ -60,6 +60,39 @@ AGENT SOC_ANALYST {
   </Card>
 </Columns>
 
+## Nouveautés de la v1.14
+
+<Columns cols={2}>
+  <Card title="La dette de sûreté ne peut que baisser" icon="trending-down" href="/core/quality-gates">
+    La liste des règles qu’aucun scénario ne défend est versionnée par exemple ; la CI échoue si une règle s’y ajoute. Sept exemples reçoivent de vrais scénarios.
+  </Card>
+  <Card title="Provenance statique" icon="fingerprint" href="/core/provenance">
+    `W141` suit le flot des sources non fiables jusqu’aux arguments des outils `HIGH`/`CRITICAL`, par la même relation que le runtime.
+  </Card>
+</Columns>
+
+## Nouveautés de la v1.13
+
+<Columns cols={2}>
+  <Card title="verify n’affirme plus ce qu’il n’a pas examiné" icon="scan-search" href="/core/verifier">
+    T1 examine tous les corps exécutables (`PLAN`, `EVENT`, `ON MESSAGE`, `DECIDE`, `ON VERIFY.FAIL`, `LOOP`), et T4 ne tient plus une approbation conditionnelle pour une borne du LLM.
+  </Card>
+  <Card title="Trois nouveaux signaux" icon="triangle-alert" href="/core/verifier">
+    `W140` (charge utile externe vers une cible risquée), `V153` (outil à fort impact sans règle) et `agentl --version`.
+  </Card>
+</Columns>
+
+## Nouveautés de la v1.12.3
+
+<Columns cols={2}>
+  <Card title="NEVER SEND suit la valeur" icon="eye-off" href="/core/provenance">
+    Une copie d’un chemin retenu porte l’origine `SECRET` : `SET note = api.secret` puis `USING { note }` n’envoie plus le secret.
+  </Card>
+  <Card title="Journal durable signable" icon="key-round" href="/core/durable-execution">
+    `--sign-key` passe la chaîne en HMAC-SHA256, et une approbation qui termine le journal est redemandée à la reprise.
+  </Card>
+</Columns>
+
 ## Nouveautés de la v1.12
 
 <Columns cols={2}>
@@ -117,7 +150,7 @@ AGENT SOC_ANALYST {
 </Columns>
 
 <Note>
-  Le paquet est numéroté 1.12.2. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
+  Le paquet est numéroté 1.14.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
 </Note>
 
 ## Deux façons de travailler
