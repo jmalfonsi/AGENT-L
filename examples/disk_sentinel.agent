@@ -221,6 +221,48 @@ AGENT disk_sentinel {
         EXPECT { sandbox.stale_count != 0 } WITHIN 5
     }
 
+    // Les deux règles qui encadrent l'autonomie, chacune défendue par un cas
+    // qui la retire du programme et fait tomber le scénario (`agentl mutate`) :
+    // une preuve faible n'ouvre pas l'`ALLOW` (P < 0,85), et une preuve forte
+    // mais non écrasante (P entre 0,85 et 0,97) exige l'accord de l'opérateur.
+    SCENARIO preuve_faible_aucune_purge {
+        GIVEN {
+            sandbox.file_count           = 5
+            sandbox.stale_count          = 2
+            sandbox.size_kb              = 40
+            sandbox.oldest_age_days      = 5
+            sandbox.stale_threshold_days = 30
+            sandbox.protected            = no
+            operator.approval            = yes
+            target_directory             = "logs"
+        }
+        GIVEN {
+            scan_sandbox.files = sandbox.file_count
+            scan_sandbox.size_kb = 40
+            purge_old_files.removed = 2
+        }
+        EXPECT { sandbox.stale_count != 0 } WITHIN 5
+    }
+
+    SCENARIO sans_accord_aucune_purge {
+        GIVEN {
+            sandbox.file_count           = 33
+            sandbox.stale_count          = 24
+            sandbox.size_kb              = 510
+            sandbox.oldest_age_days      = 40
+            sandbox.stale_threshold_days = 30
+            sandbox.protected            = no
+            operator.approval            = no
+            target_directory             = "logs"
+        }
+        GIVEN {
+            scan_sandbox.files = sandbox.file_count
+            scan_sandbox.size_kb = 510
+            purge_old_files.removed = 24
+        }
+        EXPECT { sandbox.stale_count != 0 } WITHIN 5
+    }
+
     // Second interdit : seuil non lu. Une purge sur un seuil à 0 traiterait
     // tout fichier comme périmé — indéterminé n'est pas zéro.
     SCENARIO seuil_absent_jamais_de_purge {

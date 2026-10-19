@@ -325,6 +325,8 @@ dans les listes ci-dessus. La table complète, avec leur théorème, est dans
 | `V134` | T8 (info) — vivacité démontrée (vrai à vide pour un programme mono-agent) |
 | `V151` | T9 (info) — chaque `EFFECT` sur le monde est confrontable à une perception |
 | `W140` | une charge utile externe (`payload.*`, ou recopiée par `SET`) est passée au paramètre-cible d'un outil `HIGH`/`CRITICAL` sans `ATTESTS` (v1.13) : l'expéditeur choisit la cible. T6 le compte |
+| `W141` | donnée non fiable (flot statique : `SET`, `FOREACH`, sortie de `REASON`/outil/`DELEGATE`, charge utile) passée à un outil `HIGH`/`CRITICAL` sans `ATTESTS` ni règle de `POLICY` qui lise la provenance (v1.14). Flux explicites seulement |
+| `V154` | T6 (info, v1.14) — N appels d'outil risqué reçoivent des données non fiables que le verdict de T6 n'a pas jugées : le flot les voit (`W141`), T6 reste un contrôle partiel |
 | `V153` | T1 (avertissement, v1.13) — outil `HIGH`/`CRITICAL` qu'aucune règle de `POLICY` ne gouverne et sans `DEFAULT DENY` : T1 n'a rien à démontrer pour lui |
 | `V152` | T9 (avertissement, v1.11) — `EFFECT` dont la seule `OBSERVE` est conditionnelle (`WHEN`) : non créditée, elle peut ne jamais démentir la postcondition. Observer sans `WHEN` |
 | `B002` | filtrage d'une collection sur un critère métier dans l'hôte (erreur) |

@@ -365,7 +365,7 @@ class TestShippedExample(unittest.TestCase):
             (EXAMPLES / "soc_analyst.agent").read_text(encoding="utf-8")
         ).agents[0]
         report = run_scenarios(agent)
-        self.assertEqual(len(report.results), 2)
+        self.assertEqual(len(report.results), 5)    # 2 (1.4) + 3 (1.14)
         self.assertTrue(report.passed, report.render())
 
     def test_removing_the_never_breaks_the_shipped_scenario(self):

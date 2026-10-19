@@ -123,6 +123,7 @@ AGENT SERVICE_MEDIC {
 
         // Sous 0.95 il faudrait un humain — mais le modèle calibré atteint
         // 0.967 quand tout concorde : l'agent gagne son autonomie.
+        // MUTATION-OK: équivalent avec ce modèle — le postérieur vaut ~0,77 (panne sans erreur) ou ~0,967 (avec) et n'atteint jamais [0,90 ; 0,95[, la seule zone où cette approbation s'appliquerait
         REQUIRE APPROVAL FOR restart_service
             WHEN P(service_crash) < 0.95
     }
@@ -240,6 +241,29 @@ AGENT SERVICE_MEDIC {
             diagnosis.done      = yes
         }
         // État et réponses explicites du monde simulé pour ce cas.
+        GIVEN {
+            file_incident.incident_id = "fixture-incident-1"
+            notify_operator.delivered = yes
+        }
+        EXPECT { service.http_status != 200 } WITHIN 5
+    }
+
+    // Une panne sans trace d'erreur ne passe pas le seuil d'autonomie : le
+    // modèle calibré donne ~0,77 (processus mort + port muet, mais
+    // `error_count = 0`), sous les 0,90 que demande l'`ALLOW`. L'agent doit
+    // s'abstenir de redémarrer plutôt que d'agir sur une preuve incomplète.
+    // Retirez la garde de l'`ALLOW` et ce scénario tombe.
+    SCENARIO preuve_incomplete_aucun_redemarrage {
+        GIVEN {
+            service.http_status = 0
+            process.alive       = no
+            service.error_count = 0
+            system.load1        = 0.4
+            maintenance.window  = closed
+            operator.approval   = yes
+            service_name        = "svc-demo"
+            diagnosis.done      = yes
+        }
         GIVEN {
             file_incident.incident_id = "fixture-incident-1"
             notify_operator.delivered = yes

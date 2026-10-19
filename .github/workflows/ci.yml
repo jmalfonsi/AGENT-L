@@ -33,6 +33,12 @@ jobs:
       - name: Chaîne de contrôle sur les exemples
         run: python tools/check_examples.py
 
+      # Cliquet de mutation (1.14) : `agentl mutate` retire chaque règle de
+      # politique et rejoue les scénarios. La dette des exemples (règles
+      # qu'aucun test ne défend) est versionnée ; elle ne peut que baisser.
+      - name: Cliquet de mutation (règles de politique défendues)
+        run: python tools/check_mutation.py
+
       # Chaque diagnostic connu est suivi précisément, y compris ceux des
       # helpers désormais analysés. Un hôte déjà rouge ne peut plus absorber
       # silencieusement un nouveau défaut via une exemption par nom de fichier.

@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.13.0)
+# AGENT-L — sémantique de référence (v1.14.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2675,4 +2675,45 @@ refuse une réponse `refusal` ou `max_tokens` au lieu de la lire comme du JSON
 |---|---|---|
 | `W140` | avertissement | charge utile externe passée au paramètre-cible d'un outil risqué sans `ATTESTS` (T6) |
 | `V153` | avertissement | T1 — outil `HIGH`/`CRITICAL` sans règle de `POLICY` ni `DEFAULT DENY` |
+
+---
+
+## 43. La dette de sûreté se mesure, et ne peut que baisser (v1.14)
+
+**Cliquet de mutation.** `agentl mutate` (§41) retire chaque règle de politique
+qui relâche et rejoue les scénarios ; un mutant qui survit est une règle qu'aucun
+test ne défend. `tools/check_mutation.py` versionne la liste de ces règles par
+exemple (`docs/mutation-baseline.json`) et échoue en CI si une règle non
+défendue **s'ajoute**, ou si un exemple jugé cesse de l'être. Une règle
+désormais défendue n'échoue pas : le contrôle demande de resserrer la référence
+(`--write`). Les exemples portaient 140 règles non défendues ; sept d'entre eux
+reçoivent de vrais scénarios, ce qui la ramène à la valeur versionnée.
+
+Une règle que le programme ne permet pas d'exercer se **lève avec sa raison**
+(`// MUTATION-OK:`) plutôt que de recevoir un scénario qui passerait sans que la
+politique morde. Exemple vérifié : `logistics_coordinator`, où le planificateur
+choisit toujours `escalate_incident` (coût 1) et ne sait pas qu'un outil est
+refusé — des scénarios `scenario.refuse.escalate_incident` passaient au vert
+**sans tuer un seul mutant** ; ils ont été retirés et les quatre règles levées.
+
+**Provenance statique (`provflow`).** À l'exécution chaque valeur porte
+l'union de ses sources (§35). Jusqu'en 1.13 l'analyse n'en avait que des
+heuristiques de noms (`W119`, `W140`). `agentl/provflow.py` calcule la même
+relation par le flot — `SET`, `FOREACH`, branches (jointure par union), boucles
+(point fixe), sortie de `REASON`/`JUDGE`/outil/`DELEGATE`, charge utile — et
+`W141` signale un argument d'outil `HIGH`/`CRITICAL` qui reçoit une source non
+fiable sans `ATTESTS` ni règle de `POLICY` dont la garde lit la provenance
+(`UNTRUSTED`, `LLM_DERIVED`, `ORIGIN`, `ATTESTED`). Flux explicites seulement :
+suivre le contrôle implicite marquerait tout gestionnaire d'événement.
+
+`W141` est un **avertissement**, et T6 ne change pas de verdict : `V154` dit
+combien d'appels le flot voit et que T6 n'a pas jugés. Le promouvoir en rupture
+ferait échouer `gmail_butler`, dont la réponse à l'expéditeur est le sujet. Faire
+de T6 une preuve suppose de décider quelles sources valent un accord (un champ de
+sortie d'outil adressé à un tiers ?) ; cette décision n'est pas prise ici.
+
+| code | nature | contrôle |
+|---|---|---|
+| `W141` | avertissement | argument d'outil risqué issu d'une source non fiable (flot statique), sans attestation ni garde de provenance |
+| `V154` | info | T6 — appels à sources non fiables que son verdict n'a pas jugés |
 

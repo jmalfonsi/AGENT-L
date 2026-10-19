@@ -68,15 +68,19 @@ AGENT logistics_coordinator {
         DEFAULT DENY
         
         // Autorisations
+        // MUTATION-OK: le planificateur choisit toujours escalate_incident (coût 1) et ne sait pas qu'un outil est refusé : cancel_delivery et reroute_truck ne sont jamais tentés dans ce programme, aucun scénario ne peut donc exercer cette règle (à reprendre avec un PLAN écrit à la main ou un coût d'escalade supérieur)
         ALLOW reroute_truck IF source.read_ok == yes AND issue.type == traffic
+        // MUTATION-OK: même raison — cancel_delivery n'est jamais tenté (escalade moins chère)
         ALLOW cancel_delivery IF source.read_ok == yes AND issue.type == breakdown
 
         ALLOW escalate_incident
         
         // T1: Interdit irrévocable
+        // MUTATION-OK: même raison — cancel_delivery n'est jamais tenté (escalade moins chère)
         NEVER cancel_delivery WHEN truck.status == ok
         
         // T6/W120: Opt-in humain pour les actions destructives
+        // MUTATION-OK: même raison — cancel_delivery n'est jamais tenté (escalade moins chère)
         REQUIRE APPROVAL FOR cancel_delivery WHEN action.risk >= HIGH
     }
 

@@ -40,7 +40,9 @@ AGENT mention_triage {
     // Une réponse publique part sur un jugement, donc sur sa calibration :
     // 0,51 n'est pas une classification, c'est un pile ou face.
     ALLOW send_reply WHEN judge.kind.p >= 0.90
+    // MUTATION-OK: le IF de l'étape `agir` reprend cette condition (défense en profondeur) — le plan ne tente jamais l'appel, aucun scénario ne peut donc faire tomber ce NEVER
     NEVER send_reply WHEN judge.kind != question
+    // MUTATION-OK: même condition que le IF de l'étape `agir` — équivalent tant que le plan la reprend
     NEVER send_reply WHEN judge.frustration >= 1.5
 
     // Un client très mécontent ne reçoit pas une réponse automatique : il
@@ -121,6 +123,42 @@ AGENT mention_triage {
       judge.frustration.p = 0.9
     }
     EXPECT NEVER CALL send_reply WITHIN 2
+  }
+
+  // Entre l'abstention (0,80) et le seuil de la politique (0,90), le jugement
+  // est retenu mais pas assez sûr : le plan tente la réponse, et c'est la
+  // garde `ALLOW … judge.kind.p >= 0.90` qui la refuse. Retirez-la et ce
+  // scénario tombe.
+  SCENARIO un_jugement_moyen_ne_repond_pas {
+    GIVEN {
+      mention.content = "Vous gérez les fichiers .xlsx ?"
+      mention.author = "@ines"
+      mention.handled = no
+    }
+    GIVEN {
+      kind = question
+      judge.kind.p = 0.85
+      frustration = 0.2
+      judge.frustration.p = 0.9
+    }
+    EXPECT NEVER CALL send_reply WITHIN 2
+  }
+
+  // Un client très mécontent passe par un humain : sans accord, rien ne part.
+  SCENARIO un_client_tres_mecontent_sans_accord_ne_part_pas {
+    GIVEN {
+      mention.content = "Si ce bug n'est pas corrigé je pars et je le dis partout."
+      mention.author = "@marc"
+      mention.handled = no
+      operator.approval = no
+    }
+    GIVEN {
+      kind = question
+      judge.kind.p = 0.95
+      frustration = 2
+      judge.frustration.p = 0.9
+    }
+    EXPECT NEVER CALL route_to_sales WITHIN 2
   }
 
   LOOP UNTIL mention.handled == yes MAX 3 {

@@ -780,14 +780,9 @@ AGENT hr_comp_adjustment_batch {
     }
   }
 
-  DECIDE {
-    RULES {
-      IF planner.exhausted
-        AND workflow.done == no
-        AND workflow.blocked == no
-      THEN escalate_unfinished_batch
-    }
-  }
+  // (Une règle `DECIDE IF planner.exhausted … THEN escalate_unfinished_batch`
+  // figurait ici : sans PLANNER le fait n'est jamais posé — `W138` — et le plan
+  // porte déjà sa propre garde `WHEN`. Elle ne se déclenchait pas ; retirée.)
 
   // --------------------------------------------------------- acceptation
   //

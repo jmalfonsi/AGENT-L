@@ -281,6 +281,64 @@ AGENT SOC_ANALYST {
         EXPECT { isolated != confirmed } WITHIN 6
     }
 
+    // Hors actif critique, l'isolement reste possible — mais à deux conditions
+    // que seul un test de refus tient : une preuve suffisante (`ALLOW … IF
+    // P(credential_attack) >= 0.90`) et l'accord de l'opérateur (`REQUIRE
+    // APPROVAL`). Le premier scénario montre que la route existe ; les deux
+    // suivants font tomber, chacun, la règle qu'ils défendent (`agentl mutate`).
+    SCENARIO actif_ordinaire_isolement_avec_accord {
+        GIVEN {
+            wazuh.alert_count     = 37
+            network.anomaly_score = 0.92
+            endpoint.integrity    = compromised
+            asset.criticality     = MEDIUM
+            operator.approval     = yes
+            suspected_host        = "web-07"
+        }
+        GIVEN {
+            inspect_endpoint.integrity = compromised
+            inspect_endpoint.persistence = true
+            create_ticket.ticket_id = "fixture-ticket-1"
+            isolate_endpoint.isolated = confirmed
+            isolated = no
+        }
+        EXPECT { isolated == confirmed } WITHIN 6
+    }
+
+    SCENARIO sans_accord_pas_d_isolement {
+        GIVEN {
+            wazuh.alert_count     = 37
+            network.anomaly_score = 0.92
+            endpoint.integrity    = compromised
+            asset.criticality     = MEDIUM
+            operator.approval     = no
+            suspected_host        = "web-07"
+        }
+        GIVEN {
+            inspect_endpoint.integrity = compromised
+            inspect_endpoint.persistence = true
+            create_ticket.ticket_id = "fixture-ticket-1"
+            isolated = no
+        }
+        EXPECT { isolated != confirmed } WITHIN 6
+    }
+
+    SCENARIO preuve_faible_pas_d_isolement {
+        GIVEN {
+            wazuh.alert_count     = 3
+            network.anomaly_score = 0.20
+            endpoint.integrity    = healthy
+            asset.criticality     = MEDIUM
+            operator.approval     = yes
+            suspected_host        = "web-07"
+        }
+        GIVEN {
+            create_ticket.ticket_id = "fixture-ticket-1"
+            isolated = no
+        }
+        EXPECT { isolated != confirmed } WITHIN 6
+    }
+
     // -- Réactivité ---------------------------------------------------------
     EVENT wazuh.alert {
         WHEN severity >= HIGH

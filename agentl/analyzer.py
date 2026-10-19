@@ -54,6 +54,7 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W138  `planner.exhausted` lu sans PLANNER activé (jamais posé)
   W139  garde de politique sur la confiance (`action.confidence`) que rien ne produit
   W140  charge utile externe passée au paramètre-cible d'un outil risqué, sans attestation
+  W141  donnée non fiable (flot statique) passée à un outil risqué, sans attestation ni garde de provenance
 
 Contrôles inter-agents (`check_program`) :
 
@@ -152,6 +153,7 @@ class Analyzer:
         self._check_shared_keys()
         self._check_decision_inputs()
         self._check_security_authoring()
+        self._check_untrusted_flows()
         if not self.agent.goals:
             self.diags.append(Diagnostic(
                 "W105", "warning", "aucun GOAL déclaré : l'agent n'a rien à évaluer"))
@@ -1311,6 +1313,41 @@ class Analyzer:
             aliases += (["action", "confidence"],)
         return any(isinstance(node, PathExpr) and node.parts in aliases
                    for node in _walk_expr(guard))
+
+    def untrusted_flows(self):
+        """Flux non fiables vers un outil risqué que rien ne couvre.
+
+        Regroupés par appel : `[(unité, outil, ligne, [(param, sources)])]`.
+        Écarte un argument attesté (`ATTESTS`), un outil dont une règle de la
+        politique lit la provenance, et les appels que `W119`/`W140` ont déjà
+        signalés (même ligne) : le même défaut ne se dit pas deux fois.
+        """
+        from . import provflow
+
+        already = {(d.line) for d in self.diags if d.code in ("W119", "W140")}
+        grouped: dict = {}
+        for flow in provflow.flows(self.agent):
+            tool = self.agent.tool(flow.tool)
+            if flow.param in set(tool.attestations.values()) \
+                    or flow.param in tool.attestations \
+                    or provflow.covered_by_policy(self.agent, flow.tool,
+                                                  flow.param) \
+                    or flow.line in already:
+                continue
+            grouped.setdefault((flow.unit, flow.tool, flow.line), []).append(
+                (flow.param, flow.sources))
+        return [(unit, tool, line, params)
+                for (unit, tool, line), params in sorted(grouped.items())]
+
+    def _check_untrusted_flows(self) -> None:
+        """W141 — la provenance calculée par le flot, pas par les noms."""
+        for unit, tool, line, params in self.untrusted_flows():
+            detail = ", ".join(f"{p} ({'/'.join(src)})" for p, src in params)
+            self.diags.append(Diagnostic(
+                "W141", "warning",
+                f"{tool}() dans {unit} reçoit des données non fiables : "
+                f"{detail} — sans ATTESTS ni règle de POLICY qui lise la "
+                f"provenance (UNTRUSTED/LLM_DERIVED/ORIGIN)", line))
 
     #: Mots qui désignent la cible d'une action (même heuristique de noms que
     #: W119 : un signal, pas une preuve).

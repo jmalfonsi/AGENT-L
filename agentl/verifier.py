@@ -373,6 +373,18 @@ class Verifier:
             theorem.findings.append(Finding(
                 "V125" if key == "T6" else "V126", "info",
                 "garantie statique satisfaite"))
+        if key == "T6":
+            # Le verdict reste celui des contrôles ci-dessus (noms de paramètres,
+            # W119/W140) ; le flot, lui, ne tranche pas — il le dit (1.14).
+            flows = Analyzer(self.agent).untrusted_flows()
+            if flows:
+                theorem.findings.append(Finding(
+                    "V154", "info",
+                    f"{len(flows)} appel(s) d'outil risqué reçoivent des "
+                    f"données non fiables que le verdict ci-dessus n'a pas "
+                    f"jugées (W141)",
+                    "le flot statique les voit ; ni ATTESTS ni règle de "
+                    "provenance ne les couvre. T6 reste un contrôle partiel"))
         return theorem
 
     def theorem_provenance(self) -> Theorem:

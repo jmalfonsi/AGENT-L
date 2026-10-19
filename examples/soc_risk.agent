@@ -97,6 +97,63 @@ AGENT SOC_RISK {
         APPROVAL_COST     10
     }
 
+    // Critères d'acceptation. Un OUTCOME se choisit explicitement
+    // (`scenario.outcome.<outil>`) : TEST n'explore pas les issues tout seul.
+    // La suspension du compte contient la menace : l'isolement est inutile.
+    SCENARIO compte_suspendu_la_menace_est_contenue {
+        GIVEN {
+            threat.status       = unknown
+            asset.criticality   = HIGH
+            suspected_host      = "web-07"
+            suspected_account   = "svc_backup"
+            account.suspended   = no
+            endpoint.connectivity = up
+            alarm.raised        = no
+            scenario.outcome.quarantine_account = contenu
+            quarantine_account.suspended = yes
+        }
+        EXPECT { threat.status == contained } WITHIN 4
+    }
+
+    // Le compte est contourné et l'actif n'est pas critique : l'action brutale
+    // est permise, c'est elle qui contient.
+    SCENARIO actif_ordinaire_le_compte_contourne_on_isole {
+        GIVEN {
+            threat.status       = unknown
+            asset.criticality   = HIGH
+            suspected_host      = "web-07"
+            suspected_account   = "svc_backup"
+            account.suspended   = no
+            endpoint.connectivity = up
+            alarm.raised        = no
+            scenario.outcome.quarantine_account = contourne
+            quarantine_account.suspended = yes
+            scenario.outcome.isolate_endpoint = contenu
+            isolate_endpoint.isolated = confirmed
+        }
+        EXPECT { endpoint.connectivity == cut } WITHIN 4
+    }
+
+    // Le même contournement sur un actif CRITIQUE : l'isolement est interdit,
+    // le poste reste connecté — même si la menace n'est pas contenue.
+    // Retirez le `NEVER` et ce scénario tombe.
+    SCENARIO actif_critique_le_compte_contourne_jamais_d_isolement {
+        GIVEN {
+            threat.status       = unknown
+            asset.criticality   = CRITICAL
+            suspected_host      = "db-01"
+            suspected_account   = "svc_backup"
+            account.suspended   = no
+            endpoint.connectivity = up
+            alarm.raised        = no
+            scenario.outcome.quarantine_account = contourne
+            quarantine_account.suspended = yes
+            scenario.outcome.isolate_endpoint = contenu
+            isolate_endpoint.isolated = confirmed
+        }
+        EXPECT { endpoint.connectivity != cut } WITHIN 4
+    }
+
     LOOP UNTIL goal.satisfied MAX 4 {
         OBSERVE
         UPDATE_BELIEFS

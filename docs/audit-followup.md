@@ -97,7 +97,7 @@ WITHIN. Une valeur devenue inconnue ne maintient pas un invariant. Les
   (`V128`, résultat indéterminé). Un GIVEN invalide est signalé (`V127`).
 - `agentl test` retourne 0 pour une suite non vide réussie, 1 pour un échec, 2
   pour un agent sans scénario. `--allow-empty` ne dispense que du dernier cas.
-  La CI nomme les sept anciens fichiers d'exemple sans scénario ; cela reste
+  La CI nomme les cinq anciens fichiers (sept avant la 1.14) d'exemple sans scénario ; cela reste
   une dette de couverture, pas une preuve d'acceptation.
 - Les diagnostics Boundary historiques restent suivis individuellement dans
   `boundary-example-debt.json` ; cet audit ne les efface pas.

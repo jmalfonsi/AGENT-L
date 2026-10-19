@@ -1,0 +1,271 @@
+{
+  "description": "Règles de politique qu'aucun SCENARIO ne défend (mutants survivants d'`agentl mutate`), par exemple. Ne peut que baisser : tools/check_mutation.py.",
+  "examples": {
+    "K8S_HEALER.agent": {
+      "judged": true,
+      "mutants": 7,
+      "survivors": [],
+      "unjudged": []
+    },
+    "complex_soc.agent": {
+      "judged": false,
+      "mutants": 0,
+      "survivors": [],
+      "unjudged": [
+        "aucun SCENARIO : rien ne peut faire tomber un mutant",
+        "aucun SCENARIO : rien ne peut faire tomber un mutant",
+        "aucun SCENARIO : rien ne peut faire tomber un mutant"
+      ]
+    },
+    "disk_sentinel.agent": {
+      "judged": true,
+      "mutants": 4,
+      "survivors": [],
+      "unjudged": []
+    },
+    "forensic.agent": {
+      "judged": false,
+      "mutants": 0,
+      "survivors": [],
+      "unjudged": [
+        "aucun SCENARIO : rien ne peut faire tomber un mutant"
+      ]
+    },
+    "gmail_butler.agent": {
+      "judged": true,
+      "mutants": 25,
+      "survivors": [
+        "gmail_butler · retrait du NEVER : NEVER append_journal WHEN drive.available == no",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN body_ok == no",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN category != coursera",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN drive.available == no",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN m.received_date != clock.today",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN m.seen == yes",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN m.sender_domain != coursera.org",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN mailbox.connected == no",
+        "gmail_butler · retrait du NEVER : NEVER file_message WHEN read_ok == no",
+        "gmail_butler · retrait du NEVER : NEVER send_hr_alert WHEN drive.available == no",
+        "gmail_butler · retrait du NEVER : NEVER send_hr_alert WHEN mailbox.connected == no",
+        "gmail_butler · retrait du NEVER : NEVER send_hr_alert WHEN rh.alert_sent == yes",
+        "gmail_butler · retrait du NEVER : NEVER send_hr_alert WHEN rh.hours_care <= 3000",
+        "gmail_butler · retrait du NEVER : NEVER send_hr_alert WHEN to_address != jmalfonsi@free.fr",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN body_ok == no",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN draft_ok == no",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN drive.available == no",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN m.received_date != clock.today",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN m.replied_today == yes",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN m.seen == yes",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN m.sender != jmalfonsi@free.fr",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN mailbox.connected == no",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN read_ok == no",
+        "gmail_butler · retrait du NEVER : NEVER send_reply WHEN reply.sent_this_cycle == yes"
+      ],
+      "unjudged": []
+    },
+    "idor_hunter.agent": {
+      "judged": true,
+      "mutants": 2,
+      "survivors": [],
+      "unjudged": []
+    },
+    "linux_defender.agent": {
+      "judged": true,
+      "mutants": 19,
+      "survivors": [
+        "linux_defender · ALLOW sans sa garde : ALLOW append_journal WHEN 1 == 1",
+        "linux_defender · ALLOW sans sa garde : ALLOW block_ip WHEN P(ssh_brute_force) >= 0.85",
+        "linux_defender · ALLOW sans sa garde : ALLOW close_cycle WHEN remediation.unresolved_count == 0",
+        "linux_defender · ALLOW sans sa garde : ALLOW escalate_alert WHEN 1 == 1",
+        "linux_defender · ALLOW sans sa garde : ALLOW isolate_server_network WHEN P(privilege_escalation) >= 0.85",
+        "linux_defender · ALLOW sans sa garde : ALLOW kill_malicious_process WHEN P(active_webshell) >= 0.85",
+        "linux_defender · ALLOW sans sa garde : ALLOW lock_user_account WHEN P(privilege_escalation) >= 0.85",
+        "linux_defender · ALLOW sans sa garde : ALLOW quarantine_file WHEN P(privilege_escalation) >= 0.85",
+        "linux_defender · ALLOW sans sa garde : ALLOW rollback_action WHEN 1 == 1",
+        "linux_defender · retrait du NEVER : NEVER block_ip WHEN ip_address == 10.0.0.1",
+        "linux_defender · retrait du NEVER : NEVER block_ip WHEN ip_address == 127.0.0.1",
+        "linux_defender · retrait du NEVER : NEVER kill_malicious_process WHEN criticality == yes",
+        "linux_defender · retrait du NEVER : NEVER kill_malicious_process WHEN pid <= 100",
+        "linux_defender · retrait du NEVER : NEVER lock_user_account WHEN username == root",
+        "linux_defender · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR isolate_server_network",
+        "linux_defender · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR kill_malicious_process",
+        "linux_defender · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR lock_user_account",
+        "linux_defender · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR quarantine_file",
+        "linux_defender · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR rollback_action"
+      ],
+      "unjudged": []
+    },
+    "llm_soc.agent": {
+      "judged": false,
+      "mutants": 0,
+      "survivors": [],
+      "unjudged": [
+        "aucun SCENARIO : rien ne peut faire tomber un mutant",
+        "aucun SCENARIO : rien ne peut faire tomber un mutant",
+        "aucun SCENARIO : rien ne peut faire tomber un mutant"
+      ]
+    },
+    "logistics_coordinator.agent": {
+      "judged": true,
+      "mutants": 4,
+      "survivors": [],
+      "unjudged": []
+    },
+    "maintenance.agent": {
+      "judged": false,
+      "mutants": 0,
+      "survivors": [],
+      "unjudged": [
+        "aucun SCENARIO : rien ne peut faire tomber un mutant"
+      ]
+    },
+    "mention_triage.agent": {
+      "judged": true,
+      "mutants": 4,
+      "survivors": [],
+      "unjudged": []
+    },
+    "meridian_player.agent": {
+      "judged": true,
+      "mutants": 17,
+      "survivors": [
+        "meridian_player · retrait du NEVER : NEVER call_read_tool WHEN arena.reachable != yes",
+        "meridian_player · retrait du NEVER : NEVER call_read_tool WHEN context.read_ok != yes",
+        "meridian_player · retrait du NEVER : NEVER call_read_tool WHEN run.open != yes",
+        "meridian_player · retrait du NEVER : NEVER call_read_tool WHEN run.submitted == yes",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN arena.reachable != yes",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN budget.remaining <= 0",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN context.read_done != yes",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN context.read_ok != yes",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN context.repeat_streak >= 2",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN reason.degraded == true",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN run.open != yes",
+        "meridian_player · retrait du NEVER : NEVER call_write_tool WHEN run.submitted == yes",
+        "meridian_player · retrait du NEVER : NEVER submit_run WHEN mission_kind == action_required AND write.attempted != yes AND write.demanded != yes AND budget.remaining > 0 AND reason.degraded != true",
+        "meridian_player · retrait du NEVER : NEVER submit_run WHEN run.open != yes",
+        "meridian_player · retrait du NEVER : NEVER submit_run WHEN run.submitted == yes"
+      ],
+      "unjudged": []
+    },
+    "service_medic.agent": {
+      "judged": true,
+      "mutants": 3,
+      "survivors": [],
+      "unjudged": []
+    },
+    "soc_analyst.agent": {
+      "judged": true,
+      "mutants": 3,
+      "survivors": [],
+      "unjudged": []
+    },
+    "soc_risk.agent": {
+      "judged": true,
+      "mutants": 1,
+      "survivors": [],
+      "unjudged": []
+    },
+    "soc_team.agent": {
+      "judged": false,
+      "mutants": 0,
+      "survivors": [],
+      "unjudged": [
+        "aucun SCENARIO : rien ne peut faire tomber un mutant",
+        "aucun SCENARIO : rien ne peut faire tomber un mutant"
+      ]
+    },
+    "supervisor.agent": {
+      "judged": true,
+      "mutants": 1,
+      "survivors": [],
+      "unjudged": []
+    },
+    "valmont_alarmes.agent": {
+      "judged": true,
+      "mutants": 13,
+      "survivors": [
+        "VALMONT_ALARMES · ALLOW sans sa garde : ALLOW exiger_intervention WHEN P(incident_majeur) >= 0.7",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_acquittement WHEN alarmes.non_acquittees <= 0",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_acquittement WHEN alarmes.read_ok != yes",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_acquittement WHEN classe == indetermine",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_escalade_humaine WHEN alarmes.critiques <= 0",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_escalade_humaine WHEN alarmes.read_ok != yes",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_escalade_humaine WHEN classe == indetermine",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_intervention WHEN classe == indetermine",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER exiger_intervention WHEN defauts.ouverts <= 0",
+        "VALMONT_ALARMES · retrait du NEVER : NEVER recommander_surveillance WHEN classe == indetermine"
+      ],
+      "unjudged": []
+    },
+    "valmont_production.agent": {
+      "judged": true,
+      "mutants": 15,
+      "survivors": [
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_bridage WHEN goulot == indetermine",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_bridage WHEN prod.cadence_pct <= 0",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_bridage WHEN usine.read_ok != yes",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_chasse_fuites WHEN air.fuite_pct <= 0",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_chasse_fuites WHEN goulot == indetermine",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_chasse_fuites WHEN usine.read_ok != yes",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_relance WHEN P(derive_cout) >= 0.65",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_relance WHEN goulot == indetermine",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_relance WHEN prod.cadence_pct >= 100",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_relance WHEN usine.read_ok != yes",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_statu_quo WHEN goulot == indetermine",
+        "VALMONT_PRODUCTION · retrait du NEVER : NEVER conseiller_statu_quo WHEN usine.read_ok != yes"
+      ],
+      "unjudged": []
+    },
+    "valmont_supervision.agent": {
+      "judged": true,
+      "mutants": 48,
+      "survivors": [
+        "VALMONT_SUPERVISION · ALLOW sans sa garde : ALLOW brider_cadence WHEN confiance_production >= 0.65",
+        "VALMONT_SUPERVISION · ALLOW sans sa garde : ALLOW relancer_cadence WHEN confiance_production >= 0.65",
+        "VALMONT_SUPERVISION · retrait du DENY : DENY executer_consigne WHEN approbation.refusee == yes",
+        "VALMONT_SUPERVISION · retrait du DENY : DENY reparer_le_defaut WHEN approbation.refusee == yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER acquitter_une_alarme WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER acquitter_une_alarme WHEN verdict_alarme == indetermine",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER activer_chasse_fuites WHEN conseil_production != chasse_fuites",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER activer_chasse_fuites WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER brider_cadence WHEN conseil_production != brider",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER brider_cadence WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER brider_pour_conformite WHEN conformite.cible_demandee_pct != consigne.cadence_conformite",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER brider_pour_conformite WHEN site.charge_traitement_pct <= consigne.cadence_conformite",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER brider_pour_conformite WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER cloturer_l_inventaire WHEN alarmes.non_traitees > 0",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER cloturer_l_inventaire WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER cloturer_ronde WHEN alarmes.non_traitees > 0",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER cloturer_ronde WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER differer_une_alarme WHEN confiance_alarme >= 0.7",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER escalader_une_alarme WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER escalader_une_alarme WHEN verdict_alarme == indetermine",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN proposition.echeance != maintenant",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN proposition.implication == altere_la_simulation",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN proposition.implication == inconnue",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN proposition.implication == marque_vue_sans_regard AND site.alarmes_critiques > 0",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN proposition.meilleure != oui",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN proposition.recevable != oui",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER executer_consigne WHEN site.rejet_conforme != yes AND proposition.implication == reglage_reversible",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER programmer_consigne WHEN proposition.echeance != quand_le_parametre_evolue",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER programmer_consigne WHEN proposition.recevable != oui",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER relancer_cadence WHEN avis_responsable != accord",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER relancer_cadence WHEN conseil_production != relancer",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER relancer_cadence WHEN site.cadence_pct >= consigne.cadence_nominale",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER relancer_cadence WHEN site.consigne_l1_pct >= consigne.cadence_nominale AND site.consigne_l2_pct >= consigne.cadence_nominale AND site.consigne_l3_pct >= consigne.cadence_nominale AND site.consigne_l4_pct >= consigne.cadence_nominale",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER relancer_cadence WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER relancer_cadence WHEN site.rejet_conforme != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER renoncer_a_la_cadence WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER reparer_le_defaut WHEN site.defauts_ouverts <= 0",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER reparer_le_defaut WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER reparer_le_defaut WHEN verdict_alarme == indetermine",
+        "VALMONT_SUPERVISION · retrait du NEVER : NEVER signaler_rejet_non_conforme WHEN site.read_ok != yes",
+        "VALMONT_SUPERVISION · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR executer_consigne WHEN proposition.implication == arret_equipement",
+        "VALMONT_SUPERVISION · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR executer_consigne WHEN proposition.implication == coupure_d_alimentation",
+        "VALMONT_SUPERVISION · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR executer_consigne WHEN proposition.implication == engage_des_personnes",
+        "VALMONT_SUPERVISION · retrait du REQUIRE APPROVAL : REQUIRE APPROVAL FOR reparer_le_defaut WHEN site.alarmes_critiques > 0"
+      ],
+      "unjudged": []
+    }
+  }
+}

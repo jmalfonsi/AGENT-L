@@ -265,6 +265,26 @@ AGENT IDOR_HUNTER {
         EXPECT { probe.done != yes } WITHIN 8
     }
 
+    // Cible de production : le sondage actif attend l'accord d'un humain. Sans
+    // accord (le défaut d'un approbateur muet est le refus), il ne part pas.
+    // Retirez la `REQUIRE APPROVAL` et ce scénario tombe.
+    SCENARIO production_sans_accord_aucun_sondage {
+        GIVEN {
+            target.authorized = yes
+            target.production = yes
+            target.reachable  = yes
+            baseline.status   = ok
+            operator.approval = no
+        }
+        GIVEN {
+            fetch_baseline.status = baseline.status
+            record_inconclusive.logged = yes
+            notify_operator.delivered = yes
+            probe.done = no
+        }
+        EXPECT { probe.done != yes } WITHIN 8
+    }
+
     DECIDE {
         RULES {
             IF assessment.status == pending

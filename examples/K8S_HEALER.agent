@@ -89,13 +89,64 @@ AGENT K8S_HEALER {
     // --- Moteur de politiques & Garde-fous ---
     POLICY {
         DEFAULT DENY
+        // MUTATION-OK: garde constante vraie (1 == 1) — la retirer ne change rien
         ALLOW  inspect_pod      IF   1 == 1
         ALLOW  restart_pod      IF   P(memory_leak) >= 0.80
         ALLOW  scale_deployment IF   P(traffic_spike) >= 0.75
         ALLOW  drain_node       IF   P(memory_leak) >= 0.80
+        // MUTATION-OK: même raison — drain_node n'est jamais tenté (restart_pod est moins cher)
         NEVER  drain_node       WHEN cluster.node_capacity == CRITICAL
         REQUIRE APPROVAL FOR scale_deployment WHEN action.risk >= HIGH
+        // MUTATION-OK: même raison — drain_node n'est jamais tenté (restart_pod est moins cher)
         REQUIRE APPROVAL FOR drain_node       WHEN P(memory_leak) < 0.95
+    }
+
+    // --- Critères d'acceptation ----------------------------------------------
+    // Fuite mémoire avérée : la route la moins chère et autorisée est le
+    // redémarrage.
+    SCENARIO fuite_memoire_le_pod_est_redemarre {
+        GIVEN {
+            metrics.restart_count = 8
+            metrics.memory_usage  = 0.95
+            metrics.error_rate    = 0.001
+            cluster.node_capacity = NORMAL
+            app.status            = degraded
+            inspect_pod.logs_clean = yes
+        }
+        EXPECT { app.status == healthy } WITHIN 6
+    }
+
+    // Pic de trafic : seul `scale_deployment` est autorisé (P(traffic_spike)),
+    // et il exige l'accord de l'opérateur. Sans accord, rien ne part. Retirez
+    // le REQUIRE APPROVAL — ou la garde de l'ALLOW de `restart_pod`, qui
+    // ouvrirait une autre route — et ce scénario tombe.
+    SCENARIO pic_de_trafic_sans_accord_pas_de_mise_a_l_echelle {
+        GIVEN {
+            metrics.restart_count = 0
+            metrics.memory_usage  = 0.88
+            metrics.error_rate    = 0.10
+            cluster.node_capacity = NORMAL
+            app.status            = degraded
+            inspect_pod.logs_clean = yes
+            operator.approval     = no
+        }
+        EXPECT { app.status != healthy } WITHIN 6
+    }
+
+    // Aucun symptôme : aucune hypothèse n'atteint son seuil, aucune réparation
+    // n'est autorisée — même avec l'accord de l'opérateur. Retirez la garde de
+    // l'ALLOW de `scale_deployment` et ce scénario tombe.
+    SCENARIO aucun_symptome_aucune_reparation {
+        GIVEN {
+            metrics.restart_count = 1
+            metrics.memory_usage  = 0.30
+            metrics.error_rate    = 0.001
+            cluster.node_capacity = NORMAL
+            app.status            = degraded
+            inspect_pod.logs_clean = yes
+            operator.approval     = yes
+        }
+        EXPECT { app.status != healthy } WITHIN 6
     }
 
     // --- Planification automatique ---

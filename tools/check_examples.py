@@ -14,8 +14,8 @@ from agentl.cli import main as agentl_main
 NEGATIVE_EXAMPLES = {"broken", "unsafe", "gmail_butler_naif"}
 # Dette historique explicite : toute autre suite vide doit faire échouer TEST.
 EMPTY_EXAMPLES = {
-    "K8S_HEALER", "complex_soc", "forensic", "llm_soc",
-    "maintenance", "soc_risk", "soc_team",
+    "complex_soc", "forensic", "llm_soc",
+    "maintenance", "soc_team",
 }
 
 

@@ -4,6 +4,34 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.14.0] — non publié · la dette de sûreté se mesure, et ne peut que baisser
+
+- **Cliquet de mutation en CI** (`tools/check_mutation.py`, SPEC §43) : la liste
+  des règles de politique qu'aucun scénario ne défend est versionnée par exemple
+  (`docs/mutation-baseline.json`) ; une règle qui s'y ajoute fait échouer la CI.
+  Au départ 140 règles non défendues sur 20 exemples.
+- **Sept exemples reçoivent de vrais scénarios** — `soc_analyst` (3/3 règles
+  défendues), `disk_sentinel` (4/4), `idor_hunter` (2/2), `service_medic`,
+  `mention_triage`, `soc_risk`, `K8S_HEALER` — de 140 à 125 règles non défendues (et deux exemples auparavant non jugeables, `soc_risk` et `K8S_HEALER`, le sont maintenant).
+  `soc_risk` et `K8S_HEALER` sortent de la liste des suites vides.
+- **Levées honnêtes.** Une règle que le programme n'exerce jamais est levée avec sa
+  raison (`// MUTATION-OK:`), pas défendue par un scénario vide : des scénarios
+  écrits pour `logistics_coordinator` passaient au vert sans tuer un seul mutant
+  (le planificateur ignore qu'un outil est refusé) ; ils ont été retirés.
+- **Provenance statique** (`agentl/provflow.py`) : le flot des sources non fiables
+  jusqu'aux arguments d'outils risqués. `W141` (avertissement), `V154` (T6 dit ce
+  qu'il n'a pas jugé). T6 ne change pas de verdict : le promouvoir en rupture
+  ferait échouer `gmail_butler` — décision laissée à l'auteur du projet.
+- **Banc HR** : la règle `DECIDE IF planner.exhausted` (`W138`) était morte et
+  redondante avec la garde du plan qu'elle visait ; retirée. Comportement,
+  `verify` et les deux bancs de politique hors ligne inchangés.
+
+La dette boundary (210 diagnostics dans le Python des hôtes) n'est pas touchée :
+elle est suivie par `check_boundary_examples.py` et exige une relecture
+fichier par fichier du code qui tourne en réel.
+
+Contrat d'auteur 2.16.0. Aucune grammaire ne change.
+
 ## [1.13.0] — non publié · `verify` n'affirme plus ce qu'il n'a pas examiné
 
 Quatre « démontré » portaient sur un périmètre plus étroit que l'exécution
