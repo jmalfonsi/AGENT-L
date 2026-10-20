@@ -547,6 +547,20 @@ restée **sans résultat** est tranchée, et la sortie le dit :
 | `réconciliée : l'effet avait eu lieu` | un `@host.reconciler("outil")` a retrouvé l'effet et rendu son résultat |
 | `réconciliée : l'effet n'avait pas eu lieu, exécutée` | le réconciliateur a rendu `agentl.durable.NOT_EXECUTED` |
 | `INDÉTERMINÉE — non relancée, à trancher par un humain` | aucun des deux : l'action n'est **pas** relancée (au plus une fois) |
+| `RÉVOQUÉE — rejugée à la reprise et refusée, non exécutée` | rejugée (ci-dessous) et refusée, et l'on sait qu'elle n'a pas eu lieu |
+
+**Rejugée avant de partir (1.15).** Relancer, c'est agir maintenant, sur une
+décision prise avec les lectures du processus mort. Avant d'exécuter une
+intention en suspens — ou une action **nouvelle** du tick interrompu, dont la
+perception est rejouée —, le noyau relit en direct les capteurs que nomment
+les gardes visant l'outil et rejuge la politique ; une approbation plus vieille
+que `--max-resume-age` (900 s ; `0` toujours, `inf` jamais) est redemandée.
+Refusée : `RÉVOQUÉE` (`ActionRevoked` / `ApprovalLapsed`, trace `BLOCKED`,
+`tools.<outil>.denied|unapproved`) si l'on sait qu'elle n'a pas eu lieu,
+`INDÉTERMINÉE` sinon (outil idempotent sans réconciliateur). Conséquence pour
+l'auteur : une garde qu'on veut voir rejugée doit nommer **le capteur**, pas
+une copie (`SET`) ni une croyance dérivée — seules les lectures directes sont
+relues.
 
 Une action indéterminée pose trois faits : une trace `ERROR … effet
 indéterminé`, `<side_effect>.dirty = true` pour chaque `SIDE_EFFECT` déclaré
@@ -567,6 +581,8 @@ Ce qui est garanti, et rien de plus :
   la clé ou réconcilie, **au plus une fois** sinon ;
 - lectures, questions et approbations en vol sont refaites (sans effet) ;
   les événements d'un `drain` en vol sont perdus ;
+- aucune action n'est exécutée après une reprise sans avoir été rejugée sur
+  les capteurs de ses gardes relus en direct (1.15) ;
 - la clé est générée par le runtime, stable d'une reprise à l'autre. Elle ne
   se **fait respecter** que par le service de l'hôte.
 

@@ -18,7 +18,9 @@ python3 tools/check_formal.py          # Java 11+ dans le PATH
 | `Intent` | `DurableJournal.dispatch`, `_settle` | intention écrite avant l'appel ; à la reprise, résultat servi ou action tranchée |
 | `Dispatch` | `Host.invoke` sous permis | un hôte idempotent ignore une seconde requête de même clé |
 | `Result` | enregistrement du résultat | |
-| `Crash` | mort du processus à n'importe quel pas | la mémoire disparaît, le journal et le monde restent |
+| `Crash` | mort du processus à n'importe quel pas | la mémoire disparaît, le journal et le monde restent ; le monde change et le temps passe (1.15) ; une approbation en queue est retirée (1.12.3) |
+| `Perceive` | lecture des capteurs des gardes, journalisée | servie telle quelle à la reprise |
+| `Rejudge` | `Kernel.recheck`, `DurableJournal._settle` | avant d'exécuter sur une lecture rejouée : monde relu, humain reconsulté si l'approbation est périmée (1.15) |
 
 L'hôte est tiré parmi trois promesses — aucune, idempotence, réconciliation —
 et la politique parmi toutes les fonctions `action → {ALLOW, DENY, APPROVE}`.
@@ -36,16 +38,23 @@ exécution placés à tous les pas possibles.
 | `NothingLostSilently` | une action autorisée a eu lieu une fois, ou elle est déclarée indéterminée |
 | `InDoubtOnlyWithoutPromise` | l'indétermination n'existe que faute de promesse de l'hôte |
 | `OneResult` | au plus un résultat journalisé par action |
+| `NoEffectAgainstToday` (I10, 1.15) | aucun effet nouveau quand le monde du moment l'interdit, même si la décision journalisée l'autorisait |
+| `NoLapsedApproval` (1.15) | aucune action ne part sur une approbation périmée |
+| `RevokedMeansNotExecuted` (1.15) | une action révoquée n'a pas eu lieu |
 | `Termination` (vivacité) | la reprise ne cale jamais sur son propre journal |
 
 ## Mutants — le modèle a des dents
 
-`tools/check_formal.py` injecte cinq défauts réalistes et exige que TLC
+`tools/check_formal.py` injecte dix défauts réalistes et exige que TLC
 trouve la violation attendue : relance aveugle d'une action indéterminée
 (`AtMostOnce`), hôte qui ne contrôle pas le permis (`OnlyJudgedArgs`),
 résultat journalisé pris pour une action en suspens (`OneResult`), reprise
 qui ne sait pas servir un résultat (`Termination`), approbation refusée qui
-émet quand même un permis (`NoUnauthorizedEffect`).
+émet quand même un permis (`NoUnauthorizedEffect`) ; et depuis la 1.15,
+intention en suspens relancée sans rejuger, action nouvelle d'un tick rejoué
+exécutée telle quelle (`NoEffectAgainstToday`), approbation périmée reprise
+sans l'humain, approbation de queue réutilisée (`NoLapsedApproval`),
+révocation d'une action déjà faite (`RevokedMeansNotExecuted`).
 
 ## Ce qui ne l'est pas
 
@@ -55,6 +64,10 @@ qui ne sait pas servir un résultat (`Termination`), approbation refusée qui
   suites aléatoires d'opérations sur les permis (`P8`), invariants du noyau.
 - **Les gardes ne sont pas modélisées** : leur sémantique (Kleene, fail-closed)
   est vérifiée par les propriétés `P1`–`P4`, le solveur par `P5`–`P6`.
+- **Le monde est abstrait** en un booléen par action (« une garde l'interdit
+  aujourd'hui »), qui ne change que pendant un crash : le délai entre la
+  perception d'un tick et son action, en exécution normale, est celui de tout
+  interpréteur à ticks et n'est pas modélisé.
 - **Bornes** : trois actions, deux crashs. Le protocole traite chaque action
   indépendamment, ce qui rend ces bornes représentatives — ce n'est pas une
   preuve pour N quelconque.

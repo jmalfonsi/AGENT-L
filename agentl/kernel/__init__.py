@@ -17,10 +17,10 @@ from __future__ import annotations
 
 from .action import (ActionRequest, action_digest, canonical, canonical_bytes,
                      coerce_inputs, typecheck, value_digest)
-from .errors import (ActionInDoubt, Cancelled, KernelAbort, PermitError,
-                     Refused)
-from .gate import (APPROVAL_WORDS, Authorization, Kernel, action_from_tool,
-                   approval_granted, policy_digest)
+from .errors import (ActionInDoubt, ActionRevoked, ApprovalLapsed, Cancelled,
+                     KernelAbort, PermitError, Refused)
+from .gate import (APPROVAL_WORDS, Authorization, Kernel, Recheck,
+                   action_from_tool, approval_granted, policy_digest)
 from .permit import (ActionContext, ExecutionPermit, activated,
                      active_dispatch, current_action, require_permit)
 
@@ -42,9 +42,10 @@ TCB_FILES = (
 )
 
 __all__ = [
-    "ActionContext", "ActionInDoubt", "ActionRequest", "APPROVAL_WORDS",
-    "Authorization", "Cancelled", "ExecutionPermit", "Kernel", "KernelAbort",
-    "PermitError", "Refused", "TCB_FILES", "action_digest", "action_from_tool",
+    "ActionContext", "ActionInDoubt", "ActionRequest", "ActionRevoked",
+    "APPROVAL_WORDS", "ApprovalLapsed", "Authorization", "Cancelled",
+    "ExecutionPermit", "Kernel", "KernelAbort", "PermitError", "Recheck",
+    "Refused", "TCB_FILES", "action_digest", "action_from_tool",
     "activated", "active_dispatch", "approval_granted", "canonical",
     "canonical_bytes", "coerce_inputs", "current_action", "policy_digest",
     "require_permit", "typecheck", "value_digest",

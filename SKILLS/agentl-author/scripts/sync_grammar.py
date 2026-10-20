@@ -121,7 +121,12 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # 2.16.0 : v1.14.0 — surface élargie : `W141` (provenance par le flot) et
 # `V154` (T6 dit ce qu'il n'a pas jugé). `tools/check_mutation.py` devient une
 # porte de la chaîne. Aucun verdict de théorème ne change : mineur.
-AUTHORING_CONTRACT_VERSION = "2.16.0"
+# 2.17.0 : v1.15.0 — une reprise durable rejuge une action avant de la
+# relancer : capteurs des gardes relus en direct, approbation plus vieille que
+# `--max-resume-age` redemandée. Nouvelles erreurs `ActionRevoked` /
+# `ApprovalLapsed`, résolution `revoked`, option `--max-resume-age`. Une
+# relance qui passait peut désormais être refusée : mineur.
+AUTHORING_CONTRACT_VERSION = "2.17.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

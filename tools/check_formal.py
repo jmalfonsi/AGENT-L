@@ -38,9 +38,9 @@ MUTANTS = [
     ("relance aveugle d'une action indéterminée",
      '''             \\/ /\\ mode = "plain"                      \\* indéterminé
                 /\\ wal' = Append(wal, Rec("result", i, FALSE, "in_doubt"))
-                /\\ Serve(i) /\\ UNCHANGED <<count, effArgs>>''',
+                /\\ Serve(i) /\\ UNCHANGED <<count, effArgs, lapsedUse>>''',
      '''             \\/ /\\ mode = "plain"
-                /\\ Go /\\ UNCHANGED <<wal, count, effArgs>>''',
+                /\\ Go /\\ UNCHANGED <<wal, count, effArgs, lapsedUse>>''',
      "AtMostOnce"),
     ("hôte qui ne contrôle pas les arguments du permis",
      "       IF sent # permit.args", "       IF FALSE", "OnlyJudgedArgs"),
@@ -50,12 +50,47 @@ MUTANTS = [
      "OneResult"),
     ("reprise qui ne sait pas servir un résultat journalisé (blocage)",
      '''       \\/ /\\ Has("result", i)                  \\* journalisé : servi
-          /\\ Serve(i) /\\ UNCHANGED <<wal, count, effArgs>>
+          /\\ Serve(i) /\\ UNCHANGED <<wal, count, effArgs, lapsedUse>>
 ''', "", "Termination"),
     ("approbation refusée qui émet quand même un permis",
      "               /\\ IF yes THEN Grant(i) ELSE Refuse(i)",
      "               /\\ Grant(i)", "NoUnauthorizedEffect"),
+    # 1.15 — le monde change pendant le crash.
+    ("intention en suspens relancée sans rejuger le monde d'aujourd'hui",
+     "Rejudge(i) == IF facts[i] THEN {FALSE} ELSE IF Asked(i) THEN BOOLEAN "
+     "ELSE {TRUE}",
+     "Rejudge(i) == IF Asked(i) THEN BOOLEAN ELSE {TRUE}",
+     "NoEffectAgainstToday"),
+    ("action nouvelle décidée sur une lecture rejouée, exécutée telle quelle",
+     "          /\\ IF StaleRead(i) /\\ facts[i]       "
+     "\\* décidée sur une lecture rejouée",
+     "          /\\ IF FALSE", "NoEffectAgainstToday"),
+    ("approbation périmée reprise sans reconsulter l'humain",
+     'Asked(i)   == policy[i] = "APPROVE" /\\ lapsed /\\ ~facts[i]',
+     "Asked(i)   == FALSE", "NoLapsedApproval"),
+    ("approbation de queue réutilisée après le crash",
+     '''  /\\ wal' = IF wal # << >> /\\ wal[Len(wal)].type = "approve"
+            THEN SubSeq(wal, 1, Len(wal) - 1) ELSE wal''',
+     "  /\\ wal' = wal", "NoLapsedApproval"),
+    ("révocation d'une action que le réconciliateur dit faite",
+     '             \\/ /\\ (mode = "idempotent" \\/ (mode = "reconcile" '
+     '/\\ count[i] = 0))',
+     '             \\/ /\\ mode \\in {"idempotent", "reconcile"}',
+     "RevokedMeansNotExecuted"),
 ]
+
+
+def mutant_cfg(invariant: str) -> str:
+    """La configuration du modèle, réduite à la propriété que vise le mutant.
+
+    Avec toutes les propriétés, TLC rend le **premier** contre-exemple trouvé
+    en largeur — souvent celui d'une autre propriété, plus court (une relance
+    aveugle viole `NoEffectAgainstToday` avant de doubler un effet). Le mutant
+    serait attrapé, mais pas par la propriété qu'il doit démontrer utile.
+    """
+    head = CFG.read_text(encoding="utf-8").split("INVARIANTS")[0]
+    section = ("PROPERTIES" if invariant == "Termination" else "INVARIANTS")
+    return f"{head}{section}\n    {invariant}\nCHECK_DEADLOCK FALSE\n"
 
 
 def fetch(jar: Path) -> Path:
@@ -117,7 +152,9 @@ def main(argv=None) -> int:
             spec = work / "src" / SPEC.name
             spec.parent.mkdir()
             spec.write_text(source.replace(original, mutated), encoding="utf-8")
-            out = tlc(java, jar, spec, CFG, work)
+            cfg = work / "src" / CFG.name
+            cfg.write_text(mutant_cfg(invariant), encoding="utf-8")
+            out = tlc(java, jar, spec, cfg, work)
             # TLC 1.7.x ne nomme pas la propriété temporelle violée ; le
             # fichier .cfg n'en déclare qu'une (Termination), donc la formule
             # générique lui est attribuable sans ambiguïté.

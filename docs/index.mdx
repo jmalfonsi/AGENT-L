@@ -60,6 +60,17 @@ AGENT SOC_ANALYST {
   </Card>
 </Columns>
 
+## Nouveautés de la v1.15
+
+<Columns cols={2}>
+  <Card title="Une action reprise est rejugée" icon="rotate-ccw" href="/core/durable-execution">
+    Après un crash, rien n’est relancé sans relire en direct les capteurs que nomment ses gardes : un compte gelé pendant la panne ne reçoit pas le virement décidé avant elle.
+  </Card>
+  <Card title="Approbation périmée, humain reconsulté" icon="user-check" href="/core/durable-execution">
+    Au-delà de `--max-resume-age`, une approbation ne couvre plus la relance. Le modèle TLA+ fait désormais changer le monde pendant le crash.
+  </Card>
+</Columns>
+
 ## Nouveautés de la v1.14
 
 <Columns cols={2}>
@@ -150,7 +161,7 @@ AGENT SOC_ANALYST {
 </Columns>
 
 <Note>
-  Le paquet est numéroté 1.14.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
+  Le paquet est numéroté 1.15.0. Le [banc comparatif](/core/benchmarks) confronte ces garanties à LangGraph, PydanticAI et CrewAI.
 </Note>
 
 ## Deux façons de travailler

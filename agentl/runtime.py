@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from .core import UNDEFINED, Symbol, fmt, truthy
 from .host import Host
-from .kernel import ActionInDoubt, Kernel, KernelAbort, Refused
+from .kernel import ActionInDoubt, ActionRevoked, Kernel, KernelAbort, Refused
 from .kernel import gate as _gate
 from .kernel import provenance as P
 from .kernel.provenance import Prov, UNKNOWN_LABEL, unwrap
@@ -1971,6 +1971,8 @@ class Runtime:
             registered, result = self.kernel.delegate(permit, self.host)
         except KernelAbort:
             raise
+        except ActionRevoked as exc:
+            return self._revoked(stmt.agent, f"DELEGATE {stmt.agent}", exc)
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(self.state.tick, "ERROR",
                            f"sous-agent {stmt.agent} en erreur",
@@ -2119,6 +2121,8 @@ class Runtime:
                            f"{request.render()} refusé par l'outil",
                            str(exc) or "Refused")
             return None
+        except ActionRevoked as exc:
+            return self._revoked(name, request.render(), exc)
         except Exception as exc:                      # noqa: BLE001
             self._record_tool_failure(name)
             self.metrics["tool_failures"] += 1
@@ -2197,6 +2201,18 @@ class Runtime:
         self.trace.log(self.state.tick, "TOOL", request.render(),
                        f"risk={decl.risk} → {fmt(safe_result)}")
         return safe_result
+
+    def _revoked(self, name: str, subject: str, exc: ActionRevoked) -> Any:
+        """Rejugée à la reprise d'une exécution durable, et refusée sans avoir
+        eu lieu (1.15) : un refus de gouvernance, pas une panne — ni
+        disjoncteur, ni action indéterminée."""
+        self.metrics["blocked"] += 1
+        self.state.set_local("last_action.blocked", True, _RUNTIME)
+        self._publish_refusal(name, denied=not exc.unapproved,
+                              unapproved=exc.unapproved)
+        self.trace.log(self.state.tick, "BLOCKED",
+                       f"{subject} refusé à la reprise", str(exc))
+        return None
 
     def _flag_in_doubt(self, name: str, side_effects: List[str]) -> None:
         """Une action a pu avoir lieu sans qu'on sache si elle a eu lieu (v1.9).

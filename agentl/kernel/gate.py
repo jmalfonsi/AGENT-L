@@ -35,6 +35,7 @@ from ..core import Symbol
 from .action import (ActionRequest, action_digest, coerce_inputs, typecheck)
 from .errors import KernelAbort
 from .permit import ExecutionPermit, PermitAuthority
+from .provenance import OBSERVED, Prov, unwrap
 
 #: Réponses d'un approbateur qui valent **accord**, et rien d'autre.
 #: Volontairement court : ce sont les formes qu'un humain ou une interface
@@ -114,6 +115,44 @@ class Authorization:
         return self.permit is not None
 
 
+@dataclass(frozen=True)
+class Recheck:
+    """Verdict d'une action en suspens, rejugée à la reprise (1.15).
+
+    `record` est ce que le journal en garde — capteurs relus, verdict de la
+    politique, sort de l'approbation — pour qu'une reprise suivante le serve
+    au lieu de le recalculer, et pour qu'un auditeur sache sur quoi l'action
+    a été relancée ou refusée.
+    """
+
+    ok: bool
+    record: Dict[str, Any]
+    reason: str = ""
+    unapproved: bool = False
+
+
+def _paths(node: Any, out: set) -> None:
+    """Chemins nommés par une expression de garde, à toute profondeur."""
+    if hasattr(node, "dotted"):
+        out.add(node.dotted)
+    fields = getattr(node, "__dataclass_fields__", ())
+    children = (node.values() if isinstance(node, dict) else node
+                if isinstance(node, (list, tuple)) else
+                [getattr(node, name) for name in fields])
+    for child in children:
+        _paths(child, out)
+
+
+def _closed(fn: Callable[[], Any], fallback: Any) -> Any:
+    """`fn()`, ou `fallback` si elle lève — jamais sur une interruption."""
+    try:
+        return fn()
+    except KernelAbort:
+        raise
+    except Exception:                                     # noqa: BLE001
+        return fallback
+
+
 class _Silent:
     """Observateur par défaut : le noyau ne trace rien lui-même."""
 
@@ -145,6 +184,9 @@ class Kernel:
         #: Journal d'intention (exécution durable, `agentl.durable`). `None`
         #: = exécution éphémère : l'hôte est appelé directement.
         self.journal: Any = None
+        #: Requête figée et état jugés, par permis encore en vol : de quoi
+        #: rejuger l'action si une reprise doit la relancer (1.15).
+        self._judged: Dict[str, Tuple[ActionRequest, Any]] = {}
 
     # ------------------------------------------------------ propositions
     def propose_tool(self, name: str, args: Dict[str, Any],
@@ -243,6 +285,7 @@ class Kernel:
         # 4. Émission — en dernier, pour qu'aucune exception d'un
         #    observateur ne laisse un permis derrière elle.
         permit = self._mint(kind, frozen, approved, state)
+        self._judged[permit.action_id] = (frozen, state)
         return Authorization(GRANTED, frozen, permit=permit,
                              decision=decision, approved=approved)
 
@@ -265,26 +308,90 @@ class Kernel:
     def void(self, permit: Optional[ExecutionPermit]) -> None:
         """Révoque un permis qui ne sera pas exécuté (disjoncteur ouvert…)."""
         if permit is not None:
+            self._judged.pop(permit.action_id, None)
             self._authority.void(permit)
 
+    # ------------------------------------------------------------ reprise
+    def guard_sensors(self, tool: str) -> list:
+        """Capteurs déclarés que nomment les gardes des règles visant `tool`."""
+        wanted: set = set()
+        for rule in self.policy.rules:
+            if rule.target in ("*", tool):
+                _paths(rule.guard, wanted)
+        return [o.path for o in getattr(self.agent, "observers", ()) or ()
+                if any(p == o.path or p.startswith(o.path + ".")
+                       for p in wanted)]
+
+    def recheck(self, permit: ExecutionPermit, judged: Any, host: Any,
+                approval_fresh: bool) -> Recheck:
+        """Rejuge une action en suspens sur le monde d'aujourd'hui (1.15).
+
+        Une reprise re-dérive chaque décision depuis le journal, donc depuis
+        les lectures du processus mort. C'est ce qui la rend déterministe, et
+        c'est juste tant que rien ne s'exécute : relancer une intention en
+        suspens, en revanche, c'est agir **maintenant**. Les capteurs que
+        nomment les gardes visant l'outil sont relus en direct sur `host`
+        (l'hôte réel, pas le journal), la politique juge la même requête figée
+        sur l'état vu à travers ces lectures, et une approbation exigée n'est
+        reprise telle quelle que si elle est encore fraîche — sinon l'humain
+        est reconsulté. L'état du runtime n'est pas touché. Un capteur muet
+        efface son chemin : la garde est indéterminée et échoue fermé.
+        """
+        from ..policy import ALLOWED, APPROVAL_REQUIRED
+        record: Dict[str, Any] = {"facts": {}, "verdict": None,
+                                  "approval": None}
+        if judged is None:
+            return Recheck(False, record, "décision d'origine introuvable")
+        request, state = judged
+        seen = Prov({OBSERVED})
+        facts = {path: _closed(lambda p=path: unwrap(host.read(p), seen),
+                               (None, seen))
+                 for path in self.guard_sensors(request.tool)}
+        record["facts"] = {path: value for path, (value, _) in facts.items()}
+        decision = _closed(
+            lambda: self.policy.check(request, state.observed(facts)), None)
+        record["verdict"] = getattr(decision, "verdict", "ERROR")
+        if record["verdict"] not in (ALLOWED, APPROVAL_REQUIRED):
+            return Recheck(False, record, getattr(decision, "reason",
+                                                  "politique inévaluable"))
+        if record["verdict"] == APPROVAL_REQUIRED:
+            if permit.approved and approval_fresh:
+                record["approval"] = "kept"
+                return Recheck(True, record)
+            granted = _closed(
+                lambda: approval_granted(host.approve(deepcopy(request))), False)
+            record["approval"] = "renewed" if granted else "refused"
+            if not granted:
+                return Recheck(False, record, "approbation périmée, non "
+                                              "renouvelée", unapproved=True)
+        return Recheck(True, record)
+
     # ---------------------------------------------------------- exécution
+    def _rechecker(self, permit: ExecutionPermit) -> Callable[..., Recheck]:
+        judged = self._judged.pop(permit.action_id, None)
+        return lambda host, fresh: self.recheck(permit, judged, host, fresh)
+
     def execute(self, permit: ExecutionPermit, host: Any) -> Any:
         """Le seul appel à `host.invoke` de tout AGENT-L."""
+        recheck = self._rechecker(permit)
         with self._authority.dispatch(permit) as active:
             call = lambda: host.invoke(permit.target, deepcopy(permit.args))  # noqa: E731
             if self.journal is not None:
-                return self.journal.dispatch(permit, active, call, host)
+                return self.journal.dispatch(permit, active, call, host,
+                                             recheck=recheck)
             return call()
 
     def delegate(self, permit: ExecutionPermit, host: Any) -> Tuple[bool, Any]:
         """Le seul appel à un sous-agent. Rend `(enregistré, résultat)`."""
+        recheck = self._rechecker(permit)
         with self._authority.dispatch(permit) as active:
             fn = host.subagents.get(permit.target)
             if fn is None:
                 return False, None
             call = lambda: fn(deepcopy(permit.args))  # noqa: E731
             if self.journal is not None:
-                return True, self.journal.dispatch(permit, active, call, host)
+                return True, self.journal.dispatch(permit, active, call, host,
+                                                   recheck=recheck)
             return True, call()
 
     # ------------------------------------------------------------- état

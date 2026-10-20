@@ -66,6 +66,20 @@ Si le processus meurt entre l’intention et le résultat, l’effet a peut-êtr
   </Step>
 </Steps>
 
+## Rejugée avant de partir (v1.15)
+
+La reprise re-dérive chaque décision depuis les lectures du processus mort. Relancer une intention en suspens, ou exécuter une action **nouvelle** du tick interrompu (perception rejouée, approbation en vol redemandée), c’est donc agir maintenant sur le monde d’avant la panne. Depuis la v1.15, le noyau **rejuge** l’action juste avant :
+
+- les capteurs que nomment les gardes visant l’outil sont relus en direct, sur l’hôte réel ; un capteur muet fait échouer la garde fermée ;
+- la politique juge la même requête sur l’état vu à travers ces lectures, sans le modifier ;
+- une approbation plus vieille que `--max-resume-age` (900 s par défaut ; `0` : toujours, `inf` : jamais) est redemandée.
+
+Refusée, l’action n’est pas exécutée. Si l’on sait qu’elle n’a pas eu lieu (réconciliateur : `NOT_EXECUTED`, ou action nouvelle), elle est **révoquée** : trace `BLOCKED … refusé à la reprise`, `tools.<outil>.denied` (ou `unapproved` si l’humain a refusé de renouveler). Sinon (outil idempotent sans réconciliateur), elle est **indéterminée**. Le verdict, les valeurs relues et le sort de l’approbation sont journalisés : une reprise suivante les sert sans relire.
+
+<Note>
+  Seules les lectures directes sont relues : une garde qui porte sur une copie (`SET`) ou une croyance dérivée garde la valeur du run interrompu. Pour qu’une garde soit rejugée, faites-la porter sur le capteur.
+</Note>
+
 ## Côté hôte
 
 ```python payments.py
@@ -121,6 +135,7 @@ POLICY {
 | interrompue, outil idempotent ou réconciliable | exactement une fois |
 | interrompue, sans promesse de l’hôte | au plus une fois, déclarée indéterminée |
 | lecture, question, approbation en vol | refaite (sans effet) |
+| action exécutée après une reprise | rejugée d’abord sur les capteurs de ses gardes, relus en direct (v1.15) |
 | `drain` d’événements en vol | événements perdus (au plus une fois) |
 
 ## Refus de reprise
@@ -154,7 +169,8 @@ Même sans clé, une réponse d’approbateur qui **termine** le journal est ret
 ```python
 from agentl.durable import DurableRun, FileStore
 
-run = DurableRun(agent, host, llm, store=FileStore("runs/payments"))
+run = DurableRun(agent, host, llm, store=FileStore("runs/payments"),
+                 max_resume_age=900.0)   # None : approbation jamais périmée
 runtime = run.run(max_ticks=8)      # neuve, ou reprise
 print(run.resumed, run.status, run.journal.resolutions)
 ```

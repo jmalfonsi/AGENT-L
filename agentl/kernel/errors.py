@@ -50,6 +50,33 @@ class ActionInDoubt(AgentLError):
         self.tool = tool
 
 
+class ActionRevoked(AgentLError):
+    """Une action en suspens, rejugée à la reprise, n'est plus autorisée (1.15).
+
+    Une exécution durable reprend une intention journalisée sans résultat. La
+    relancer, c'est agir *maintenant* — sur une décision prise avec les
+    lectures du processus mort. Le noyau la rejuge donc sur le monde
+    d'aujourd'hui ; si la politique la refuse et que l'hôte établit qu'elle
+    n'avait pas eu lieu, elle est révoquée : pas exécutée, et on le sait.
+    Un refus de politique, pas une panne — ni disjoncteur, ni `in_doubt`.
+
+    Faute de pouvoir établir qu'elle n'avait pas eu lieu, l'action refusée
+    n'est pas révoquée mais indéterminée (`ActionInDoubt`).
+    """
+
+    #: La politique interdit (`tools.<outil>.denied`), ou l'approbation
+    #: n'a pas été renouvelée (`tools.<outil>.unapproved`). Porté par la
+    #: classe, pas par l'instance : un rejeu reconstruit l'exception par son
+    #: nom et doit publier le même fait.
+    unapproved = False
+
+
+class ApprovalLapsed(ActionRevoked):
+    """L'approbation d'une action reprise a expiré et n'a pas été renouvelée."""
+
+    unapproved = True
+
+
 class Refused(AgentLError):
     """L'outil a **refusé** la valeur qu'on lui soumettait : une réponse, pas
     une panne (v1.12).

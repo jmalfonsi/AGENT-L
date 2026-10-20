@@ -7,7 +7,7 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.14.0** —
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.15.0** —
 la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
 défendue par un scénario, une garde de provenance se teste par
 `GIVEN … UNTRUSTED`, un refus devient un fait (`tools.<outil>.denied`), et un
@@ -1463,6 +1463,11 @@ Une action restée sans résultat est tranchée :
 NEVER transfer WHEN tools.transfer.in_doubt == true
 ```
 
+Depuis la 1.15, une action reprise est **rejugée** avant de partir : les
+capteurs que nomment ses gardes sont relus en direct, et une approbation plus
+vieille que `--max-resume-age` (900 s) est redemandée. Un compte gelé pendant la
+panne ne reçoit pas le virement décidé avant elle.
+
 ### La provenance est portée par les valeurs
 
 Chaque valeur porte l'ensemble de ses sources : `OBSERVED`, `LLM`, `TOOL`,
@@ -1535,7 +1540,7 @@ qui rend l'appariement non ambigu. Sans `X.py`, `run` refuse de démarrer et
 | `verify` | `--depth N` borne la recherche de route de T2/T5. La recherche s'arrête normalement bien avant, sur son point fixe ; augmenter `N` sert quand un verdict rend « ◐ BORNÉ » (`V113`, `V122`) |
 | `boundary` | `--project-root DIR` fixe la racine des imports locaux · `--external-policy report\|error` liste ou refuse les dépendances externes hors analyse |
 | `autoloop` | `--model M` rédacteur des corrections (`gemini-*` ou `claude-*`) ; sans lui, diagnostic seul · `-o F` écrit le programme corrigé (**sans `-o`, rien n'est écrit**) · `--holdout R` part des cas retenus (défaut `0.3` ; `0` la désactive, et avec elle la seule mesure du par-cœur) · `--max-attempts N` · `--budget S` · `--patience N` tentatives sans progrès tolérées · `--max-cases N` · `--seed N` · `--host-pass` second temps contre l'hôte réel, en lecture seule · `--host-ticks N` |
-| `run` | `--ticks N` plafond de ticks (prime sur `LOOP … MAX n`) · `--quiet` supprime la trace en direct · `--html F` journal visuel autonome · `--events F` trace en JSON Lines (un événement par ligne : `seq`, `agent`, `tick`, `kind`, `text`, `detail`), vidée au fil de l'exécution · `--record F` journal de rejeu (JSON) · `--sign-key K` signe le journal (PEM Ed25519, fichier de secret ou secret littéral ; défaut `AGENTL_JOURNAL_KEY`) · `--durable DIR` exécution durable : démarre, ou reprend si `DIR` contient un journal (exclusif avec `--record`) · `--run-id ID` identifiant de l'exécution durable |
+| `run` | `--ticks N` plafond de ticks (prime sur `LOOP … MAX n`) · `--quiet` supprime la trace en direct · `--html F` journal visuel autonome · `--events F` trace en JSON Lines (un événement par ligne : `seq`, `agent`, `tick`, `kind`, `text`, `detail`), vidée au fil de l'exécution · `--record F` journal de rejeu (JSON) · `--sign-key K` signe le journal (PEM Ed25519, fichier de secret ou secret littéral ; défaut `AGENTL_JOURNAL_KEY`) · `--durable DIR` exécution durable : démarre, ou reprend si `DIR` contient un journal (exclusif avec `--record`) · `--run-id ID` identifiant de l'exécution durable · `--max-resume-age S` âge au-delà duquel une approbation ne couvre plus une relance (défaut 900, `0` toujours, `inf` jamais) |
 | `durable` | `status DIR` état d'une exécution durable sans la reprendre (chaîne, intentions en suspens, résolutions) · `export DIR [-o F]` journal de rejeu standard d'une exécution terminée, pour `agentl replay` |
 | `replay` | `--source X.agent` rejoue contre un autre programme · `--force` rejoue même si le programme a changé · `--key K` vérifie le sceau · `--require-seal` échoue si le journal n'est pas valablement signé · `--ticks N` · `--quiet` · `--events F` trace rejouée en JSON Lines |
 | `seal` | vérifie l'intégrité et l'authenticité d'un journal sans le rejouer · `--key K` clé de vérification · `--keygen RÉP` génère une paire Ed25519 · `--name N` nom de base des clés |
@@ -1690,6 +1695,7 @@ WEBSITE/                site de présentation
 | **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
 | **v1.14.0** | **la dette de sûreté devient mesurable et ne peut que baisser : cliquet de mutation en CI (`tools/check_mutation.py`), provenance **statique** par flot (`W141`, `V154`), exemples dotés de vrais scénarios (`soc_analyst`, `service_medic`, `disk_sentinel`, `idor_hunter`, `mention_triage`, `soc_risk`, `K8S_HEALER`), règles inexerçables levées avec leur raison** |
+| **v1.15.0** | **une action reprise est rejugée sur le monde d'aujourd'hui : capteurs des gardes relus avant toute relance, approbation périmée redemandée (`--max-resume-age`), `ActionRevoked`, modèle TLA+ où le monde change pendant le crash** |
 | **v1.13.0** | **`verify` n'affirme plus ce qu'il n'a pas examiné : T1 voit tous les corps exécutables (`EVENT`, `ON MESSAGE`, `ON VERIFY.FAIL`, `DECIDE`, `LOOP`), T4 distingue approbation conditionnelle et inconditionnelle, `W140` (charge utile externe → cible d'un outil risqué), `V153` (outil risqué sans politique), `autoloop` rejoue les stimuli, `agentl --version`** |
 | **v1.12.3** | **fuites fermées : `NEVER SEND` suit la valeur (origine `SECRET`) et non son nom, journal durable à clé (`--sign-key`) dont une approbation de queue est redemandée, `W139` (garde sur une confiance que rien ne produit), TLC épinglé sur une version stable** |
 | **v1.12.2** | **T5 : `EXPECT NEVER CALL` contraint la route au lieu de sortir le scénario du modèle ; un résumé qui distingue « hors modèle » (stimuli) et « non atteint à la profondeur »** |

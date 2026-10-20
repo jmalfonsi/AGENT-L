@@ -9,6 +9,7 @@ Correspondance avec la sémantique formelle :
 """
 from __future__ import annotations
 
+import copy
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .core import UNDEFINED, Belief, EvalError, Symbol, ordinal, truthy
@@ -242,6 +243,28 @@ class State:
     def attested_by(self, value: Any) -> Set[str]:
         registry = getattr(self, "attestations", None) or {}
         return set(registry.get(attest_key(value), ()))
+
+    def observed(self, facts: Dict[str, Tuple[Any, Prov]]) -> "State":
+        """Cet état, vu à travers des perceptions plus fraîches (1.15).
+
+        `facts` : chemin observé → `(valeur, étiquette)`, posés comme la
+        perception les pose (monde et croyance). Les magasins qu'elle écrit
+        sont copiés, l'état lui-même n'est pas touché : une reprise qui le
+        modifierait divergerait de son propre journal au point de contrôle
+        suivant. `None` — capteur muet — efface le chemin : toute garde qui
+        le nomme devient indéterminée, donc échoue fermé.
+        """
+        view = copy.copy(self)
+        view.world, view.beliefs = dict(self.world), dict(self.beliefs)
+        view.locals = dict(self.locals)
+        view.labels = dict(getattr(self, "labels", None) or {})
+        for path, (value, label) in facts.items():
+            if value is None:
+                view.invalidate(path)
+                continue
+            view.set_world(path, value, label)
+            view.set_belief(path, value, 0.95, "observation", self.tick, label)
+        return view
 
     def snapshot(self) -> Dict[str, Any]:
         return {

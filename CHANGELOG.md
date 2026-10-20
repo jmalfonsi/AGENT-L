@@ -4,6 +4,41 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.15.0] — non publié · une action reprise est rejugée sur le monde d'aujourd'hui
+
+Une reprise durable re-dérive chaque décision depuis les lectures du processus
+mort. Deux cas exécutaient pourtant **en direct** sur ces lectures : une
+intention en suspens relancée (idempotence) ou exécutée (réconciliateur), et
+une action nouvelle du tick interrompu — perception rejouée, approbation en
+vol redemandée. Sonde : compte gelé pendant la panne, `NEVER transfer WHEN
+account.frozen == yes`, le virement partait dans les deux cas. SPEC §44.
+
+- **Rejugement avant d'agir** (`Kernel.recheck`) : les capteurs que nomment les
+  gardes visant l'outil sont relus sur l'hôte réel, la politique juge la même
+  requête figée sur l'état vu à travers eux, sans le modifier. Capteur muet :
+  échec fermé. Verdict et valeurs journalisés dans la résolution (`recheck`),
+  servis tels quels par une reprise suivante.
+- **Approbation périmée redemandée** : une intention porte sa date ; au-delà de
+  `max_resume_age` (900 s par défaut, `--max-resume-age`), l'humain est
+  reconsulté. Journal antérieur sans date : reconsulté.
+- **Refusée, l'action n'est pas exécutée** : révoquée (`ActionRevoked`,
+  `ApprovalLapsed` ; trace `BLOCKED`, `tools.<outil>.denied|unapproved`)
+  quand on sait qu'elle n'a pas eu lieu, indéterminée sinon. Un outil
+  idempotent et réconciliable consulte son réconciliateur avant de douter.
+  Nouvelle résolution `revoked`, affichée par `run --durable` et
+  `durable status` avec le verdict du rejugement.
+- **Modèle TLA+** : le monde change et le temps passe pendant un crash ; trois
+  invariants (`NoEffectAgainstToday`, `NoLapsedApproval`,
+  `RevokedMeansNotExecuted`) et cinq mutants de plus, dont la réutilisation
+  d'une approbation de queue (1.12.3). 2,4 millions d'états (22 025 avant).
+- **TCB** : 1 344 lignes sur 1 350 — le budget n'est pas relevé.
+
+Non traité, constaté en chemin (hors reprise) : un capteur muet sans
+`ON UNKNOWN` garde sa dernière valeur, rafraîchie comme une observation du
+tick, alors que la trace annonce « chemin indéfini … échoue fermé ».
+
+Contrat d'auteur 2.17.0. Aucune grammaire ne change.
+
 ## [1.14.0] — non publié · la dette de sûreté se mesure, et ne peut que baisser
 
 - **Cliquet de mutation en CI** (`tools/check_mutation.py`, SPEC §43) : la liste

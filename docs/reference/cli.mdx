@@ -79,6 +79,7 @@ agentl run agent.agent [options]
 | `--sign-key KEY` | signe le journal avec une clé ou un secret ; en `--durable`, la chaîne passe en HMAC et la clé est exigée à la reprise |
 | `--durable DIR` | exécution durable : démarre, ou reprend si `DIR` contient un journal (exclusif avec `--record`) |
 | `--run-id ID` | identifiant de l’exécution durable |
+| `--max-resume-age S` | en `--durable` : âge au-delà duquel une approbation ne couvre plus la relance d’une action après un crash (défaut 900 ; `0` toujours redemander ; `inf` jamais) |
 
 L’hôte est toujours `agent.py` pour `agent.agent`. Une exécution sans ce fichier est refusée.
 

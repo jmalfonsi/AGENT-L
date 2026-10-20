@@ -77,7 +77,9 @@ Ce que cela ne dit pas :
   une source non fiable.
 - Exécution durable : un effet exécuté deux fois après une reprise, alors
   que l'outil est déclaré idempotent ou réconciliable ; une action
-  indéterminée relancée sans promesse de l'hôte.
+  indéterminée relancée sans promesse de l'hôte ; depuis la 1.15, une action
+  exécutée après une reprise alors qu'une garde, relue sur un capteur qu'elle
+  nomme, l'interdit, ou sur une approbation plus vieille que `max_resume_age`.
 - Échappement de la racine `--root` du studio (lecture, écriture, exécution).
 - Un verdict `verify` « ✔ DÉMONTRÉ » sur un programme qui viole le théorème
   correspondant — un faux négatif du vérificateur est une faille, pas un bug.

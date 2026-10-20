@@ -30,6 +30,8 @@ Protocole d'une action :
 4. une intention restée sans résultat est **tranchée** : relancée avec la
    même clé si l'hôte promet l'idempotence, réconciliée s'il sait dire ce qui
    s'est passé, sinon déclarée **indéterminée** — jamais relancée en aveugle ;
+   et rien n'est relancé sans avoir été **rejugé** sur le monde d'aujourd'hui
+   (1.15) : capteurs des gardes relus, approbation périmée redemandée ;
 5. passé le journal, l'exécution continue en direct et journalise.
 
 Ce qui est garanti, et rien de plus :
@@ -62,13 +64,20 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .core import AgentLError
 from .kernel.action import canonical
-from .kernel.errors import ActionInDoubt, KernelAbort
+from .kernel.errors import (ActionInDoubt, ActionRevoked, ApprovalLapsed,
+                            KernelAbort)
+from .kernel.gate import Recheck
 from .llm import ask_judge
 from .replay import (ANNOTATIONS, Entry, Journal, ReplayDivergence, _NO_ARGS,
                      _missing_args, _rebuild_error, decode, missing_of, sha256)
 from .seal import chain_head, chain_step
 
 DURABLE_FORMAT = "agentl.durable.v1"
+
+#: Âge au-delà duquel une approbation ne couvre plus la relance de son action
+#: après un crash, en secondes (1.15). `None` : sans limite — le comportement
+#: d'avant la 1.15 —, `0` : toujours reconsulter l'humain.
+DEFAULT_MAX_RESUME_AGE = 900.0
 
 
 class DurableError(AgentLError):
@@ -328,6 +337,14 @@ class DurableJournal(Journal):
         self._head = raws[-1]["h"] if raws else ""
         self.completed = meta.get("status") == "completed"
         self.resolutions: List[Dict[str, Any]] = []
+        self.max_resume_age: Optional[float] = DEFAULT_MAX_RESUME_AGE
+        #: Le préfixe s'arrête au milieu d'un tick : ce tick est re-dérivé de
+        #: lectures rejouées, et toute action **nouvelle** qu'il décide l'est
+        #: sur le monde d'avant le crash — perception servie, puis attente
+        #: d'approbation ou appel au modèle interrompus. Jusqu'au premier point
+        #: de contrôle écrit en direct, chaque action est rejugée avant que
+        #: son intention ne soit écrite (1.15).
+        self._stale_tick = bool(raws) and raws[-1].get("kind") != "checkpoint"
 
     @classmethod
     def open(cls, store: Any, key: Optional[bytes] = None, *,
@@ -431,16 +448,32 @@ class DurableJournal(Journal):
 
     # ------------------------------------------------------------- actions
     def dispatch(self, permit: Any, active: Any, call: Callable[[], Any],
-                 host: Any) -> Any:
-        """Protocole d'intention autour d'un appel à l'hôte (noyau)."""
+                 host: Any, recheck: Optional[Callable[..., Recheck]] = None
+                 ) -> Any:
+        """Protocole d'intention autour d'un appel à l'hôte (noyau).
+
+        `recheck(hôte, approbation_fraîche)` rejuge l'action sur le monde
+        d'aujourd'hui (`Kernel.recheck`) ; il n'est appelé que si une reprise
+        s'apprête à l'exécuter — intention en suspens, ou action nouvelle d'un
+        tick re-dérivé de lectures rejouées. Absent, l'action est refusée.
+        """
         stamp = {"action_id": permit.action_id, "key": permit.idempotency_key,
                  "hash": permit.action_hash, "kind": permit.kind,
-                 "policy": permit.policy_digest[:16]}
+                 "policy": permit.policy_digest[:16],
+                 # L'âge de la décision : une approbation trop vieille ne
+                 # couvre plus une relance (1.15).
+                 "at": datetime.now(timezone.utc).isoformat()}
         if not self.in_prefix:
             if self.completed:
                 raise ReplayDivergence("exécution durable terminée : aucune "
                                        "action nouvelle")
+            # L'approbation, s'il en faut une, vient d'être donnée en direct :
+            # une approbation en queue de journal est retirée à l'ouverture.
+            verdict = (self._recheck(recheck, host, True)
+                       if self._stale_tick else None)
             self.record("intent", permit.target, args=stamp)
+            if verdict is not None and not verdict.ok:
+                self._revoke(permit, verdict)
             return call()
 
         entry = self.next("intent", permit.target)
@@ -458,20 +491,72 @@ class DurableJournal(Journal):
         if self.in_prefix:
             active.attempt = attempts
             return call()           # résultat journalisé : servi, pas rejoué
-        return self._settle(permit, active, call, host, attempts)
+        return self._settle(permit, active, call, host, attempts, recheck,
+                            self._fresh(recorded.get("at")))
+
+    def _fresh(self, at: Any) -> bool:
+        """L'approbation donnée avec cette intention couvre-t-elle encore une
+        relance ? Âge inconnu (journal d'avant la 1.15) ou négatif (horloge
+        reculée) : non."""
+        if self.max_resume_age is None:
+            return True
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(at)).total_seconds()
+        except (TypeError, ValueError):
+            return False
+        return 0 <= age < self.max_resume_age
+
+    def _recheck(self, recheck: Optional[Callable[..., Recheck]], host: Any,
+                 fresh: bool) -> Recheck:
+        if recheck is None:
+            return Recheck(False, {"facts": {}, "verdict": None,
+                                   "approval": None},
+                           "aucun moyen de rejuger l'action — refus")
+        # L'hôte réel, pas son enveloppe : ces lectures ne sont pas des
+        # franchissements à rejouer. Leur verdict est journalisé avec la
+        # résolution, et c'est lui qu'une reprise suivante servira.
+        return recheck(getattr(host, "_inner", host), fresh)
+
+    def _revoke(self, permit: Any, verdict: Recheck) -> None:
+        """Rejugée, refusée, et l'on sait qu'elle n'a pas eu lieu."""
+        target = permit.target
+        self._resolve(target, {"action_id": permit.action_id, "how": "revoked",
+                               "recheck": verdict.record})
+        error = (ApprovalLapsed if verdict.unapproved else ActionRevoked)(
+            f"intention {permit.action_id} rejugée à la reprise : "
+            f"{verdict.reason} — action non exécutée")
+        self.record("invoke" if permit.kind == "invoke" else "delegate",
+                    target, args=permit.args, error=error)
+        raise error
 
     def _settle(self, permit: Any, active: Any, call: Callable[[], Any],
-                host: Any, attempts: int) -> Any:
-        """Intention sans résultat : l'effet a pu avoir lieu. Trancher."""
+                host: Any, attempts: int,
+                recheck: Optional[Callable[..., Recheck]] = None,
+                fresh: bool = False) -> Any:
+        """Intention sans résultat : l'effet a pu avoir lieu. Trancher.
+
+        Relancer ou exécuter, c'est agir maintenant, sur une décision prise
+        avec les lectures du processus mort (1.15). L'action est donc rejugée
+        juste avant — et seulement si elle va s'exécuter : une action que le
+        réconciliateur dit faite n'a rien à rejuger. Refusée, elle n'est pas
+        exécutée : réconciliée si l'hôte sait dire ce qui s'est passé,
+        révoquée (`ActionRevoked`) s'il dit qu'elle n'a pas eu lieu,
+        indéterminée sinon.
+        """
         kind_entry = "invoke" if permit.kind == "invoke" else "delegate"
         target = permit.target
         base = {"action_id": permit.action_id}
+        verdict: Optional[Recheck] = None
 
         if permit.kind == "invoke" and target in _idempotent(host):
-            active.attempt = attempts + 1
-            self._resolve(target, {**base, "how": "retry",
-                                   "attempt": active.attempt})
-            return call()
+            verdict = self._recheck(recheck, host, fresh)
+            if verdict.ok:
+                active.attempt = attempts + 1
+                self._resolve(target, {**base, "how": "retry",
+                                       "attempt": active.attempt,
+                                       "recheck": verdict.record})
+                return call()
 
         if permit.kind == "invoke" and _reconcilable(host, target):
             try:
@@ -482,19 +567,28 @@ class DurableJournal(Journal):
             except Exception as exc:                # noqa: BLE001
                 found = _Unknown(f"{type(exc).__name__}: {exc}")
             if found is NOT_EXECUTED:
-                active.attempt = attempts + 1
-                self._resolve(target, {**base, "how": "not_executed",
-                                       "attempt": active.attempt})
-                return call()
+                verdict = verdict or self._recheck(recheck, host, fresh)
+                if verdict.ok:
+                    active.attempt = attempts + 1
+                    self._resolve(target, {**base, "how": "not_executed",
+                                           "attempt": active.attempt,
+                                           "recheck": verdict.record})
+                    return call()
+                self._revoke(permit, verdict)
             if not isinstance(found, _Unknown):
                 self._resolve(target, {**base, "how": "reconciled"})
                 self.record(kind_entry, target, args=permit.args, value=found)
                 return found
 
-        self._resolve(target, {**base, "how": "in_doubt"})
+        how = {**base, "how": "in_doubt"}
+        refused = ""
+        if verdict is not None:
+            how["recheck"] = verdict.record
+            refused = f"réévaluée à la reprise et refusée ({verdict.reason}) ; "
+        self._resolve(target, how)
         error = ActionInDoubt(
             f"intention {permit.action_id} journalisée sans résultat — l'effet "
-            f"a pu avoir lieu ; action non relancée (au plus une fois)",
+            f"a pu avoir lieu ; {refused}action non relancée (au plus une fois)",
             action_id=permit.action_id, tool=target)
         self.record(kind_entry, target, args=permit.args, error=error)
         raise error
@@ -518,6 +612,7 @@ class DurableJournal(Journal):
                     f"runtime ou dépendance non déterministe")
             return
         self.record("checkpoint", str(tick), args=digest)
+        self._stale_tick = False
 
     # --------------------------------------------------------------- statut
     def finish(self, trace_text: str, ticks: int) -> None:
@@ -766,6 +861,7 @@ class DurableRun:
                  store: Any, run_id: Optional[str] = None, echo: bool = False,
                  source: Optional[Tuple[str, str]] = None,
                  key: Optional[bytes] = None,
+                 max_resume_age: Optional[float] = DEFAULT_MAX_RESUME_AGE,
                  **runtime_options: Any) -> None:
         from .host import Host
         from .llm import MockLLM
@@ -776,6 +872,7 @@ class DurableRun:
             else [agents]
         self.store = store
         self.journal = DurableJournal.open(store, key)
+        self.journal.max_resume_age = max_resume_age
         meta = self.journal.meta
         digest = program_digest(self.agents)
         if meta:
@@ -910,7 +1007,8 @@ def resolutions_of(journal: DurableJournal) -> List[Dict[str, Any]]:
             for e in journal.entries if e.kind == "resolution"]
 
 
-__all__ = ["ANNOTATIONS", "DURABLE_FORMAT", "DurableError", "DurableHost",
+__all__ = ["ANNOTATIONS", "DEFAULT_MAX_RESUME_AGE", "DURABLE_FORMAT",
+           "DurableError", "DurableHost",
            "DurableJournal", "DurableLLM", "DurableRun", "FileStore",
            "MemoryStore", "NOT_EXECUTED", "SQLiteStore", "program_digest",
            "resolutions_of", "state_digest"]

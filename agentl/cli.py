@@ -835,6 +835,13 @@ def main(argv=None) -> int:
             p.add_argument("--run-id", default=None,
                            help="identifiant de l'exécution durable (défaut : "
                                 "tiré au hasard, puis relu du journal)")
+            p.add_argument("--max-resume-age", metavar="SECONDES", type=float,
+                           default=None,
+                           help="avec --durable : âge au-delà duquel une "
+                                "approbation ne couvre plus la relance de son "
+                                "action après un crash — l'humain est "
+                                "reconsulté (défaut : 900 ; 0 : toujours ; "
+                                "inf : jamais)")
 
     # `autoloop` ne suit pas le moule non plus : il doit voir la **source**,
     # pas l'arbre, puisqu'un programme illisible fait partie des états qu'il
@@ -1217,7 +1224,8 @@ def _run_durable(program, host, llm, args) -> int:
     d'abord tout ce qui fut journalisé — sans effet, sans appel au modèle —
     puis continue en direct.
     """
-    from .durable import DurableError, DurableRun, FileStore
+    from .durable import (DEFAULT_MAX_RESUME_AGE, DurableError, DurableRun,
+                          FileStore)
     from .replay import ReplayDivergence
     from .seal import SealError
 
@@ -1228,10 +1236,13 @@ def _run_durable(program, host, llm, args) -> int:
     store = FileStore(args.durable)
     try:
         source = Path(args.file).read_text(encoding="utf-8")
+        age = getattr(args, "max_resume_age", None)
         run = DurableRun(program.agents, host, llm, store=store,
                          run_id=args.run_id, echo=not args.quiet,
                          source=(str(args.file), source),
-                         key=_durable_key(args))
+                         key=_durable_key(args),
+                         max_resume_age=(DEFAULT_MAX_RESUME_AGE if age is None
+                                         else age))
     except (DurableError, SealError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
@@ -1257,7 +1268,7 @@ def _run_durable(program, host, llm, args) -> int:
         print(run.trace_text())
     for resolution in run.journal.resolutions:
         print(f"  ↻ {resolution['tool']} ({resolution.get('action_id')}) : "
-              f"{_RESOLUTION_LABEL.get(resolution['how'], resolution['how'])}")
+              f"{_resolution_label(resolution)}")
     metrics = result.metrics
     print("\n" + "  ".join(f"{k}={v}" for k, v in metrics.items()))
     return 0
@@ -1268,7 +1279,28 @@ _RESOLUTION_LABEL = {
     "reconciled": "réconciliée : l'effet avait eu lieu",
     "not_executed": "réconciliée : l'effet n'avait pas eu lieu, exécutée",
     "in_doubt": "INDÉTERMINÉE — non relancée, à trancher par un humain",
+    "revoked": "RÉVOQUÉE — rejugée à la reprise et refusée, non exécutée",
 }
+
+_APPROVAL_LABEL = {"kept": "approbation encore fraîche",
+                   "renewed": "approbation redemandée et accordée",
+                   "refused": "approbation redemandée et refusée"}
+
+
+def _resolution_label(resolution: Dict[str, Any]) -> str:
+    """Comment une action interrompue a été tranchée — et rejugée (1.15)."""
+    how = resolution.get("how", "?")
+    label = _RESOLUTION_LABEL.get(how, how)
+    recheck = resolution.get("recheck")
+    if not isinstance(recheck, dict):
+        return label
+    detail = [f"politique {recheck.get('verdict')}"]
+    if recheck.get("approval"):
+        detail.append(_APPROVAL_LABEL.get(recheck["approval"],
+                                          recheck["approval"]))
+    if how == "in_doubt":
+        label = "INDÉTERMINÉE — rejugée à la reprise et refusée, non relancée"
+    return f"{label} ({', '.join(detail)})"
 
 
 def _durable_key(args) -> Optional[bytes]:
@@ -1316,8 +1348,8 @@ def run_durable_admin(args) -> int:
                   f"({pending.get('action_id')}) — la reprise la tranchera")
         for entry in journal.entries:
             if entry.kind == "resolution":
-                how = (decode(entry.args) or {}).get("how", "?")
-                print(f"  ↻ {entry.key} : {_RESOLUTION_LABEL.get(how, how)}")
+                print(f"  ↻ {entry.key} : "
+                      f"{_resolution_label(decode(entry.args) or {})}")
         return 0
     if meta.get("status") != "completed":
         print("✗ exécution non terminée : la reprendre avant de l'exporter "

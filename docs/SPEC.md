@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.14.0)
+# AGENT-L — sémantique de référence (v1.15.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2400,6 +2400,9 @@ de l'action. La clé est stable d'une reprise à l'autre. Un outil la lit par
      `ERROR`, `SIDE_EFFECT` marqués `.dirty`, aucun `EFFECT` présumé, et
      `tools.<outil>.in_doubt = true` (posé à `false` au démarrage, donc lisible
      par une garde sans indétermination).
+
+   Depuis la 1.15, rien n'est relancé ni exécuté sans avoir été **rejugé** sur
+   le monde d'aujourd'hui (§44).
 5. Passé le journal, l'exécution continue en direct.
 
 ### Garanties
@@ -2433,12 +2436,13 @@ nouvelle question. `agentl durable status|export` n'y touche pas (lecture seule)
 
 ```
 agentl run FICHIER.agent --durable RÉPERTOIRE [--run-id ID] [--sign-key CLÉ]
+                          [--max-resume-age SECONDES]
 agentl durable status RÉPERTOIRE [--sign-key CLÉ]
 agentl durable export RÉPERTOIRE [-o journal.json] [--sign-key CLÉ]   # puis agentl replay
 ```
 
 `DurableRun(agents, host, llm, store=FileStore(dir) | SQLiteStore(path, id)
-| MemoryStore(), key=None)`, `.run(max_ticks)`, `.export()`. Une société s'exécute sous
+| MemoryStore(), key=None, max_resume_age=900.0)`, `.run(max_ticks)`, `.export()`. Une société s'exécute sous
 un seul journal.
 
 ## 37. Exécution asynchrone (v1.9)
@@ -2717,3 +2721,72 @@ sortie d'outil adressé à un tiers ?) ; cette décision n'est pas prise ici.
 | `W141` | avertissement | argument d'outil risqué issu d'une source non fiable (flot statique), sans attestation ni garde de provenance |
 | `V154` | info | T6 — appels à sources non fiables que son verdict n'a pas jugés |
 
+## 44. Une action reprise est rejugée sur le monde d'aujourd'hui (v1.15)
+
+Une reprise re-dérive chaque décision depuis le journal (§36), donc depuis les
+lectures du processus mort. C'est ce qui la rend déterministe, et c'est juste
+tant que rien ne s'exécute. Mais deux cas **agissent maintenant** sur une
+décision prise avec ces lectures, aussi vieilles que la panne a duré :
+
+1. une **intention en suspens** relancée (outil idempotent) ou exécutée
+   (réconciliateur : `NOT_EXECUTED`) ;
+2. une **action nouvelle** du tick interrompu : la perception de ce tick est
+   rejouée, puis l'approbation en vol est redemandée, ou l'appel au modèle
+   refait, et l'action part en direct.
+
+Sonde, avant correctif : compte ouvert au crash, gelé pendant la panne,
+`NEVER transfer WHEN account.frozen == yes` — le virement partait dans les deux
+cas. Le banc d'audit l'appelait « invariant 3 : une action suspendue puis
+reprise est réévaluée si les faits, le contrat ou les paramètres d'autorisation
+ont changé » ; le contrat (`program_sha256`) et les paramètres (condensat de
+l'action) étaient vérifiés, les faits non.
+
+**Rejugement (`Kernel.recheck`).** Avant d'exécuter dans l'un de ces deux cas,
+le noyau relit **en direct** — sur l'hôte réel, pas sur le journal — les
+capteurs déclarés que nomment les gardes des règles visant l'outil, et juge la
+même requête figée sur l'état vu à travers ces lectures. L'état du runtime
+n'est pas modifié : une reprise qui le changerait divergerait de son propre
+journal au point de contrôle suivant. Un capteur muet efface son chemin, la
+garde devient indéterminée et échoue fermé. Le verdict, les valeurs relues et
+le sort de l'approbation sont journalisés dans la résolution (`recheck`) : une
+reprise suivante les sert sans relire ni redemander.
+
+**Approbation périmée.** Une intention porte sa date (`at`). Une approbation
+exigée ne couvre la relance que si l'intention a moins de `max_resume_age`
+secondes (900 par défaut ; `0` : toujours redemander ; `None` ou `inf` : jamais,
+comportement d'avant la 1.15) ; sinon l'humain est reconsulté. Un journal
+antérieur à la 1.15 n'a pas de date : l'approbation est redemandée. Le cas 2
+n'est pas concerné : son approbation vient d'être donnée en direct (une
+approbation en queue de journal est retirée à l'ouverture, §36).
+
+**Refusée**, l'action n'est pas exécutée :
+
+| cas | issue | pour le programme |
+|---|---|---|
+| idempotent, sans réconciliateur | **indéterminée** — la requête d'avant le crash a pu aboutir | `ActionInDoubt`, `tools.<outil>.in_doubt` |
+| réconciliateur : effet trouvé | **réconciliée** — rien à rejuger, rien ne s'exécute | résultat journalisé |
+| réconciliateur : `NOT_EXECUTED` | **révoquée** — on sait qu'elle n'a pas eu lieu | `ActionRevoked`, trace `BLOCKED`, `tools.<outil>.denied` |
+| action nouvelle du tick rejoué | **révoquée** | idem |
+| approbation redemandée et refusée | **révoquée** | `ApprovalLapsed`, `tools.<outil>.unapproved` |
+
+Un outil à la fois idempotent et réconciliable consulte son réconciliateur
+avant de se déclarer indéterminé. `ActionRevoked` n'est pas une panne : ni
+disjoncteur, ni `.dirty`.
+
+**Ce que le rejugement ne fait pas.** Seuls les capteurs que les gardes
+nomment sont relus : une valeur **dérivée** (`SET`, `HYPOTHESIS`, `REASON`)
+garde celle du run interrompu. La précondition `REQUIRES` n'est pas rejugée :
+l'effet d'une action idempotente déjà faite la rend souvent fausse, et la
+relance — sans effet nouveau — serait refusée à tort. Une garde qui dépend de
+l'effet de l'action elle-même (« solde suffisant » pour un virement déjà
+parti) peut refuser une relance idempotente : l'action devient indéterminée
+plutôt que confirmée — au plus une fois, jamais deux.
+
+**Modèle formel.** `AgentLKernel.tla` fait changer le monde et passer le temps
+pendant un crash (`facts`, `lapsed`) ; la lecture des gardes est journalisée et
+servie à la reprise. Trois invariants s'ajoutent : `NoEffectAgainstToday` (aucun
+effet nouveau quand le monde du moment l'interdit), `NoLapsedApproval` (aucune
+action partie sur une approbation périmée), `RevokedMeansNotExecuted`. Cinq
+mutants les font tomber, dont les deux fenêtres ci-dessus et la réutilisation
+d'une approbation de queue (1.12.3), qui n'était jusqu'ici défendue que par un
+test.
