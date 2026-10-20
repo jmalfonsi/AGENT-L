@@ -53,6 +53,47 @@ const TONES: Record<Entry['tone'], { chip: string; border: string; icon: string 
 
 const ENTRIES: Entry[] = [
   {
+    version: 'v1.16',
+    tag: 'Délégation bornée',
+    tone: 'cyan',
+    icon: Network,
+    title: "Un agent en délègue un autre, sous droits bornés — et le banc mesure l'équipe",
+    spec: 'SPEC §46',
+    body:
+      "DELEGATE … AGENT \"f.agent\" exécute un fichier .agent dans un runtime imbriqué. Les droits ne croissent pas : " +
+      "GRANT ne désigne que des outils du parent (E018), l'enfant n'en a pas d'autres, et chaque action passe par sa " +
+      "politique puis par celle du parent, jugée avec le risque que le parent déclare. Le plus restrictif gagne. Le " +
+      "journal durable est commun : la reprise rejuge les actions déléguées. Séquentiel, MAX_TICKS, profondeur 1 par " +
+      "défaut, cycle refusé. Limite écrite : le T1 du parent n'examine pas les appels de l'enfant (W144). Le banc " +
+      "comparatif ajoute une équipe superviseur + deux spécialistes : AGENT-L 3/3, LangGraph échoue injection et droits " +
+      "(son plancher, pas son plafond) et réussit la reprise.",
+    codes: ['E018', 'E020', 'W142', 'W143', 'W144'],
+    snippet: `DELEGATE forensic {
+    AGENT "forensic.agent"  TASK "analyser l'e-mail"
+    EXPECT { malicious }  GRANT { read_mail, tag_mail }  MAX_TICKS 6
+}
+// ⛔ [responder] wipe_host(host=prod-db) refusé [plafond du parent …]`
+  },
+  {
+    version: 'v1.15',
+    tag: 'Faits périmés',
+    tone: 'emerald',
+    icon: DatabaseBackup,
+    title: "Une action reprise est rejugée sur le monde d'aujourd'hui",
+    spec: 'SPEC §44–§45',
+    body:
+      "Après un crash, la reprise relançait une action sur les lectures du processus mort : un compte gelé pendant la " +
+      "panne recevait quand même le virement. Désormais le noyau relit en direct les capteurs que nomment les gardes, " +
+      "rejuge la politique, et redemande l'approbation si elle a plus de --max-resume-age (900 s). Refusée, l'action " +
+      "est révoquée ou déclarée indéterminée. Le modèle TLA+ fait changer le monde pendant le crash (10 mutants). " +
+      "Un capteur muet sans repli oublie vraiment sa dernière mesure, et tools/check_noncircumvention.py vérifie sur " +
+      "l'arbre syntaxique que seul le noyau atteint l'hôte.",
+    codes: ['ActionRevoked', 'ApprovalLapsed'],
+    snippet: `// compte gelé entre le crash et la reprise
+NEVER transfer WHEN account.frozen == yes
+// reprise → relecture du capteur → DENIED → action non exécutée`
+  },
+  {
     version: 'v1.14',
     tag: 'Dette mesurée',
     tone: 'purple',
