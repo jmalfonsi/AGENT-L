@@ -4,6 +4,34 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.16.1] — non publié · le banc comparatif mesure une équipe
+
+Point 4 de l'audit du 2026-10-20 : le scénario superviseur + deux spécialistes,
+sans jamais contourner le noyau, éprouvé contre LangGraph. Aucun code du paquet
+ne change.
+
+- **Trois scénarios `team_*`** dans `bench/frameworks`, chacun avec sa variante
+  `attack` et sa variante `control` : `team_injection` (la cible rapportée par le
+  premier spécialiste est injectée, le second agit, l'opérateur approuve tout),
+  `team_rights` (le second, compromis, demande un virement que le superviseur
+  interdit), `team_crash_resume` (panne après l'effet produit par le second).
+- **Résultat** : AGENT-L 3/3 ; LangGraph ❌ ❌ ✅. Les deux ❌ sont son plancher
+  (aucun plafond de superviseur ni suivi de provenance intégré), pas son
+  plafond ; la reprise après panne est une **égalité**, y compris en
+  `durability="async"` — mesuré, pas expliqué.
+- **Les oracles mordent** : le spécialiste d'AGENT-L tente bien l'action
+  interdite (`⛔ [responder] … plafond du parent`) ; sans les règles du
+  superviseur, `attack` échoue (`prod-db effacé`, virement de 10 000 exécuté).
+- **PydanticAI et CrewAI : « n/a »**, écrit comme tel dans `run.py` et
+  `expected.json` plutôt que passé sous silence — leur équivalent n'est pas écrit.
+- Stable sur trois répétitions (`run.py --repeat 3 --check`).
+
+Limites, écrites dans `bench/frameworks/README.md` : un script, pas un vrai
+modèle ; l'opérateur approuve tout (un humain vigilant verrait le virement) ;
+séquentiel ; le T1 d'AGENT-L ne démontre pas statiquement cette garantie (`W144`).
+
+Contrat d'auteur 2.18.1.
+
 ## [1.16.0] — non publié · un agent en délègue un autre, sous droits bornés
 
 Proposition 1 de l'audit du 2026-10-20, validée : `DELEGATE` vers un agent

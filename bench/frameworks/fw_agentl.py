@@ -149,6 +149,10 @@ def make_host(scenario: str, variant: str, phase: str,
 
 
 def run(scenario: str, variant: str, phase: str, world: common.World) -> str:
+    if scenario in common.TEAM:
+        import fw_agentl_team
+        return fw_agentl_team.run(scenario, variant, phase, world,
+                                  ScriptedLLM(scenario))
     agent = parse_source(program(scenario)).agents[0]
     host = make_host(scenario, variant, phase, world)
     llm = ScriptedLLM(scenario)

@@ -7,7 +7,7 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.16.0** —
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.16.1** —
 la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
 défendue par un scénario, une garde de provenance se teste par
 `GIVEN … UNTRUSTED`, un refus devient un fait (`tools.<outil>.denied`), et un
@@ -431,6 +431,21 @@ chaque framework donne **sans code maison**. Un développeur peut écrire
 lui-même une liste blanche. Et la sûreté d'AGENT-L dépend du programme :
 sans la ligne `NEVER … UNTRUSTED(host)`, l'injection passe aussi. Méthode,
 règles d'équité et limites : [`bench/frameworks/README.md`](bench/frameworks/README.md).
+
+**L'équipe (v1.16).** Trois scénarios de plus comparent AGENT-L à LangGraph sur
+une équipe : un superviseur et deux spécialistes en séquence, l'opérateur
+approuvant tout.
+
+| propriété (sûreté) | AGENT-L | LangGraph |
+|---|---|---|
+| une donnée rapportée par un spécialiste ne choisit pas la cible de l'action d'un autre | ✅ | ❌ |
+| un sous-agent n'obtient pas plus que ce que le superviseur autorise | ✅ | ❌ |
+| panne dans un spécialiste, puis reprise : exactement une fois | ✅ | ✅ |
+
+Les deux ❌ sont le plancher de LangGraph (aucun plafond de superviseur ni suivi
+de provenance intégré), pas son plafond. PydanticAI et CrewAI sont « n/a » :
+leur équivalent n'est pas écrit. Détail et limites :
+[`bench/frameworks/README.md`](bench/frameworks/README.md).
 
 ## Sur AutomationBench (Zapier)
 
@@ -1695,6 +1710,7 @@ WEBSITE/                site de présentation
 | **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
 | **v1.14.0** | **la dette de sûreté devient mesurable et ne peut que baisser : cliquet de mutation en CI (`tools/check_mutation.py`), provenance **statique** par flot (`W141`, `V154`), exemples dotés de vrais scénarios (`soc_analyst`, `service_medic`, `disk_sentinel`, `idor_hunter`, `mention_triage`, `soc_risk`, `K8S_HEALER`), règles inexerçables levées avec leur raison** |
+| **v1.16.1** | **le banc comparatif mesure une équipe : superviseur + deux spécialistes, AGENT-L face à LangGraph (`team_injection`, `team_rights`, `team_crash_resume`) — deux ❌ de LangGraph (plancher), une égalité** |
 | **v1.16.0** | **un agent en délègue un autre sous droits bornés : `DELEGATE … AGENT "f.agent" GRANT { outils } MAX_TICKS n` — monotonie des droits (la politique du parent plafonne l'enfant, avec le risque que le parent déclare), hôte restreint à `GRANT`, journal et reprise communs, `verify` sur tout l'arbre (`E020`, `E018`, `E019`, `W142`–`W144`)** |
 | **v1.15.2** | **le non-contournement se vérifie sur l'arbre syntaxique : seul `Kernel.execute` atteint `host.invoke`, seul `Kernel.delegate` un sous-agent ; une CI échoue sur tout chemin neuf (`tools/check_noncircumvention.py`)** |
 | **v1.15.1** | **un capteur muet rend vraiment son chemin indéfini : la mesure d'avant la panne n'est plus rejouée comme une observation fraîche ; un repli `DEGRADE` garde sa confiance 0.3 et sa source `fallback` sur tout le tick** |

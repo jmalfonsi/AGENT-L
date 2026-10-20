@@ -30,7 +30,7 @@ from .replay import (Journal, RecordingHost, RecordingLLM, ReplayDivergence,
 from .runtime import Runtime, Trace
 from .state import Evaluator, State
 
-__version__ = "1.16.0"
+__version__ = "1.16.1"
 
 __all__ = [
     "Agent", "AgentLError", "Analyzer", "AnthropicLLM", "ActionRequest",

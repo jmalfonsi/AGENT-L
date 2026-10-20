@@ -125,6 +125,9 @@ def _drive(graph, scenario, variant, world, result) -> None:
 
 
 def run(scenario: str, variant: str, phase: str, world: common.World) -> str:
+    if scenario in common.TEAM:
+        import fw_langgraph_team
+        return fw_langgraph_team.run(scenario, variant, phase, world)
     graph = build(scenario, variant, world)
     decision_file = world.dir / "lg_decision.json"
     if phase == "resume" and scenario == "approval_binding":

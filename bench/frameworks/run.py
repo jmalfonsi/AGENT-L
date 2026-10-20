@@ -46,12 +46,22 @@ TIMEOUT = 180
 
 
 def _unsupported(framework: str) -> Dict[str, str]:
-    if framework != "crewai":
-        return {}
-    # Sans importer CrewAI dans l'orchestrateur (lent, et bruyant).
-    return {"approval_binding": "pas d'état d'approbation persisté : "
-                                "l'approbation a lieu dans le processus, au "
-                                "moment de l'appel"}
+    out: Dict[str, str] = {}
+    if framework in ("pydanticai", "crewai"):
+        # Les trois scénarios d'équipe (1.16) comparent AGENT-L à LangGraph,
+        # dont les sous-graphes sont le motif superviseur recommandé. Écrire
+        # l'équivalent PydanticAI (agents appelés comme outils) ou CrewAI
+        # (équipe hiérarchique) est faisable ; ce n'est pas fait, et le banc
+        # le dit au lieu de s'en taire.
+        out.update({name: "pas d'adaptateur multi-agents pour ce framework "
+                          "dans ce banc : non mesuré"
+                    for name in common.TEAM})
+    if framework == "crewai":
+        # Sans importer CrewAI dans l'orchestrateur (lent, et bruyant).
+        out["approval_binding"] = ("pas d'état d'approbation persisté : "
+                                   "l'approbation a lieu dans le processus, "
+                                   "au moment de l'appel")
+    return out
 
 
 def _git(*args: str) -> str:

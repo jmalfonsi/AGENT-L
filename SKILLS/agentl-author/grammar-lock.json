@@ -1,7 +1,7 @@
 {
-  "authoring_contract_version": "2.18.0",
+  "authoring_contract_version": "2.18.1",
   "authoring_surface": {
-    "combined_sha256": "c71d1e14d4e374507bbb57d595a90a496cedefb8a01f924ceeee152d99273e8b",
+    "combined_sha256": "b431070d8b0a103742989ee6ae787906b5d9f13abed52194017523069610da54",
     "files": {
       "SKILLS/agentl-author/SKILL.md": "3d194a587807370e47c795edfe2f5e68ca88f5f10b645eb7119965607e115868",
       "SKILLS/agentl-author/agents/openai.yaml": "77d03386d40b24dbb2216ee80870d3248fc4f509c3299f69edf1079049f78f25",
@@ -14,15 +14,15 @@
       "SKILLS/agentl-author/references/scenarios.md": "b348d498f9b0cf99f568464309918dd00122eb78655ee1d969de8f3f64dec13e",
       "SKILLS/agentl-author/references/security-authoring.md": "dd8043dea432160b73645cfe4f79754df2c06be9e6f142a50561250f0016c74b",
       "SKILLS/agentl-author/references/visual-trace.md": "0f220164120f985a62724ebadb080a65532989e0dc9fcb9cb57516999c17226a",
-      "SKILLS/agentl-author/scripts/sync_grammar.py": "c30c82cc4e1694ee407f620e961fd3fafdb2e454ed00d2d570451c38cdb4eab4"
+      "SKILLS/agentl-author/scripts/sync_grammar.py": "3a2c025b2f31cbb70a6b030e4c1a61d31f757a50c0dd84f929400a2a8e4bddc8"
     }
   },
   "canonical_examples": {
-    "canonical.agent": "fdda4887c58b63307065d8b3c43ae3aee3d93bf207cd4ac9c60ffc010ce8a903",
+    "canonical.agent": "0c3076dba4e425abe5215f95e716fb1af68ba0e33a7a8e9606161462864433bc",
     "canonical.py": "0732da0962aaffd462dd12d095b00e42d18e4a07fb2ca74cf6ea2458e0f623ce"
   },
   "compatibility": {
-    "agentl_package_version": "1.16.0",
+    "agentl_package_version": "1.16.1",
     "ebnf_version": "1.16",
     "language_version": "1.16"
   },

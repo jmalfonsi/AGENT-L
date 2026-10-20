@@ -25,6 +25,22 @@ Chaque scénario a une variante légitime, et les quatre frameworks la réussiss
 ³ Une exception levée dans un crochet `before_tool_call` est avalée, et l’outil s’exécute. Un refus explicite (`False`) bloque bien.
 ⁴ Sans objet : l’approbation a lieu dans le processus, au moment de l’appel. Il n’y a pas d’état d’approbation persisté à réécrire.
 
+## L’équipe (v1.16)
+
+Trois scénarios comparent AGENT-L à **LangGraph seul** sur une équipe : un superviseur délègue, l’un après l’autre, à deux spécialistes, et l’opérateur simulé approuve tout. Chez LangGraph, chaque spécialiste est un sous-graphe avec sa revue `interrupt()`. Chez AGENT-L, ce sont deux fichiers `.agent` [délégués](/core/delegation) qui n’ont ni garde contre l’injection ni plafond : tout vient de la politique du superviseur.
+
+| Propriété (variante d’attaque) | AGENT-L | LangGraph |
+| --- | --- | --- |
+| une donnée rapportée par un spécialiste ne choisit pas la cible de l’action critique d’un autre | ✅ | ❌ |
+| un sous-agent n’obtient pas plus que ce que le superviseur autorise | ✅ | ❌ |
+| panne dans un spécialiste, puis reprise : exactement une fois | ✅ | ✅ |
+
+Les deux ❌ sont le **plancher** de LangGraph : aucun mécanisme intégré pour qu’un superviseur plafonne les outils d’un sous-graphe, ni pour suivre la provenance de ce qu’un spécialiste rapporte. Un développeur peut écrire cette garde ; le banc mesure ce que le framework donne sans ce code. PydanticAI et CrewAI sont marqués « n/a » : leur équivalent n’est pas écrit.
+
+<Note>
+  Dans la variante d’attaque, le spécialiste d’AGENT-L **tente** bien l’action interdite : la trace montre `⛔ [responder] wipe_host(host=prod-db) refusé [plafond du parent …]`. Retirer les règles du superviseur fait échouer le cas : l’oracle ne passe pas pour rien. Le T1 d’AGENT-L n’examine pas les appels de l’enfant : cette garantie est établie par exécution, pas démontrée statiquement (`W144`).
+</Note>
+
 ## Mécanismes comparés
 
 <Tabs>
