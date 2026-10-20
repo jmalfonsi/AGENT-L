@@ -4,6 +4,28 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.15.2] — non publié · le non-contournement se vérifie sur l'arbre syntaxique
+
+« Aucun appel n'atteint un outil sans traverser le moteur de politiques » était
+« une propriété du code Python, pas un théorème » (SPEC §28). `Host.invoke`
+refuse déjà un appel sans permis à l'exécution ; la 1.15.2 ferme le versant
+**statique** (invariant 1 de l'audit du 2026-10-20). SPEC §45.
+
+- `tools/check_noncircumvention.py`, étape CI : `.invoke` n'est accédé que dans
+  `Kernel.execute`, ou dans une méthode elle-même nommée `invoke` (enveloppe qui
+  transmet), ou dans une portée nommée (instrumentation du Studio) ; `.subagents`
+  que dans `Kernel.delegate` et dix portées d'hôte listées ; aucun accès dynamique
+  (`getattr(h, "invoke")`, `__getattribute__`). Une autorisation qui n'accède plus
+  à rien fait échouer le contrôle : la liste ne peut que se resserrer.
+- Le contrôle a des dents : huit contournements plausibles sont injectés dans
+  `tests/test_v1152_noncircumvention.py` et doivent tous être attrapés.
+- Aucun code du paquet ne change, aucun verdict non plus.
+
+Ce que le contrôle ne voit pas : un hôte écrit par l'utilisateur (c'est
+`agentl boundary`), `exec`/`eval`, l'appel d'un alias (l'accès, lui, est vu).
+Et il ne comble pas un trou connu : un sous-agent est une fonction ordinaire de
+`host.subagents`, que rien ne protège par permis à l'exécution comme `Host.invoke`.
+
 ## [1.15.1] — non publié · un capteur muet rend vraiment son chemin indéfini
 
 Constaté en écrivant la 1.15.0, reproduit par sonde (compte gelé, capteur muet

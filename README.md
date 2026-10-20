@@ -7,7 +7,7 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.15.1** —
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.15.2** —
 la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
 défendue par un scénario, une garde de provenance se teste par
 `GIVEN … UNTRUSTED`, un refus devient un fait (`tools.<outil>.denied`), et un
@@ -1695,6 +1695,7 @@ WEBSITE/                site de présentation
 | **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
 | **v1.14.0** | **la dette de sûreté devient mesurable et ne peut que baisser : cliquet de mutation en CI (`tools/check_mutation.py`), provenance **statique** par flot (`W141`, `V154`), exemples dotés de vrais scénarios (`soc_analyst`, `service_medic`, `disk_sentinel`, `idor_hunter`, `mention_triage`, `soc_risk`, `K8S_HEALER`), règles inexerçables levées avec leur raison** |
+| **v1.15.2** | **le non-contournement se vérifie sur l'arbre syntaxique : seul `Kernel.execute` atteint `host.invoke`, seul `Kernel.delegate` un sous-agent ; une CI échoue sur tout chemin neuf (`tools/check_noncircumvention.py`)** |
 | **v1.15.1** | **un capteur muet rend vraiment son chemin indéfini : la mesure d'avant la panne n'est plus rejouée comme une observation fraîche ; un repli `DEGRADE` garde sa confiance 0.3 et sa source `fallback` sur tout le tick** |
 | **v1.15.0** | **une action reprise est rejugée sur le monde d'aujourd'hui : capteurs des gardes relus avant toute relance, approbation périmée redemandée (`--max-resume-age`), `ActionRevoked`, modèle TLA+ où le monde change pendant le crash** |
 | **v1.13.0** | **`verify` n'affirme plus ce qu'il n'a pas examiné : T1 voit tous les corps exécutables (`EVENT`, `ON MESSAGE`, `ON VERIFY.FAIL`, `DECIDE`, `LOOP`), T4 distingue approbation conditionnelle et inconditionnelle, `W140` (charge utile externe → cible d'un outil risqué), `V153` (outil risqué sans politique), `autoloop` rejoue les stimuli, `agentl --version`** |

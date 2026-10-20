@@ -39,6 +39,12 @@ jobs:
       - name: Cliquet de mutation (règles de politique défendues)
         run: python tools/check_mutation.py
 
+      # Non-contournement (1.15.2) : seul le noyau atteint l'hôte. Contrôle sur
+      # l'arbre syntaxique du paquet ; un chemin neuf vers `host.invoke` ou
+      # vers un sous-agent fait échouer la CI.
+      - name: Non-contournement du noyau
+        run: python tools/check_noncircumvention.py
+
       # Chaque diagnostic connu est suivi précisément, y compris ceux des
       # helpers désormais analysés. Un hôte déjà rouge ne peut plus absorber
       # silencieusement un nouveau défaut via une exemption par nom de fichier.

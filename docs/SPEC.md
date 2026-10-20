@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.15.1)
+# AGENT-L — sémantique de référence (v1.15.2)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2803,3 +2803,33 @@ action partie sur une approbation périmée), `RevokedMeansNotExecuted`. Cinq
 mutants les font tomber, dont les deux fenêtres ci-dessus et la réutilisation
 d'une approbation de queue (1.12.3), qui n'était jusqu'ici défendue que par un
 test.
+
+## 45. Seul le noyau atteint l'hôte, et la CI le vérifie (v1.15.2)
+
+Le §28 le disait : « Le vérificateur ne vérifie pas le runtime. *Aucun appel
+n'atteint un outil sans traverser le moteur de politiques* est une propriété du
+code Python, pas un théorème. » Deux garanties couvrent désormais ce chemin :
+
+- **À l'exécution** (v1.9) : `Host.invoke` appelle `require_permit` ; hors
+  d'un permis actif, `PermitError`. Un hôte sur mesure qui ne passe pas par là
+  est compté (`kernel.stats["unpresented"]`).
+- **Statiquement** (v1.15.2) : `tools/check_noncircumvention.py` parcourt
+  l'arbre syntaxique du paquet. `.invoke` n'est accédé que dans `Kernel.execute`
+  ou dans une méthode nommée `invoke` — une enveloppe d'hôte (`durable`,
+  `replay`, `aio`, `mcp`, `autoloop`) qui transmet un appel déjà autorisé — ou
+  dans l'instrumentation du Studio ; `.subagents` que dans `Kernel.delegate` et
+  les portées listées qui détiennent le registre ; aucun accès dynamique. Un
+  module neuf qui appelle l'hôte, même par `getattr`, fait échouer la CI.
+
+C'est la formulation d'un invariant, pas sa preuve : le contrôle est un
+filtre syntaxique. Il ne voit ni `exec`, ni un hôte écrit par l'utilisateur
+(relevé par `agentl boundary`), ni l'appel d'un alias ; une enveloppe nommée
+`invoke` qui appellerait l'hôte **hors** d'un permis passerait, mais elle ne
+pourrait pas l'atteindre sans `require_permit`.
+
+**Limite connue, non fermée.** Un sous-agent est une fonction de
+`host.subagents`, que le noyau appelle sous permis mais qu'**aucun
+`require_permit` ne garde** : le contrôle statique empêche le paquet de
+l'appeler hors du noyau, pas un hôte utilisateur. La fermer demande de faire du
+sous-agent une primitive du noyau (monotonie des droits, journal commun) —
+c'est la proposition 1 de l'audit, pas un patch.

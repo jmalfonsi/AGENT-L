@@ -130,7 +130,9 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # oublie la mesure d'avant la panne, et la croyance d'observation ou d'EFFECT
 # qu'elle fondait ; un a priori `BELIEF` déclaré reste. Un repli `DEGRADE` n'est
 # plus réécrit en observation 0.95. Conforme à ce que §31 annonçait : patch.
-AUTHORING_CONTRACT_VERSION = "2.17.1"
+# 2.17.2 : v1.15.2 — `tools/check_noncircumvention.py` (porte de CI : seul le
+# noyau atteint l'hôte), SPEC §45. Aucune surface d'auteur ne change : patch.
+AUTHORING_CONTRACT_VERSION = "2.17.2"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (
