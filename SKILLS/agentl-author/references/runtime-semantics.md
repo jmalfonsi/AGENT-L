@@ -327,6 +327,12 @@ dans les listes ci-dessus. La table complète, avec leur théorème, est dans
 | `W140` | une charge utile externe (`payload.*`, ou recopiée par `SET`) est passée au paramètre-cible d'un outil `HIGH`/`CRITICAL` sans `ATTESTS` (v1.13) : l'expéditeur choisit la cible. T6 le compte |
 | `W141` | donnée non fiable (flot statique : `SET`, `FOREACH`, sortie de `REASON`/outil/`DELEGATE`, charge utile) passée à un outil `HIGH`/`CRITICAL` sans `ATTESTS` ni règle de `POLICY` qui lise la provenance (v1.14). Flux explicites seulement |
 | `V154` | T6 (info, v1.14) — N appels d'outil risqué reçoivent des données non fiables que le verdict de T6 n'a pas jugées : le flot les voit (`W141`), T6 reste un contrôle partiel |
+| `E020` | `DELEGATE … AGENT` impossible (v1.16) : fichier absent, hors du répertoire du parent, illisible, à plusieurs agents, ou cycle de délégation |
+| `E018` | `GRANT` d'un outil que le parent ne déclare pas (v1.16) : une délégation ne crée pas de droits |
+| `E019` | l'agent délégué a lui-même des erreurs d'analyse (v1.16) : `agentl check` sur son fichier |
+| `W142` | outil accordé que le délégué déclare à un risque inférieur à celui du parent (v1.16) : le plafond du parent juge sur le sien |
+| `W143` | `MAX_DEPTH` trop bas pour les délégations imbriquées du délégué (v1.16) : elles seront refusées |
+| `W144` | outil `HIGH`/`CRITICAL` accordé à un délégué (v1.16) : le T1 du parent n'examine pas ses appels, celui du délégué ignore le plafond du parent — `SCENARIO` sur le parent et `agentl mutate` |
 | `V153` | T1 (avertissement, v1.13) — outil `HIGH`/`CRITICAL` qu'aucune règle de `POLICY` ne gouverne et sans `DEFAULT DENY` : T1 n'a rien à démontrer pour lui |
 | `V152` | T9 (avertissement, v1.11) — `EFFECT` dont la seule `OBSERVE` est conditionnelle (`WHEN`) : non créditée, elle peut ne jamais démentir la postcondition. Observer sans `WHEN` |
 | `B002` | filtrage d'une collection sur un critère métier dans l'hôte (erreur) |

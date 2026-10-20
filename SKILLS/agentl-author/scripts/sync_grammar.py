@@ -130,9 +130,13 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # oublie la mesure d'avant la panne, et la croyance d'observation ou d'EFFECT
 # qu'elle fondait ; un a priori `BELIEF` déclaré reste. Un repli `DEGRADE` n'est
 # plus réécrit en observation 0.95. Conforme à ce que §31 annonçait : patch.
+# 2.18.0 : v1.16.0 — surface élargie : `DELEGATE … AGENT`, `GRANT`,
+# `MAX_TICKS`, `MAX_DEPTH` (deux mots réservés de plus, `GRANT` et `MAX_TICKS`),
+# diagnostics `E020`, `E018`, `E019`, `W142`–`W144`, `verify` sur l'arbre des
+# délégués. Un identifiant `GRANT` ou `MAX_TICKS` cesse d'être valide : mineur.
 # 2.17.2 : v1.15.2 — `tools/check_noncircumvention.py` (porte de CI : seul le
 # noyau atteint l'hôte), SPEC §45. Aucune surface d'auteur ne change : patch.
-AUTHORING_CONTRACT_VERSION = "2.17.2"
+AUTHORING_CONTRACT_VERSION = "2.18.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

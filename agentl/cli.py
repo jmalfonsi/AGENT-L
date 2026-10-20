@@ -1073,19 +1073,25 @@ def main(argv=None) -> int:
         return 0 if report.ok() else 1
 
     if args.cmd == "verify":
-        from .verifier import verify
-
         refusal = _refuse_if_malformed(program, "verify")
         if refusal is not None:
             return refusal
 
         failed = False
         unproved = False
+        from . import compose
         for candidate in program.agents:
-            report = verify(candidate, depth=args.depth)
-            print(report.render())
-            failed |= bool(report.refuted)
-            unproved |= any(t.holds is None for t in report.theorems)
+            try:
+                reports = compose.verify_all(candidate, depth=args.depth)
+            except compose.ComposeError as exc:
+                print(f"✗ {exc}", file=sys.stderr)
+                return 2
+            for label, report in reports:
+                if label != candidate.name:
+                    print(f"\n── délégué : {label}")
+                print(report.render())
+                failed |= bool(report.refuted)
+                unproved |= any(t.holds is None for t in report.theorems)
 
         if len(program.agents) > 1:
             # T1–T7 se démontrent agent par agent ; T8 est le seul théorème du

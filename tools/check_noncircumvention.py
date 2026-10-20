@@ -58,6 +58,9 @@ SUBAGENTS_ALLOWED = frozenset({
     "agentl/durable.py:DurableHost.subagents",
     "agentl/replay.py:RecordingHost.subagents",
     "agentl/scenario.py:ScenarioHost.__init__",
+    # La vue accordée à un délégué AGENT-L (v1.16) : elle **retire** les
+    # sous-agents Python au délégué, son registre est vide.
+    "agentl/compose.py:GrantedHost.__init__",
 })
 
 DYNAMIC = ("invoke", "subagents")

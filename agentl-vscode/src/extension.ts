@@ -48,6 +48,8 @@ const RESERVED_KEYWORDS = new Set([
     "UNKNOWN", "DEGRADE",
     // v1.7 : postcondition qui ne porte pas sur le monde, donc indémentissable
     "INTERNAL",
+    // v1.16 : délégation à un agent AGENT-L, sous droits bornés
+    "GRANT", "MAX_TICKS",
     // v1.10 : jugement fermé — questions typées posées à l'oracle
     "JUDGE", "NOUL", "CHOICE", "SCORE", "ABSTAIN", "BELOW",
     // Fonctions que les gardes appellent : épistémiques (v1.3) et de

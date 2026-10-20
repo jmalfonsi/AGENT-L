@@ -1,0 +1,69 @@
+---
+title: "Déléguer à un agent"
+description: "Un agent en délègue un autre sous droits bornés : GRANT, plafond de politique, journal commun."
+---
+
+`DELEGATE` appelait une fonction Python. Depuis la v1.16 il peut désigner un **agent AGENT-L** : un fichier `.agent`, lu, analysé, vérifié et exécuté par le runtime, sous des droits que le parent borne.
+
+```agentl
+DELEGATE forensic {
+    AGENT     "forensic.agent"          // sous le répertoire du parent
+    TASK      "analyser l'e-mail signalé"
+    INPUT     { mail.sender }
+    EXPECT    { malicious, threat_class }
+    GRANT     { read_mail, tag_mail }   // outils du parent que l'enfant peut appeler
+    MAX_TICKS 6
+}
+```
+
+## Les droits ne croissent pas
+
+<Steps>
+  <Step title="GRANT ⊆ outils du parent">
+    `GRANT` ne désigne que des outils que le parent déclare (`E018` sinon). L'enfant n'en a pas d'autres : ils n’existent pas pour lui, ils ne sont pas seulement interdits.
+  </Step>
+  <Step title="Deux politiques, la plus restrictive gagne">
+    Chaque action de l’enfant passe par sa politique, **puis** par celle du parent, jugée sur l’état du parent. Un `NEVER`, un `DENY` ou un `DEFAULT DENY` du parent vaut pour l’enfant ; un `REQUIRE APPROVAL` du parent s’impose.
+  </Step>
+  <Step title="Le risque est celui du parent">
+    L’enfant ne peut pas abaisser le risque d’un outil en le déclarant plus bas (`W142` signale l’écart) : le plafond juge sur ce que le parent déclare.
+  </Step>
+</Steps>
+
+## Un seul chemin, un seul journal
+
+Les actions de l’enfant ont leurs permis, leurs intentions et leurs clés d’idempotence, dans **le journal du parent**, sous un identifiant hiérarchique `run>forensic#1.1:forensic:t1:a2`. Une [reprise durable](/core/durable-execution) les rejuge comme les autres, sous les deux politiques. Le contenu du fichier délégué entre dans l’identité du programme : le modifier entre un crash et la reprise est une reprise refusée.
+
+## Ce que ça ne fait pas
+
+| Choix | Raison |
+| --- | --- |
+| Séquentiel : une délégation finit avant la suite | aucune concurrence à raisonner |
+| `MAX_DEPTH 1` par défaut | pas de redélégation sans l’avoir écrit (`W143`) |
+| Chemin sous le répertoire du parent | un chemin absolu ou qui en sort est refusé (`E020`) |
+| Un cycle de fichiers est refusé | `E020`, donc jamais de divergence |
+| Le retour est non fiable | origine `DELEGATE` : ce que l’enfant affirme n’est pas un fait du monde |
+
+<Warning>
+  **Ce que `verify` ne dit pas.** `agentl verify` vérifie le parent puis chaque délégué, mais le T1 du parent n’examine pas les appels de l’enfant, et celui de l’enfant ignore la politique du parent. `W144` le signale quand un outil `HIGH`/`CRITICAL` est accordé. À l’exécution la politique du parent s’applique ; pour l’établir avant, écrivez un `SCENARIO` **sur le parent** et lancez `agentl mutate`.
+</Warning>
+
+## Une injection se règle chez le parent
+
+La cible qu’un spécialiste rapporte est une donnée non fiable. La règle se pose chez le parent, qui plafonne l’enfant même si celui-ci n’a aucune garde :
+
+```agentl
+POLICY {
+    NEVER quarantine WHEN UNTRUSTED(host) AND NOT ATTESTED(host, check_host)
+    REQUIRE APPROVAL FOR quarantine
+}
+```
+
+<Columns cols={2}>
+  <Card title="Politiques" icon="shield-check" href="/core/policies">
+    `NEVER`, `REQUIRE APPROVAL`, `DEFAULT DENY`.
+  </Card>
+  <Card title="Provenance" icon="fingerprint" href="/core/provenance">
+    Pourquoi un retour de délégué n’est pas fiable.
+  </Card>
+</Columns>

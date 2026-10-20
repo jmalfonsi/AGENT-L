@@ -482,7 +482,7 @@ def _contract_findings(agent_path: Path, tree: ast.AST) -> List[Finding]:
     delegated = {stmt.agent for agent in program.agents for plan in agent.plans
                  for step in plan.steps
                  for stmt in _walk_stmts(step.body)
-                 if isinstance(stmt, DelegateStmt)}
+                 if isinstance(stmt, DelegateStmt) and not stmt.agent_file}
 
     for registry, complete in (("tools", tools_known), ("sensors", sensors_known),
                                ("subagents", subagents_known)):

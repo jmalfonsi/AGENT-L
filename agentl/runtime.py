@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from .core import UNDEFINED, Symbol, fmt, truthy
 from .host import Host
+from . import compose
 from .kernel import ActionInDoubt, ActionRevoked, Kernel, KernelAbort, Refused
 from .kernel import gate as _gate
 from .kernel import provenance as P
@@ -1983,18 +1984,29 @@ class Runtime:
         request = self.kernel.propose_delegate(
             stmt.agent, inputs,
             self.state.locals["confidence"]
-            if "confidence" in self.state.locals else 1.0)
+            if "confidence" in self.state.locals else 1.0,
+            agent_child=bool(stmt.agent_file))
         request.provenance = labels
         permit = self._authorize(request, kind="delegate")
         if permit is None:
             return None
 
         try:
-            registered, result = self.kernel.delegate(permit, self.host)
+            if stmt.agent_file:
+                # Un agent AGENT-L (v1.16) : exécuté ici, sous droits bornés.
+                registered = True
+                result = self.kernel.delegate_agent(
+                    permit, lambda: compose.run_delegation(self, stmt))
+            else:
+                registered, result = self.kernel.delegate(permit, self.host)
         except KernelAbort:
             raise
         except ActionRevoked as exc:
             return self._revoked(stmt.agent, f"DELEGATE {stmt.agent}", exc)
+        except compose.ComposeError as exc:
+            self.trace.log(self.state.tick, "ERROR",
+                           f"délégation {stmt.agent} impossible", str(exc))
+            return None
         except Exception as exc:                      # noqa: BLE001
             self.trace.log(self.state.tick, "ERROR",
                            f"sous-agent {stmt.agent} en erreur",

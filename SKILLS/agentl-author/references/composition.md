@@ -103,6 +103,53 @@ Un dictionnaire unique ; chaque écriture incrémente la version de *sa* clé,
 dernier écrivain gagnant, **conflit tracé et compté**. Coordination sur des
 faits (`SHARED.blocked_hosts`) sans faux conflits entre écritures sans rapport.
 
+## 4 bis. `DELEGATE … AGENT` — le délégué est un fichier, sous droits bornés (v1.16)
+
+Depuis la 1.16 le motif du §4 n'exige plus d'écrire `host.subagents[...]` à
+la main : le délégué est un fichier `.agent`, exécuté par le runtime.
+
+```agentl
+DELEGATE forensic {
+    AGENT     "forensic.agent"        // sous le répertoire du parent
+    TASK      "analyser l'e-mail signalé"
+    INPUT     { mail.sender }
+    EXPECT    { malicious, threat_class }
+    GRANT     { read_mail, tag_mail } // outils DU PARENT, rien d'autre
+    MAX_TICKS 6                       // MAX_DEPTH 1 par défaut
+}
+```
+
+Règles à respecter en l'écrivant :
+
+- **`GRANT` ⊆ outils du parent** (`E018`). Le délégué doit redéclarer chaque
+  outil accordé dans son propre `TOOL` ; le parent plafonne avec **son** risque
+  (`W142` si le délégué le déclare plus bas).
+- **Les deux politiques s'appliquent, la plus restrictive gagne.** Un `NEVER`,
+  un `DENY` ou un `DEFAULT DENY` du parent vaut pour l'enfant ; un
+  `REQUIRE APPROVAL` du parent s'impose. L'enfant ne relâche rien : inutile
+  de lui écrire `ALLOW` pour ce que le parent interdit.
+- **Le retour est non fiable** (origine `DELEGATE`). `EXPECT { acted }` dit ce
+  que l'enfant **affirme**, pas ce qui s'est passé : un refus n'arrête pas un
+  `SET` qui suit. Faire confiance au monde, avec un `VERIFY` sur le parent.
+- **Séquentiel et borné** : une délégation finit avant la suite ; `MAX_TICKS`
+  la borne ; pas de redélégation sans `MAX_DEPTH 2` (`W143` sinon) ; un cycle
+  de fichiers est `E020`. Pas de délégations parallèles.
+- **Une injection se règle chez le parent.** La cible qu'un spécialiste
+  rapporte est non fiable ; la règle `NEVER … WHEN UNTRUSTED(x) AND NOT
+  ATTESTED(x, outil)` posée **chez le parent** plafonne l'enfant qui, lui,
+  n'a peut-être aucune garde.
+- **`verify` couvre le parent puis chaque délégué**, mais le T1 du parent ne voit
+  pas les appels de l'enfant (`W144` sur un outil `HIGH`/`CRITICAL` accordé).
+  Établir la règle par un `SCENARIO` **sur le parent** (`GIVEN` du retour
+  injecté, `EXPECT NEVER CALL`) et `agentl mutate`.
+- Un `SCENARIO` simule les outils de l'enfant avec les `GIVEN` du parent
+  (`read_mail.subject = …`), comme pour un outil du parent.
+
+Reprise durable : les actions de l'enfant sont dans le journal du parent, sous
+un identifiant `run>forensic#tick.n:…`, et rejugées à la reprise sous les deux
+politiques. Modifier le fichier délégué entre un crash et la reprise est une
+reprise refusée. La forme à fonction Python (§1, §4) reste valide.
+
 ## 4. Le motif hiérarchique : un DELEGATE vers un agent AGENT-L imbriqué
 
 C'est la brique pour l'orchestration lourde et auditable : un **superviseur**

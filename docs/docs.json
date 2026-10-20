@@ -61,7 +61,7 @@
     "global": {
       "versions": [
         {
-          "version": "v1.15 (dév.)",
+          "version": "v1.16 (dév.)",
           "default": true,
           "href": "/"
         }
@@ -90,7 +90,8 @@
               "core/judgment-oracles",
               "core/provenance",
               "core/inference-and-planning",
-              "core/multi-agent"
+              "core/multi-agent",
+              "core/delegation"
             ]
           },
           {

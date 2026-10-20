@@ -1,5 +1,5 @@
 (* =========================================================================
-   AGENT-L v1.15 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
+   AGENT-L v1.16 — grammaire formelle (EBNF, ISO/IEC 14977 assoupli)
 
    Convention lexicale fondamentale :
      les mots réservés sont EN MAJUSCULES. Tout identifiant contenant une
@@ -87,6 +87,7 @@ risk_block       = "{" , { ident , [ sep ] , ident } , "}" ;
    réclame donc pas d'`OBSERVE` sur son chemin. *)
 effect_block     = "{" , { path , [ sep ] , expr , [ "INTERNAL" ] } , "}" ;
 
+(* v1.16 : `DELEGATE` accepte AGENT, GRANT, MAX_TICKS, MAX_DEPTH (voir delegate_field). *)
 (* v1.15 : aucune production ne change (reprise durable rejugée, `--max-resume-age`). *)
 (* v1.14 : aucune production ne change (diagnostics W141/V154). *)
 (* v1.13 : aucune production ne change (diagnostics W140/V153, `agentl --version`). *)
@@ -177,7 +178,16 @@ ask_field        = "QUESTION" , [ sep ] , string
 delegate_stmt    = "DELEGATE" , ident , "{" , { delegate_field } , "}" ;
 delegate_field   = "TASK"   , [ sep ] , string
                  | "INPUT"  , [ sep ] , name_list
-                 | "EXPECT" , [ sep ] , name_list ;
+                 | "EXPECT" , [ sep ] , name_list
+                 (* v1.16 : délégation à un agent AGENT-L, sous droits bornés.
+                    `AGENT` désigne un fichier sous le répertoire du parent ;
+                    `GRANT` les seuls outils du parent que l'enfant peut
+                    appeler ; `MAX_TICKS` borne son exécution ; `MAX_DEPTH`
+                    (1 par défaut) autorise la redélégation. *)
+                 | "AGENT"     , [ sep ] , string
+                 | "GRANT"     , [ sep ] , name_list
+                 | "MAX_TICKS" , [ sep ] , number
+                 | "MAX_DEPTH" , [ sep ] , number ;
 
 loop_stmt        = "LOOP" , [ "UNTIL" , expr ] , [ "MAX" , number ]
                  , "{" , stmt_list , "}" ;

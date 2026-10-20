@@ -66,7 +66,7 @@ POLICY {
 
 ## Déléguer une capacité
 
-`DELEGATE` n’est pas un raccourci autour des règles. Le sous-agent doit être déclaré comme un `TOOL`, autorisé par la politique et implémenté dans `host.subagents`.
+`DELEGATE` n’est pas un raccourci autour des règles. Le sous-agent doit être déclaré comme un `TOOL`, autorisé par la politique et implémenté dans `host.subagents`. Depuis la v1.16, le délégué peut aussi être un [agent AGENT-L](/core/delegation) (`AGENT "f.agent"`), exécuté sous des droits que le parent borne.
 
 ```text
 TOOL prober {

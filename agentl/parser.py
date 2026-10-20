@@ -1,6 +1,7 @@
 """Parseur à descente récursive d'AGENT-L (voir docs/agentl.ebnf)."""
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 from .core import ParseError, Symbol
@@ -562,6 +563,20 @@ class Parser:
             elif self.at_kw("EXPECT"):
                 self.advance(); self.opt_sep()
                 node.expect = self.name_list()
+            elif self.at_kw("AGENT"):
+                self.advance(); self.opt_sep()
+                node.agent_file = str(self.expect("STR").value)
+                node.base_dir = os.path.dirname(os.path.abspath(self.filename)) \
+                    if not self.filename.startswith("<") else ""
+            elif self.at_kw("GRANT"):
+                self.advance(); self.opt_sep()
+                node.grant = self.name_list()
+            elif self.at_kw("MAX_TICKS"):
+                self.advance(); self.opt_sep()
+                node.max_ticks = int(self.expect("NUM").value)
+            elif self.at_kw("MAX_DEPTH"):
+                self.advance(); self.opt_sep()
+                node.max_depth = int(self.expect("NUM").value)
             else:
                 raise ParseError(
                     f"{self.filename}:{self.cur.line}: champ DELEGATE inconnu "

@@ -187,6 +187,9 @@ class Kernel:
         #: Requête figée et état jugés, par permis encore en vol : de quoi
         #: rejuger l'action si une reprise doit la relancer (1.15).
         self._judged: Dict[str, Tuple[ActionRequest, Any]] = {}
+        #: `(noyau du parent, état du parent)` quand cet agent est un délégué
+        #: (v1.16) : la politique du parent plafonne celle de l'enfant.
+        self.ceiling: Optional[Tuple["Kernel", Any]] = None
 
     # ------------------------------------------------------ propositions
     def propose_tool(self, name: str, args: Dict[str, Any],
@@ -209,11 +212,14 @@ class Kernel:
         return action_from_tool(decl, name, args, origin, confidence), ""
 
     def propose_delegate(self, name: str, args: Dict[str, Any],
-                         confidence: Any = 1.0) -> ActionRequest:
+                         confidence: Any = 1.0,
+                         agent_child: bool = False) -> ActionRequest:
+        # Un délégué AGENT-L n'est pas une fonction opaque : ses actions ont
+        # chacune leur permis. Déléguer lui-même ne touche pas au monde.
         decl = self.agent.tool(name)
+        undeclared = "LOW" if agent_child else self.UNDECLARED_DELEGATE_RISK
         return ActionRequest(
-            name, args,
-            decl.risk if decl is not None else self.UNDECLARED_DELEGATE_RISK,
+            name, args, decl.risk if decl is not None else undeclared,
             list(decl.side_effects) if decl is not None else [],
             "delegate", confidence)
 
@@ -258,6 +264,12 @@ class Kernel:
         if decision.verdict == DENIED:
             return Authorization(STAGE_POLICY, frozen, decision=decision,
                                  detail=decision.reason)
+        cap = self._cap(frozen)          # la politique du parent (v1.16)
+        if cap is not None and cap.verdict == DENIED:
+            return Authorization(STAGE_POLICY, frozen, decision=cap,
+                                 detail=f"plafond du parent : {cap.reason}")
+        if cap is not None and cap.verdict == APPROVAL_REQUIRED:
+            decision = cap
 
         # 3. Approbation explicite, sur une copie isolée.
         approved = False
@@ -311,6 +323,37 @@ class Kernel:
             self._judged.pop(permit.action_id, None)
             self._authority.void(permit)
 
+    def _cap(self, request: ActionRequest, host: Any = None) -> Any:
+        """Verdict de la politique du parent, et de ses ancêtres (v1.16).
+
+        Jugé sur l'état du parent et avec le risque que **le parent** déclare :
+        un enfant qui sous-déclarerait le risque d'un outil accordé ne
+        l'abaisse pas pour le parent. Le plus restrictif des verdicts gagne ;
+        une politique inévaluable refuse.
+        """
+        if self.ceiling is None:
+            return None
+        from ..policy import APPROVAL_REQUIRED, DENIED, PolicyDecision
+        parent, state = self.ceiling
+        if host is not None:        # reprise : le monde du parent, relu aussi
+            seen = Prov({OBSERVED})
+            state = state.observed({
+                p: _closed(lambda p=p: unwrap(host.read(p), seen), (None, seen))
+                for p in parent.guard_sensors(request.tool)})
+        decl = parent.agent.tool(request.tool)
+        asked = (action_from_tool(decl, request.tool, deepcopy(request.args),
+                                  request.origin, request.confidence)
+                 if decl is not None else request)
+        asked.provenance = dict(request.provenance)
+        mine = _closed(lambda: parent.policy.check(asked, state),
+                       PolicyDecision(DENIED, None, "politique inévaluable"))
+        above = parent._cap(asked, host)
+        for verdict in (DENIED, APPROVAL_REQUIRED):
+            for found in (mine, above):
+                if found is not None and found.verdict == verdict:
+                    return found
+        return mine
+
     # ------------------------------------------------------------ reprise
     def guard_sensors(self, tool: str) -> list:
         """Capteurs déclarés que nomment les gardes des règles visant `tool`."""
@@ -350,6 +393,11 @@ class Kernel:
         record["facts"] = {path: value for path, (value, _) in facts.items()}
         decision = _closed(
             lambda: self.policy.check(request, state.observed(facts)), None)
+        cap = _closed(lambda: self._cap(request, host), None)
+        if cap is not None and (cap.verdict == "DENIED" or (
+                cap.verdict == APPROVAL_REQUIRED
+                and getattr(decision, "verdict", "") == ALLOWED)):
+            decision = cap                       # le plafond du parent (1.16)
         record["verdict"] = getattr(decision, "verdict", "ERROR")
         if record["verdict"] not in (ALLOWED, APPROVAL_REQUIRED):
             return Recheck(False, record, getattr(decision, "reason",
@@ -380,6 +428,14 @@ class Kernel:
                 return self.journal.dispatch(permit, active, call, host,
                                              recheck=recheck)
             return call()
+
+    def delegate_agent(self, permit: ExecutionPermit, run: Callable[[], Any]) -> Any:
+        """Délégation à un agent AGENT-L (v1.16) : la décision est prise, mais
+        rien ne touche l'hôte ici — chaque action de l'enfant a son permis, et
+        son intention au journal commun. Le permis de délégation est donc
+        révoqué, pas présenté."""
+        self.void(permit)
+        return run()
 
     def delegate(self, permit: ExecutionPermit, host: Any) -> Tuple[bool, Any]:
         """Le seul appel à un sous-agent. Rend `(enregistré, résultat)`."""

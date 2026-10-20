@@ -222,6 +222,15 @@ class DelegateStmt(Stmt):
     task: str = ""
     inputs: List[str] = field(default_factory=list)
     expect: List[str] = field(default_factory=list)
+    # v1.16 — délégation à un agent AGENT-L. Hors du `repr` : celui-ci alimente
+    # l'empreinte du programme (`program_digest`), qui ne doit pas changer pour
+    # un programme sans `AGENT`. L'identité du fichier délégué y entre par
+    # `compose.delegation_digest`, avec le contenu du fichier.
+    agent_file: Optional[str] = field(default=None, repr=False)
+    grant: List[str] = field(default_factory=list, repr=False)
+    max_ticks: int = field(default=0, repr=False)
+    max_depth: int = field(default=1, repr=False)
+    base_dir: str = field(default="", repr=False)
 
 
 @dataclass

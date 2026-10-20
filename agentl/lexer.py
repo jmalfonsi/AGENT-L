@@ -70,6 +70,8 @@ KEYWORDS = {
     "OUTCOME", "WITH", "UTILITY", "VALUE", "TARGET_CONFIDENCE",
     # v1.7 : un effet qui ne porte pas sur le monde, donc non réfutable
     "INTERNAL",
+    # v1.16 : délégation à un agent AGENT-L, sous droits bornés
+    "GRANT", "MAX_TICKS",
     # opérateurs logiques
     "AND", "OR", "NOT", "IN",
 }

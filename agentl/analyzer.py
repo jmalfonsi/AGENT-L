@@ -42,6 +42,12 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W125  texte non fiable suivi d'une action risquée sans garde d'injection
   W126  le planificateur arbitre sur le temps, un opérateur sans DURATION
   W127  DELEGATE vers un sous-agent qu'aucun TOOL ne décrit (risque supposé CRITICAL)
+  E020  DELEGATE … AGENT impossible : fichier absent ou hors périmètre, cycle (v1.16)
+  E018  GRANT d'un outil que le parent ne déclare pas (v1.16)
+  E019  l'agent délégué a lui-même des erreurs d'analyse (v1.16)
+  W142  outil accordé que le délégué déclare à un risque inférieur à celui du parent
+  W143  MAX_DEPTH insuffisant pour les délégations imbriquées du délégué
+  W144  outil HIGH/CRITICAL accordé à un délégué : T1 ne voit pas ses appels (v1.16)
   W128  garde de politique portant sur un identifiant nu non déclaré
   W129  REASON sans USING : tout l'état est transmis au modèle
   W130  USING listant un chemin qu'un NEVER SEND retient — contradiction
@@ -135,6 +141,7 @@ class Analyzer:
         self._check_unset_risk()
         self._check_declared_durations()
         self._check_delegate_contracts()
+        self._check_agent_delegations()
         self._check_reason_surface()
         self._check_judge()
         self._check_redactions()
@@ -760,11 +767,82 @@ class Analyzer:
         """
         declared = {t.name for t in self.agent.tools}
         for stmt, _ in self._all_statements():
-            if isinstance(stmt, DelegateStmt) and stmt.agent not in declared:
+            # Un délégué AGENT-L n'est pas une fonction opaque (v1.16) : ses
+            # actions ont chacune leur contrat et leur permis.
+            if isinstance(stmt, DelegateStmt) and not stmt.agent_file \
+                    and stmt.agent not in declared:
                 self.diags.append(Diagnostic(
                     "W127", "warning",
                     f"DELEGATE {stmt.agent} sans TOOL homonyme : risque et "
                     f"effets de bord non déclarés (supposés CRITICAL)",
+                    stmt.line))
+
+    def _check_agent_delegations(self) -> None:
+        """E020, E018, E019, W142, W143, W144 — `DELEGATE … AGENT` (v1.16).
+
+        Le délégué est un fichier : il se lit, s'analyse et se compare au parent
+        avant toute exécution. Les droits ne croissent pas en déléguant : un
+        `GRANT` ne désigne que des outils que le parent déclare (`E018`), et le
+        parent plafonne l'enfant à l'exécution avec **son** risque (`W142`
+        signale l'écart quand l'enfant le déclare plus bas).
+        """
+        from . import compose
+        from .core import ORDINAL_SCALE
+        mine = {t.name: t for t in self.agent.tools}
+        for stmt, _ in self._all_statements():
+            if not (isinstance(stmt, DelegateStmt) and stmt.agent_file):
+                continue
+            for name in stmt.grant:
+                if name not in mine:
+                    self.diags.append(Diagnostic(
+                        "E018", "error",
+                        f"DELEGATE {stmt.agent} : GRANT {name} — outil que le "
+                        f"parent ne déclare pas ; une délégation ne crée pas de "
+                        f"droits", stmt.line))
+            try:
+                child, _ = compose.load(stmt)
+                compose.closure(child, (str(compose.resolve(stmt)),))
+            except compose.ComposeError as exc:
+                self.diags.append(Diagnostic("E020", "error", str(exc),
+                                             stmt.line))
+                continue
+            broken = sorted({d.code for d in Analyzer(child).run()
+                             if d.severity == "error"})
+            if broken:
+                self.diags.append(Diagnostic(
+                    "E019", "error",
+                    f"DELEGATE {stmt.agent} : {stmt.agent_file} a des erreurs "
+                    f"d'analyse ({', '.join(broken)}) — `agentl check` dessus",
+                    stmt.line))
+            for tool in child.tools:
+                parent_tool = mine.get(tool.name)
+                if tool.name in stmt.grant and parent_tool is not None and \
+                        ORDINAL_SCALE.get(tool.risk, 6) < \
+                        ORDINAL_SCALE.get(parent_tool.risk, 6):
+                    self.diags.append(Diagnostic(
+                        "W142", "warning",
+                        f"DELEGATE {stmt.agent} : {tool.name} est RISK "
+                        f"{tool.risk} chez le délégué, {parent_tool.risk} chez "
+                        f"le parent — le plafond du parent juge sur "
+                        f"{parent_tool.risk}", stmt.line))
+            risky = [n for n in stmt.grant if n in mine
+                     and mine[n].risk in ("HIGH", "CRITICAL")]
+            if risky:
+                self.diags.append(Diagnostic(
+                    "W144", "warning",
+                    f"DELEGATE {stmt.agent} : GRANT de {', '.join(risky)} "
+                    f"(HIGH/CRITICAL) — le T1 du parent n'examine pas les "
+                    f"appels du délégué, et celui du délégué ignore le plafond "
+                    f"du parent. À l'exécution la politique du parent s'y "
+                    f"applique ; l'établir avant : SCENARIO sur le parent, "
+                    f"`agentl mutate`", stmt.line))
+            needed = 1 + _delegation_depth(child)
+            if stmt.max_depth < needed:
+                self.diags.append(Diagnostic(
+                    "W143", "warning",
+                    f"DELEGATE {stmt.agent} : {stmt.agent_file} délègue à son "
+                    f"tour (profondeur {needed}), MAX_DEPTH vaut "
+                    f"{stmt.max_depth} — la délégation imbriquée sera refusée",
                     stmt.line))
 
     def _check_declared_durations(self) -> None:
@@ -1684,6 +1762,22 @@ def check_program(program: Program) -> List[Diagnostic]:
 def _all_agent_statements(agent: Agent):
     for stmt, _ in Analyzer(agent)._all_statements():
         yield stmt
+
+
+def _delegation_depth(agent, _seen=()) -> int:
+    """Profondeur de délégation AGENT-L sous `agent` (0 : aucune)."""
+    from . import compose
+    depth = 0
+    for stmt in compose.delegations(agent):
+        try:
+            child, _ = compose.load(stmt)
+            here = str(compose.resolve(stmt))
+        except compose.ComposeError:
+            continue
+        if here in _seen:
+            continue
+        depth = max(depth, 1 + _delegation_depth(child, (*_seen, here)))
+    return depth
 
 
 def _walk_stmts(stmts):

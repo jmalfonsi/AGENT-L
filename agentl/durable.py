@@ -785,6 +785,12 @@ def program_digest(agents: Sequence[Any]) -> str:
     h = hashlib.sha256(b"agentl.program.v1\n")
     for agent in agents:
         h.update(repr(agent).encode("utf-8") + b"\n")
+    # Les agents délégués (v1.16) : leur contenu fait l'identité du programme.
+    # Vide — donc sans effet sur l'empreinte — pour un programme sans `AGENT`.
+    from .compose import delegation_digest
+    composed = delegation_digest(agents)
+    if composed:
+        h.update(b"compose\n" + composed.encode("ascii") + b"\n")
     return h.hexdigest()
 
 

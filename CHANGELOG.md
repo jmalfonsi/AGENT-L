@@ -4,6 +4,49 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.16.0] — non publié · un agent en délègue un autre, sous droits bornés
+
+Proposition 1 de l'audit du 2026-10-20, validée : `DELEGATE` vers un agent
+AGENT-L, séquentiel, la forme à fonction Python conservée. SPEC §46.
+
+```agentl
+DELEGATE forensic {
+    AGENT "forensic.agent"  TASK "…"  INPUT { … }  EXPECT { … }
+    GRANT { read_mail, tag_mail }  MAX_TICKS 6  MAX_DEPTH 1
+}
+```
+
+- **Monotonie des droits.** `GRANT` ⊆ outils du parent (`E018`) ; l'enfant n'a
+  d'autre outil que ceux-là (`GrantedHost`) ; chaque action passe par sa
+  politique **puis** par celle du parent (`Kernel.ceiling`), jugée sur l'état du
+  parent avec le risque que **le parent** déclare. Le plus restrictif gagne ;
+  un `DEFAULT DENY` du parent s'applique à l'enfant.
+- **Un seul chemin.** Permis, intentions, clés d'idempotence et journal sont
+  ceux du parent, sous un identifiant hiérarchique : la reprise durable rejuge
+  les actions déléguées (§44) sous les deux politiques, relues sur leurs
+  capteurs. Le contenu du fichier délégué entre dans l'empreinte du programme
+  durable ; un programme sans `AGENT` garde la sienne.
+- **Borné.** `MAX_TICKS`, `MAX_DEPTH` (1 par défaut : pas de redélégation),
+  chemin sous le répertoire du parent, un agent par fichier, cycle refusé.
+- **Statique.** `E020`, `E018`, `E019`, `W142`, `W143`, `W144` ; `agentl verify`
+  vérifie le parent puis chaque délégué ; `SCENARIO`, `test` et `mutate`
+  fonctionnent sur un agent qui délègue. `boundary` n'exige plus de fonction
+  Python pour un délégué AGENT-L.
+- **Deux mots réservés** : `GRANT`, `MAX_TICKS` (éditeur du Studio et extension
+  VS Code alignés).
+- **TCB** : 1 386 lignes, budget relevé de 1 350 à 1 400 — le plafond et son
+  rejugement à la reprise doivent vivre dans le noyau. Le modèle TLA+ ne change
+  pas (SPEC §46).
+- `check_noncircumvention` a attrapé la première version du code (un registre
+  `subagents` vide dans `GrantedHost`) : onzième portée listée, avec sa raison.
+
+Limites, écrites : T1 n'examine pas les appels de l'enfant sous la politique du
+parent (`W144` le dit pour les outils risqués ; un `SCENARIO` sur le parent et
+`mutate` l'établissent) ; ce que l'enfant affirme dans `EXPECT` n'est pas un fait
+du monde ; pas de délégations parallèles.
+
+Contrat d'auteur 2.18.0.
+
 ## [1.15.2] — non publié · le non-contournement se vérifie sur l'arbre syntaxique
 
 « Aucun appel n'atteint un outil sans traverser le moteur de politiques » était

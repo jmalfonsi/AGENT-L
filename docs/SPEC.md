@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.15.2)
+# AGENT-L — sémantique de référence (v1.16.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -520,7 +520,7 @@ obtenir une information, puis rentrer sous contrat.*
 | `REASON` | LLM | schéma `PRODUCE { champ: Type }`, coercition imposée |
 | `JUDGE` | LLM | questions fermées, valeur **et** probabilité (§39) |
 | `ASK` | humain | réponse liée à `answer`, `DEFAULT` si silence/timeout |
-| `DELEGATE` | autre agent | `EXPECT { … }`, champs manquants signalés |
+| `DELEGATE` | autre agent (fonction, ou agent AGENT-L depuis la 1.16 : §46) | `EXPECT { … }`, champs manquants signalés |
 
 Dans les trois cas le runtime **impose** le schéma : ce n'est jamais l'oracle
 qui décide de la forme de sa réponse.
@@ -2832,4 +2832,95 @@ pourrait pas l'atteindre sans `require_permit`.
 `require_permit` ne garde** : le contrôle statique empêche le paquet de
 l'appeler hors du noyau, pas un hôte utilisateur. La fermer demande de faire du
 sous-agent une primitive du noyau (monotonie des droits, journal commun) —
-c'est la proposition 1 de l'audit, pas un patch.
+c'est la proposition 1 de l'audit, pas un patch. **Fermée en 1.16 pour un
+délégué AGENT-L** (§46) : il n'est plus une fonction, ses actions passent chacune
+par un noyau. Elle reste ouverte pour `DELEGATE` vers une fonction Python.
+
+## 46. `DELEGATE … AGENT` — un agent en délègue un autre, sous droits bornés (v1.16)
+
+`DELEGATE` (§11) appelait une fonction Python : un oracle opaque, que `verify`
+ne voyait pas et dont l'hôte pouvait faire n'importe quoi. Un délégué peut
+maintenant **être** un agent — un fichier `.agent`, lu, analysé, vérifié,
+exécuté par un `Runtime` imbriqué. La forme à fonction Python reste valide.
+
+```agentl
+DELEGATE forensic {
+    AGENT     "forensic.agent"          // sous le répertoire du parent
+    TASK      "analyser l'e-mail signalé"
+    INPUT     { mail.sender }           // liés à l'enfant, provenance conservée
+    EXPECT    { malicious, threat_class }
+    GRANT     { read_mail, tag_mail }   // outils du PARENT que l'enfant peut appeler
+    MAX_TICKS 6                         // borne dure d'exécution
+    MAX_DEPTH 1                         // 1 par défaut : pas de redélégation
+}
+```
+
+**Monotonie des droits.** Une délégation ne crée aucun droit :
+
+1. `GRANT` ne désigne que des outils que **le parent déclare** (`E018`).
+2. L'enfant n'atteint que ces outils : sa vue de l'hôte (`GrantedHost`) n'a pas
+   les autres — ils n'existent pas, ils ne sont pas seulement interdits. Il ne
+   consomme pas les événements du parent et n'a aucun sous-agent Python.
+3. Chaque action de l'enfant passe par **sa** politique, puis par celle du
+   parent (`Kernel.ceiling`) : jugée sur l'état du parent, **avec le risque que
+   le parent déclare** pour l'outil — un enfant qui le déclare plus bas ne
+   l'abaisse pas (`W142` l'écart). Le plus restrictif des verdicts gagne : un
+   `NEVER` ou `DENY` du parent refuse, un `REQUIRE APPROVAL` du parent
+   s'impose, un `DEFAULT DENY` du parent s'applique à l'enfant. La chaîne
+   s'étend aux ancêtres (`MAX_DEPTH`).
+4. Le retour porte l'origine `DELEGATE`, comme celui d'une fonction : les champs
+   de `EXPECT` ne masquent rien, et **ce que l'enfant affirme n'est pas un
+   fait du monde** — un `SET acted = yes` qu'un refus n'a pas arrêté se lit
+   quand même. Le parent le vérifie avec `VERIFY`.
+
+**Un seul chemin, un seul journal.** Le noyau de l'enfant est un noyau comme
+les autres : ses permis, ses intentions et ses clés d'idempotence sont ceux de
+§36, sous un identifiant hiérarchique `run>forensic#tick.n:agent:tTICK:aSEQ`.
+Son journal est celui du parent : une reprise durable rejuge donc les actions
+déléguées comme n'importe quelle autre (§44), sous la politique de l'enfant **et**
+celle du parent, relues sur leurs capteurs. Le permis de la délégation elle-même
+n'est pas présenté (rien n'atteint l'hôte à ce niveau) : il est révoqué.
+L'empreinte du programme durable (`program_digest`) inclut le contenu des
+fichiers délégués : en modifier un entre un crash et la reprise est une reprise
+refusée. Un programme sans `AGENT` garde exactement son empreinte d'avant.
+
+**Séquentiel, borné.** Une délégation s'exécute en entier avant la suite du
+parent : aucune concurrence à raisonner (§37). `MAX_TICKS` borne ses ticks (au
+plus la boucle de l'enfant) ; la profondeur vaut 1 par défaut ; un cycle de
+fichiers est une erreur statique (`E020`) et ne peut donc pas diverger.
+Plusieurs délégations en parallèle, fusionnées à la fin d'un tick, ne sont pas
+faites : c'est la partie qui touche à la concurrence.
+
+**Périmètre.** Le fichier se cherche **sous** le répertoire du parent : un
+chemin absolu ou qui en sort est refusé. Il définit exactement un agent. Le
+nom après `DELEGATE` est l'alias, la cible des règles de politique du parent
+(`ALLOW forensic`, `NEVER forensic`), et le préfixe des retours
+(`forensic.malicious`). Sans `TOOL` homonyme, le risque de la délégation elle-même
+est `LOW` — elle ne touche pas le monde ; `W127` ne s'applique pas.
+
+| code | nature | contrôle |
+|---|---|---|
+| `E020` | erreur | fichier délégué absent, hors périmètre, illisible, à plusieurs agents, ou cycle |
+| `E018` | erreur | `GRANT` d'un outil que le parent ne déclare pas |
+| `E019` | erreur | l'agent délégué a lui-même des erreurs d'analyse |
+| `W142` | avertissement | outil accordé que l'enfant déclare à un risque inférieur à celui du parent |
+| `W143` | avertissement | `MAX_DEPTH` trop bas pour les délégations imbriquées du délégué |
+| `W144` | avertissement | outil `HIGH`/`CRITICAL` accordé : T1 ne voit pas les appels de l'enfant |
+
+**Ce que `verify` dit, et ne dit pas.** `agentl verify` vérifie le parent **puis
+chaque délégué**, chacun pour lui-même. Un enfant tenu seul est tenu a fortiori
+sous le plafond, qui ne fait que restreindre. Mais le T1 du parent n'examine
+pas les appels de l'enfant (un autre fichier), et celui de l'enfant ignore la
+politique du parent : un `NEVER quarantine` posé **seulement** chez le parent
+peut être démontré sans que les appels de l'enfant aient été jugés
+statiquement — d'où `W144`. À l'exécution il s'applique ; pour l'établir avant,
+un `SCENARIO` sur le parent et `agentl mutate` (qui retire la règle et attend
+qu'un scénario tombe). Étendre T1 à la composition — jugement des appels
+de l'enfant sous la politique conjointe — est le prolongement, non fait.
+
+**Modèle formel.** `AgentLKernel.tla` ne change pas : les actions d'un enfant
+sont des actions ordinaires du même protocole (intention, résultat, reprise),
+et le plafond est une conjonction de politiques déterministes, donc une
+politique déterministe. Le budget de la TCB passe de 1 350 à 1 400 lignes
+(1 386 mesurées) : le plafond et son rejugement à la reprise vivent dans le
+noyau, ce qui est le point.
