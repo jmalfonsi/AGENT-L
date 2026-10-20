@@ -188,20 +188,24 @@ class State:
         self.world[path] = value
         self._label("W", path, prov)
 
-    def invalidate(self, path: str) -> None:
+    def invalidate(self, path: str, *, local: bool = True) -> None:
         """Efface ce qu'on croyait savoir d'un chemin : il redevient indéfini.
 
         Distinct de `set_world(path, None)` : `None` est une valeur d'état
         légitime, l'absence n'en est pas une. Après cet appel toute lecture du
         chemin rend `UNDEFINED`, donc toute garde qui le mentionne échoue
-        fermé au lieu de statuer sur une mesure périmée.
+        fermé au lieu de statuer sur une mesure périmée. `local=False` épargne
+        ce que le programme a lui-même posé (`SET`) : une panne de capteur
+        efface la perception, pas les décisions du programme (1.15.1).
         """
+        stores = ("W", "B", "L") if local else ("W", "B")
         self.world.pop(path, None)
         self.beliefs.pop(path, None)
-        self.locals.pop(path, None)
+        if local:
+            self.locals.pop(path, None)
         labels = getattr(self, "labels", None)
         if labels is not None:
-            for store in ("W", "B", "L"):
+            for store in stores:
                 labels.pop(label_key(store, path), None)
 
     def set_belief(self, path: str, value: Any, confidence: float = 1.0,

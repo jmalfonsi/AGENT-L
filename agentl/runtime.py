@@ -165,6 +165,9 @@ class Runtime:
         self._seen_shared: Dict[str, int] = {}
         #: Capteurs dont la panne a déjà réveillé un humain (v1.8).
         self._sensor_escalated: set = set()
+        #: Chemins remplacés ce tick par leur repli `DEGRADE` : la mise à jour
+        #: des croyances ne doit pas les reprendre pour une mesure (1.15.1).
+        self._degraded_now: set = set()
         #: Registre de dérive : `"outil→chemin" → {confirmé, démenti}`.
         #: Rechargé depuis `LONG_TERM.effect_drift` si la clé est déclarée,
         #: pour qu'une exécution ne reparte pas crédule (voir `DRIFT_KEY`).
@@ -657,6 +660,7 @@ class Runtime:
                 "ne le masque pas (lisible en payload.<clé>)")
 
     def phase_observe(self) -> None:
+        self._degraded_now.clear()
         ev = Evaluator(self.state)
         for obs in self.agent.observers:
             if obs.when is not None and not self._safe_test(
@@ -703,11 +707,27 @@ class Runtime:
             self.state.set_world(obs.path, value, label)
             self.state.set_belief(obs.path, value, 0.3, "fallback",
                                   self.state.tick, label)
+            self._degraded_now.add(obs.path)
             self.trace.log(self.state.tick, "OBSERVE",
                            f"{obs.path} : capteur muet → repli {fmt(value)}",
                            "valeur déclarée, non mesurée — confiance 0.3, "
                            "source `fallback`")
             return
+
+        # Sans repli déclaré, la mesure d'avant la panne n'en est plus une.
+        # Jusqu'en 1.15.0 elle restait dans le monde, et `phase_update_beliefs`
+        # la recopiait en croyance comme une observation fraîche : la trace
+        # annonçait un échec fermé, la garde jugeait sur la valeur d'avant la
+        # panne (SPEC §31). Le monde l'oublie, et la croyance que le runtime
+        # avait tirée du monde — observation ou `EFFECT` attendu — aussi. Un a
+        # priori que l'auteur a déclaré (`BELIEF … SOURCE prior`) reste : il ne
+        # s'est jamais fait passer pour une mesure, et sa source le dit.
+        belief = self.state.beliefs.get(obs.path)
+        if belief is not None and belief.source != "observation" \
+                and not str(belief.source).startswith("effect:"):
+            self.state.world.pop(obs.path, None)
+        else:
+            self.state.invalidate(obs.path, local=False)
 
         if obs.on_unknown == "ESCALATE":
             self.trace.log(self.state.tick, "ASK",
@@ -732,7 +752,9 @@ class Runtime:
         de même chemin, avec une confiance issue du capteur."""
         for obs in self.agent.observers:
             value = self.state.world.get(obs.path, UNDEFINED)
-            if value is UNDEFINED:
+            # Un repli n'est pas une mesure : sa croyance (0.3, `fallback`)
+            # n'est pas réécrite en observation à 0.95 (1.15.1).
+            if value is UNDEFINED or obs.path in self._degraded_now:
                 continue
             if obs.path in self.state.beliefs:
                 old = self.state.beliefs[obs.path]

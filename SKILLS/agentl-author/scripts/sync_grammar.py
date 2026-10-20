@@ -126,7 +126,11 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # `--max-resume-age` redemandée. Nouvelles erreurs `ActionRevoked` /
 # `ApprovalLapsed`, résolution `revoked`, option `--max-resume-age`. Une
 # relance qui passait peut désormais être refusée : mineur.
-AUTHORING_CONTRACT_VERSION = "2.17.0"
+# 2.17.1 : v1.15.1 — un capteur muet sans `ON UNKNOWN` (ou en `ESCALATE`)
+# oublie la mesure d'avant la panne, et la croyance d'observation ou d'EFFECT
+# qu'elle fondait ; un a priori `BELIEF` déclaré reste. Un repli `DEGRADE` n'est
+# plus réécrit en observation 0.95. Conforme à ce que §31 annonçait : patch.
+AUTHORING_CONTRACT_VERSION = "2.17.1"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

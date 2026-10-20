@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.15.0)
+# AGENT-L — sémantique de référence (v1.15.1)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -2029,6 +2029,19 @@ OBSERVE {
 | *(rien)* | comportement historique : le chemin reste indéfini, les gardes échouent fermé — plus une ligne de trace et `sensors.<chemin>.available = false` |
 | `ESCALATE` | la panne devient une escalade nommée, **une seule fois par panne** : un capteur mort réveillerait sinon l'astreinte à chaque tick, et une alerte répétée n'est plus lue |
 | `DEGRADE <valeur>` | la valeur de repli **déclarée** est substituée, tracée, et posée avec la confiance `0.3` et la source `fallback` |
+
+**Indéfini, vraiment (1.15.1).** Jusqu'en 1.15.0, un capteur qui se taisait
+*après avoir parlé* gardait sa dernière valeur dans le monde, et la mise à jour
+des croyances la recopiait comme une observation du tick courant (0.95, datée
+du tick) : la trace annonçait l'échec fermé, la garde jugeait sur la mesure
+d'avant la panne et un `NEVER` laissait passer l'action. Désormais, sans repli
+déclaré (rien, ou `ESCALATE`), le monde oublie la mesure, et la croyance que le
+runtime en avait tirée — observation, ou `EFFECT` attendu qu'aucune perception
+ne confirme — aussi. Un a priori déclaré par l'auteur (`BELIEF … SOURCE
+prior`) reste : il ne s'est jamais fait passer pour une mesure. Les locales
+posées par le programme (`SET`) ne sont pas touchées. Même défaut, autre
+visage : un repli `DEGRADE` était réécrit en observation à 0.95 dans le même
+tick ; il garde maintenant sa confiance 0.3 et sa source `fallback`.
 
 Trois propriétés tiennent la direction de sûreté :
 

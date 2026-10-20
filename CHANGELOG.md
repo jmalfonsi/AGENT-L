@@ -4,6 +4,26 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.15.1] — non publié · un capteur muet rend vraiment son chemin indéfini
+
+Constaté en écrivant la 1.15.0, reproduit par sonde (compte gelé, capteur muet
+au tick 2, `NEVER transfer WHEN account.frozen == yes` : le virement partait).
+SPEC §31.
+
+- **Capteur muet sans repli** (rien, ou `ON UNKNOWN ESCALATE`) : la valeur du
+  tick précédent restait dans le monde et `UPDATE_BELIEFS` la recopiait en
+  croyance comme une observation fraîche (0.95, datée du tick courant), alors
+  que la trace annonçait « chemin indéfini … échoue fermé ». Le monde oublie
+  désormais la mesure, et la croyance d'observation ou d'`EFFECT` qu'elle
+  fondait ; un a priori `BELIEF` déclaré reste, les `SET` du programme aussi.
+- **`DEGRADE`** : le repli (confiance 0.3, source `fallback`) était réécrit en
+  observation 0.95 dans le même tick ; il ne l'est plus. Le test existant ne
+  regardait l'état qu'après `OBSERVE`, pas après un tick complet.
+- La perception sélective (`OBSERVE … WHEN` faux) n'est pas une panne : sa
+  dernière valeur reste.
+
+Contrat d'auteur 2.17.1. Aucune grammaire ne change.
+
 ## [1.15.0] — non publié · une action reprise est rejugée sur le monde d'aujourd'hui
 
 Une reprise durable re-dérive chaque décision depuis les lectures du processus
@@ -33,7 +53,7 @@ account.frozen == yes`, le virement partait dans les deux cas. SPEC §44.
   d'une approbation de queue (1.12.3). 2,4 millions d'états (22 025 avant).
 - **TCB** : 1 344 lignes sur 1 350 — le budget n'est pas relevé.
 
-Non traité, constaté en chemin (hors reprise) : un capteur muet sans
+Constaté en chemin (hors reprise), corrigé en 1.15.1 : un capteur muet sans
 `ON UNKNOWN` garde sa dernière valeur, rafraîchie comme une observation du
 tick, alors que la trace annonce « chemin indéfini … échoue fermé ».
 
