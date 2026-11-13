@@ -1,4 +1,4 @@
-# AGENT-L — sémantique de référence (v1.16.1)
+# AGENT-L — sémantique de référence (v1.17.0)
 
 Ce document fixe le **sens** de chaque primitive. La grammaire (`agentl.ebnf`)
 dit ce qu'on peut écrire ; ce document dit ce que cela fait. L'implémentation
@@ -256,11 +256,15 @@ rien n'agit. C'est seulement pour un `NEVER` que la même convention s'ouvre.
 
 **Limite assumée.** Un identifiant **nu** non résolu est une *constante
 symbolique* — c'est ainsi que `open`, `yes` et `contained` sont des valeurs.
-`WHEN dry_run == no` compare donc deux symboles et rend faux, sans passer par
-l'indétermination. La trivalence ne peut rien y faire : l'évaluateur n'a pas
-rendu « indéfini », il a rendu une constante. `W128` signale ce cas — une
-garde `NEVER`/`DENY`/`APPROVAL` portant sur un nom simple que le programme ne
-renseigne nulle part — et invite à écrire un chemin pointé. Les noms de
+Depuis la 1.17 (§47), cette lecture ne s'applique plus à ce que le programme
+renseigne lui-même : tant qu'une variable (`SET`, `PRODUCE`, `EXPECT`,
+`OUTPUT`, `EFFECT`, `OBSERVE`, `BELIEF`, variable de `FOREACH`) n'est pas
+liée, `dry_run == no`, `dry_run != no` et `dry_run IN [no]` sont
+indéterminés, et une garde en position de vérité (`IF approved`) l'est aussi.
+Reste le nom que le programme ne renseigne **nulle part** : dans une
+comparaison il vaut la constante, `WHEN dry_run == no` compare deux symboles et
+rend faux. `W128` signale ce cas — une garde de politique portant sur un nom
+simple que rien ne renseigne — et invite à écrire un chemin pointé. Les noms de
 paramètres d'outil ne sont pas concernés : `NEVER block_ip WHEN ip_address ==
 "127.0.0.1"` est l'idiome canonique, et le contrat `INPUT` est vérifié avant la
 politique.
@@ -2924,3 +2928,97 @@ et le plafond est une conjonction de politiques déterministes, donc une
 politique déterministe. Le budget de la TCB passe de 1 350 à 1 400 lignes
 (1 386 mesurées) : le plafond et son rejugement à la reprise vivent dans le
 noyau, ce qui est le point.
+
+
+## 47. Ce que la 1.17 ne laisse plus passer (v1.17)
+
+Revue du cœur, sans grammaire nouvelle : chaque point ci-dessous est un écart
+entre « échoue fermé » et ce que le runtime faisait. Ni la séparation (le
+modèle propose, le runtime décide, seul le noyau atteint l'hôte) ni un code de
+diagnostic existant ne changent.
+
+### Un nom non lié est indéterminé
+
+`policy.state_names(agent)` rend les noms simples que le programme renseigne
+lui-même. Tant qu'un tel nom n'est pas lié à l'état, la logique trivalente des
+gardes le lit comme **indéfini** : `==`, `!=`, `IN` rendent `UNKNOWN`, et en
+position de vérité (`ALLOW wipe IF approved`, `NEVER wipe WHEN NOT safe_mode`)
+tout nom non lié est indéterminé, déclaré ou non, sauf les mots qui nomment une
+valeur de vérité (`yes`, `true`, `no`, `false`, `none`, `null`, `unknown`).
+`UNKNOWN` applique `NEVER`, `DENY` et `REQUIRE APPROVAL`, et n'ouvre pas
+`ALLOW` (§ logique trivalente). Les paramètres `INPUT` n'en font pas partie :
+ils sont liés exactement quand l'appel jugé les porte.
+
+`no` est faux, comme `false`, `none`, `null` et `unknown`. `NaN` n'est égal ni
+différent de rien : `x != 5` sur une mesure invalide est `UNKNOWN`. `IN` suit
+Kleene : un élément indéfini ou `NaN` dans la liste rend `UNKNOWN`, sauf si la
+valeur figure parmi les éléments connus.
+
+**`EVIDENCE`.** Le test d'une évidence passe par la même logique : un nom non
+lié, une mesure invalide ou un `P(h)` pas encore publié la laissent
+**indéterminée** et ne déplacent pas le postérieur (§ inférence). Auparavant
+`load != high` comptait comme observée vraie tant que le capteur n'avait rien
+rendu, et l'hypothèse se confirmait sur une absence de donnée.
+
+### Le tick ne tombe pas
+
+Une expression inévaluable dans `EFFECT` (y compris **après** que l'outil a
+agi), `DEFAULT` de `REASON`/`JUDGE`/`ASK`, `EXPLAINS`, `ON UNKNOWN DEGRADE`,
+l'amorce d'une `BELIEF` ou le `PAYLOAD` d'un `MESSAGE` laisse une trace `ERROR`
+et une valeur indéfinie ; le tick continue. Un événement d'hôte qui n'est pas
+`{source: str, payload: dict}` est ignoré avec une trace, les suivants sont
+traités. Le planificateur échoue fermé : un `REQUIRES` inévaluable est non
+établi, un but inévaluable est non atteint. L'affichage ne pilote jamais
+l'exécution : un flux non UTF-8 ou fermé ne fait tomber ni la CLI ni l'agent.
+
+### Journaux
+
+`agentl durable status|export` ne modifie plus le journal : la lecture
+d'examen (`FileStore.peek`) ne retire pas la ligne déchirée de queue — seule la
+reprise la répare. Un journal durable ou de rejeu **malformé** (méta-données
+illisibles, entrée qui n'est pas un objet, `ticks`, `source` ou `format` de
+type inattendu) est refusé par `DurableError` / `ReplayError`. Les charges
+utiles des messages d'une `Society` sont copiées en profondeur par
+destinataire, comme dans `AsyncSociety`. La règle d'arrêt d'une société (tous
+les agents qui ont un `GOAL` l'ont atteint, ou `max_ticks`) est **inchangée** ;
+elle vit désormais en un seul endroit, `society.settled`.
+
+### `T1` et les plans mis en file au même tick
+
+Tous les plans dont la garde `WHEN` est vraie sont mis en file à la sélection,
+puis exécutés à la suite **sans que leur garde soit réévaluée**. Un plan
+exécuté avant un autre a pu réécrire ce dont la garde de celui-ci parlait :
+`PLAN a WHEN b < 2 { wipe() }` et `PLAN c WHEN b <= 2 { SET b = 2 }` passaient
+sans exposition sous `NEVER wipe WHEN b == 2`, alors que `c` périme la garde de
+`a`. `T1` retire désormais de ses prémisses les conditions d'entrée que
+réécrit un plan **co-sélectionnable** (dont la garde est satisfiable avec la
+leur) — affaiblir les prémisses ne peut que réduire ce qu'on démontre. Les
+sites concernés deviennent des expositions `V102` : sur les exemples, seuls
+`meridian_player` (trois plans de clôture de même garde) change de rapport.
+
+*Limite.* Le solveur juge fausse une comparaison d'ordre sur une variable
+épinglée à un symbole non ordinal (`a == low ∧ a <= 2`), là où le runtime la
+juge indéterminée — donc applique le `NEVER`. L'écart va dans le sens sûr (le
+runtime bloque plus que la preuve ne l'annonce) mais `T1` peut taire une
+exposition dans ce cas de types mêlés.
+
+### Diagnostics
+
+| Code | Sévérité | Sens |
+|---|---|---|
+| `W145` | avertissement | `ON MESSAGE` déclaré mais la `LOOP` écrite à la main n'a pas de phase `RECEIVE` : la boîte n'est jamais lue |
+| `W146` | avertissement | `EVIDENCE` portant sur un chemin ou un nom que rien ne renseigne : jamais observable |
+
+`W128` s'étend à la position de vérité et à `ALLOW … IF x != y` portant sur un
+nom que rien ne renseigne.
+
+### TCB et vitesse
+
+Le budget de la TCB passe de 1 400 à 1 440 lignes (1 435 mesurées) : ce qui
+décide qu'une garde est indéterminée (`trivalent._unbound`, `_member`,
+`policy.state_names`) est du code de décision, et le compter ailleurs aurait
+tenu le budget en faussant la mesure. Sur `valmont_supervision`, `agentl
+mutate` passe de 27,8 s à 11 s à sorties identiques : chemins d'état connus
+calculés une fois par scénario, champs `EXPECT` collectés en un parcours,
+signature des états du planificateur mémorisée.
+

@@ -61,7 +61,7 @@
     "global": {
       "versions": [
         {
-          "version": "v1.16 (dév.)",
+          "version": "v1.17 (dév.)",
           "default": true,
           "href": "/"
         }

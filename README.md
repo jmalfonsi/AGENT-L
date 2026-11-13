@@ -7,8 +7,10 @@ le runtime décide.
 
 Grammaire EBNF, analyseur statique, moteur de politiques, inférence bayésienne,
 planificateur, vérificateur de sûreté hors ligne, studio web. **Zéro
-dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.16.1** —
-la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
+dépendance** — Python 3.10+, bibliothèque standard uniquement. **v1.17.0** —
+le cœur est fiabilisé (un nom non lié est indéterminé dans une garde, un journal
+abîmé est refusé, `agentl mutate` deux fois et demie plus rapide) ; depuis la
+1.12, la sûreté se teste : `agentl mutate` vérifie que chaque règle de politique est
 défendue par un scénario, une garde de provenance se teste par
 `GIVEN … UNTRUSTED`, un refus devient un fait (`tools.<outil>.denied`), et un
 `VERIFY` en échec ne rend plus l'agent muet. Depuis la 1.11 : correctifs de
@@ -1710,6 +1712,7 @@ WEBSITE/                site de présentation
 | **v1.11.0** | **correctifs de vérité : garde d'origine du Studio, identifiants nus renseignés lus comme variables par le solveur (`W137`), `DENY` et `OBSERVE … WHEN` dans T1/T2/T9 (`V152`), probabilité de `JUDGE` écartée avec la réponse rejetée** |
 | **v1.10.0** | **`JUDGE` : questions fermées (`NOUL`, `CHOICE`, `SCORE`), probabilité dans l'état (`judge.<champ>.p`), abstention déclarée (`ABSTAIN BELOW`), diagnostics `E017`/`W136`** |
 | **v1.14.0** | **la dette de sûreté devient mesurable et ne peut que baisser : cliquet de mutation en CI (`tools/check_mutation.py`), provenance **statique** par flot (`W141`, `V154`), exemples dotés de vrais scénarios (`soc_analyst`, `service_medic`, `disk_sentinel`, `idor_hunter`, `mention_triage`, `soc_risk`, `K8S_HEALER`), règles inexerçables levées avec leur raison** |
+| **v1.17.0** | **le cœur fiabilisé : un nom que le programme renseigne et qui n'est pas encore lié est indéterminé dans une garde de politique et dans une `EVIDENCE` (`ALLOW … IF approved` n'autorise plus à vide), `no` est faux, `NaN` indéterminé, le tick ne tombe plus sur une expression inévaluable, `durable status` n'écrit plus, `T1` périme la garde d'un plan que réécrit un plan co-sélectionné, `W145`/`W146`, `agentl mutate` 27,8 s → 11 s à sorties identiques** |
 | **v1.16.1** | **le banc comparatif mesure une équipe : superviseur + deux spécialistes, AGENT-L face à LangGraph (`team_injection`, `team_rights`, `team_crash_resume`) — deux ❌ de LangGraph (plancher), une égalité** |
 | **v1.16.0** | **un agent en délègue un autre sous droits bornés : `DELEGATE … AGENT "f.agent" GRANT { outils } MAX_TICKS n` — monotonie des droits (la politique du parent plafonne l'enfant, avec le risque que le parent déclare), hôte restreint à `GRANT`, journal et reprise communs, `verify` sur tout l'arbre (`E020`, `E018`, `E019`, `W142`–`W144`)** |
 | **v1.15.2** | **le non-contournement se vérifie sur l'arbre syntaxique : seul `Kernel.execute` atteint `host.invoke`, seul `Kernel.delegate` un sous-agent ; une CI échoue sur tout chemin neuf (`tools/check_noncircumvention.py`)** |

@@ -53,6 +53,25 @@ const TONES: Record<Entry['tone'], { chip: string; border: string; icon: string 
 
 const ENTRIES: Entry[] = [
   {
+    version: 'v1.17',
+    tag: 'Cœur fiabilisé',
+    tone: 'emerald',
+    icon: ShieldCheck,
+    title: "Un nom non lié ne vaut plus autorisation — et le cœur ne tombe plus sur une donnée inattendue",
+    spec: 'SPEC §47',
+    body:
+      "Un identifiant que le programme renseigne lui-même et qui n'est pas encore lié est indéterminé dans une garde de " +
+      "politique comme dans une EVIDENCE : NEVER s'applique, ALLOW ne s'ouvre pas (ALLOW … IF approved n'autorisait " +
+      "auparavant à vide). no est faux, NaN indéterminé. Le tick survit à une expression inévaluable, même après " +
+      "l'action réelle d'un outil ; un journal durable ou de rejeu abîmé est refusé proprement, et durable status " +
+      "n'écrit plus dans le journal. T1 périme la garde d'un plan que réécrit un plan mis en file au même tick. " +
+      "agentl mutate passe de 27,8 s à 11 s, à sorties identiques.",
+    codes: ['W128', 'W145', 'W146'],
+    snippet: `ALLOW wipe IF approved
+// approved : jamais posé → indéterminé → n'autorise plus
+// W128 : garde de politique sur \`approved\`, que rien ne renseigne`
+  },
+  {
     version: 'v1.16',
     tag: 'Délégation bornée',
     tone: 'cyan',

@@ -4,6 +4,128 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.3/).
 Versionnage sémantique : la **grammaire du langage** est l'API publique, au
 même titre que les codes de diagnostic `V…` / `W…` / `E…` / `B…`.
 
+## [1.17.0] — non publié · le cœur fiabilisé
+
+Première étape de la revue du cœur du langage : analyser, fiabiliser,
+optimiser, sans toucher à la séparation (le modèle propose, le runtime décide,
+seul le noyau atteint l'hôte). Aucune grammaire nouvelle ; deux codes de
+diagnostic de plus (`W145`, `W146`). SPEC §47.
+
+### Corrigé — décisions qui s'ouvraient à tort
+
+- **Garde de politique sur un nom simple non lié.** Un identifiant nu que rien
+  ne résout vaut la constante du même nom ; dans une garde, cela faisait
+  autoriser `ALLOW wipe IF approved` sans que personne n'ait posé `approved`,
+  et tomber `NEVER send WHEN draft_ok == no` tant que `draft_ok` n'était pas
+  lié. Désormais : en position de vérité, un nom non lié est **indéterminé** ;
+  dans `==`, `!=`, `IN`, un nom que le programme renseigne lui-même (`SET`,
+  `PRODUCE`, `EXPECT`, `OUTPUT`, `EFFECT`, `OBSERVE`, `BELIEF`, `FOREACH`) et
+  qui n'est pas encore lié l'est aussi. Indéterminé applique `NEVER`, `DENY`,
+  `REQUIRE APPROVAL` et n'ouvre pas `ALLOW`. Les chemins pointés échouaient
+  déjà fermé. Un nom que le programme ne renseigne nulle part reste une
+  constante dans une comparaison : `W128` le signale, et couvre maintenant la
+  position de vérité et `ALLOW … IF x != y`.
+- **`no` est faux**, comme `false`, `none`, `null`, `unknown` : `IF approved`
+  passait quand `approved = no`.
+- **`NaN` dans `==`, `!=`, `IN`** est indéterminé (`x != 5` était *vrai* sur
+  une mesure invalide) ; `IN` suit Kleene sur une liste à élément indéfini.
+- **`EVIDENCE` sans mesure.** Le test d'une évidence passe par la même logique
+  trivalente : `load != high` comptait comme *observée vraie* tant que le
+  capteur n'avait rien rendu, l'hypothèse se confirmait sur une absence de
+  donnée et `EXPLAINS` en faisait une croyance.
+
+### Corrigé — le tick ne tombe plus
+
+- Événement d'hôte non conforme (`drain` rend autre chose que
+  `{source, payload}`) : ignoré avec une trace `ERROR`, les suivants sont
+  traités.
+- Expression inévaluable dans `EFFECT` **après que l'outil a agi**, `DEFAULT`
+  de `REASON`/`JUDGE`/`ASK`, `EXPLAINS`, `ON UNKNOWN DEGRADE`, amorce de
+  `BELIEF`, `PAYLOAD` de `MESSAGE` : trace `ERROR`, valeur indéfinie, le tick
+  continue. Le planificateur échoue fermé (`REQUIRES` inévaluable = non
+  établi, but inévaluable = non atteint).
+- Sortie non UTF-8 (`PYTHONIOENCODING=ascii`, flux fermé) : l'affichage ne
+  fait plus tomber ni la CLI ni l'agent en cours.
+
+### Corrigé — journaux et sociétés
+
+- **`agentl durable status|export` n'écrit plus dans le journal.** La lecture
+  retirait la ligne déchirée de queue, y compris pour un simple examen — donc
+  possiblement la ligne qu'une exécution en cours était en train d'écrire.
+  `FileStore.peek()` lit sans réparer ; seule la reprise répare.
+- Journal durable ou de rejeu **malformé** (méta-données illisibles, entrée
+  qui n'est pas un objet, `ticks`/`source`/`format` de type inattendu) :
+  refusé par `DurableError` / `ReplayError`, plus par une erreur interne.
+- Les charges utiles des messages d'une `Society` sont **copiées en
+  profondeur** par destinataire, comme dans `AsyncSociety`. La règle d'arrêt
+  d'une société est **inchangée** (décision du 2026-11-12) ; elle vit en un
+  seul endroit, `society.settled`.
+
+### Corrigé — `T1` et les plans mis en file au même tick
+
+Tous les plans dont la garde `WHEN` est vraie sont exécutés à la suite sans
+que leur garde soit réévaluée. `PLAN a WHEN b < 2 { wipe() }` avec `PLAN c WHEN
+b <= 2 { SET b = 2 }` passait sans exposition sous `NEVER wipe WHEN b == 2`,
+alors que `c` périme la garde de `a`. `T1` retire de ses prémisses les
+conditions que réécrit un plan **co-sélectionnable** : les sites concernés
+deviennent des expositions `V102`. Trouvé par une sonde différentielle (2 000
+programmes aléatoires, `verify` contre exécution sur tous les états de
+capteurs). Sur les exemples, seul `meridian_player` change de rapport (trois
+plans de clôture de même garde).
+
+*Limite écrite, non corrigée* : le solveur juge fausse une comparaison d'ordre
+sur une variable épinglée à un symbole non ordinal (`a == low ∧ a <= 2`), là où
+le runtime la juge indéterminée et applique le `NEVER`. Sens sûr (le runtime
+bloque plus que la preuve ne l'annonce), mais `T1` peut taire une exposition en
+types mêlés.
+
+### Deux diagnostics
+
+- **`W145`** — `ON MESSAGE` déclaré alors que la `LOOP` écrite à la main n'a
+  pas de phase `RECEIVE` : la boîte n'est jamais lue, le message n'est ni
+  traité ni tracé comme ignoré.
+- **`W146`** — `EVIDENCE` portant sur un chemin ou un nom que rien ne
+  renseigne : toujours indéterminée, elle ne déplacera jamais le postérieur.
+  Aucune occurrence sur les exemples ni sur `bench/tasks`.
+
+### Plus rapide — mêmes sorties, octet pour octet
+
+Mesuré sur `examples/valmont_supervision.agent` ; les 174 sorties de
+`check`/`verify`/`test`/`mutate`/`boundary` sur les exemples sont identiques
+avant et après.
+
+| commande | avant | après |
+|---|---|---|
+| `agentl mutate` | 27,8 s | 11,1 s |
+| `agentl test` | 0,81 s | 0,45 s |
+
+Chemins d'état connus calculés une fois par scénario (ils l'étaient 66 000
+fois), champs `EXPECT` des délégations en un parcours, signature des états du
+planificateur mémorisée par recherche, sorties rapides de `State._dig_key`.
+
+### Change de conduite — à lire avant de mettre à jour
+
+- Une règle `ALLOW … IF nom` ou `… WHEN nom == valeur` qui passait parce que
+  `nom` n'était pas lié **ne passe plus**. `agentl check` (`W128`) et
+  `agentl test` le montrent avant l'exécution.
+- Une variable valant `no` est fausse dans `IF`, `WHEN`, `NOT`.
+
+### TCB
+
+1 435 lignes, **budget relevé de 1 400 à 1 440**. Ce qui décide qu'une garde
+est indéterminée (`trivalent._unbound`, `_member`, `policy.state_names`) est
+du code de décision : le compter hors de la TCB aurait tenu le budget et faussé
+la mesure.
+
+### Reste à faire
+
+- Modules du cœur pas encore audités : `solver` (écart de types mêlés cité
+  plus haut), `compose`, `seal`, `mcp`, `llm`, `autoloop`, `liveness`,
+  `provflow` ; justesse des théorèmes autres que `T1` (sonde différentielle à
+  étendre à `T2`/`T9`).
+
+Contrat d'auteur 2.19.0. `tests/test_v117_regressions.py` : 85 tests. Paquet 1.17.0, docs et site alignés.
+
 ## [1.16.1] — non publié · le banc comparatif mesure une équipe
 
 Point 4 de l'audit du 2026-10-20 : le scénario superviseur + deux spécialistes,

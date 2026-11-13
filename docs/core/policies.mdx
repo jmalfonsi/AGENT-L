@@ -69,6 +69,17 @@ Les politiques utilisent une logique trivalente. Un chemin absent n’est pas tr
 
 Cette convention échoue fermé tout en conservant la logique forte de Kleene pour les expressions composées.
 
+### Noms non liés (1.17)
+
+Un identifiant simple que rien ne résout vaut d'ordinaire la constante du même nom (`open`, `yes`, `contained`). Dans une garde, cette lecture ne s'applique plus à ce que le programme renseigne lui-même (`SET`, `PRODUCE`, `EXPECT`, `OUTPUT`, `EFFECT`, `OBSERVE`, `BELIEF`, variable de `FOREACH`) : tant que le nom n'est pas lié, `draft_ok == no`, `draft_ok != no` et `draft_ok IN [no]` sont indéterminés, donc `NEVER` s'applique et `ALLOW` ne s'ouvre pas.
+
+```agentl
+NEVER send_reply WHEN draft_ok == no   // draft_ok : PRODUCE d'un REASON
+ALLOW wipe IF approved                 // approved : jamais posé → n'autorise pas
+```
+
+En position de vérité (`IF approved`, `WHEN NOT safe_mode`), tout nom non lié est indéterminé, sauf les mots qui nomment une valeur de vérité (`yes`, `true`, `no`, `false`, `none`, `null`, `unknown`). `no` est faux. `NaN` n'est égal ni différent de rien. Un nom que le programme ne renseigne **nulle part** reste une constante dans une comparaison : `W128` le signale.
+
 ## Gardes de provenance (v1.9)
 
 Une garde peut lire **d’où vient** une valeur, pas seulement ce qu’elle vaut :
