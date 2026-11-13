@@ -499,7 +499,9 @@ class Verifier:
     def call_sites(self, tool: str) -> List[CallSite]:
         sites: List[CallSite] = []
         fallback = bool(self.agent.on_verify_fail)
-        for label, stmts, entry in self.executable_bodies():
+        bodies = self.executable_bodies()
+        plans = {plan.name: plan for plan in self.agent.plans}
+        for label, stmts, entry in bodies:
             walked = list(_walk_guarded(stmts, self.flow_ctx))
             local_fallback = fallback or any(
                 isinstance(s, VerifyStmt) and s.on_fail for s, _, _ in walked)
@@ -510,10 +512,45 @@ class Verifier:
                     # Les conditions d'entrée valaient au *déclenchement* ;
                     # ce que le corps a réécrit depuis les périme au même
                     # titre que ses gardes internes.
+                    live = self._not_overtaken(label, conds, bodies, plans)
                     sites.append(CallSite(tool, label, stmt.line,
-                                          flow.surviving(conds), list(guards),
+                                          flow.surviving(live), list(guards),
                                           origin, local_fallback))
         return sites
+
+    def _not_overtaken(self, label: str, conds: List[Node],
+                       bodies: Sequence[Tuple[str, List[Stmt], Any]],
+                       plans: Dict[str, Plan]) -> List[Node]:
+        """Conditions d'entrée encore vraies quand le corps s'exécute (1.17).
+
+        Une garde de déclenchement est jugée à la **sélection** ; le corps
+        s'exécute ensuite, et tous les plans dont la garde est vraie sont mis
+        en file au même tick. Un plan exécuté avant celui-ci a pu réécrire ce
+        dont la sienne parlait : `PLAN a WHEN b < 2 { wipe() }` et `PLAN c
+        WHEN b <= 2 { SET b = 2 }` passaient T1 sous `NEVER wipe WHEN b == 2`,
+        alors que `c` périme la garde de `a` avant son appel.
+
+        On retire la condition périmée des prémisses — ce qui ne peut que
+        réduire ce qu'on démontre, comme pour le flot interne — mais
+        seulement pour les plans **co-sélectionnables** : dont la garde est
+        satisfiable avec celle-ci. Les autres ne s'exécutent jamais au même
+        tick, et les compter noierait T1 sous des expositions sans objet.
+        """
+        if not conds:
+            return conds
+        written: Set[str] = set()
+        for other, stmts, _ in bodies:
+            if other == label:
+                continue
+            guard = [plans[other].when] if other in plans \
+                and plans[other].when is not None else []
+            if other in plans:
+                with watch_overflow():
+                    together = satisfiable(*conds, *guard)
+                if not together:
+                    continue
+            written |= self.flow_ctx.written_within(stmts)
+        return [c for c in conds if not (_referenced_paths(c) & written)]
 
     # ------------------------------------------------------- T1 : interdits
     def theorem_forbidden(self) -> Theorem:

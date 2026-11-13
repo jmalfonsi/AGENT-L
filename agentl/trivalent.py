@@ -48,7 +48,7 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
-from .core import UNDEFINED, Symbol, ordinal, truthy
+from .core import FALSY_SYMBOLS, UNDEFINED, Symbol, ordinal, truthy
 from .nodes import BinOp, CallExpr, ListExpr, Literal, Node, PathExpr, UnOp
 
 #: Troisième valeur. Une classe plutôt que `None` : `None` est une valeur
@@ -88,6 +88,47 @@ def _orderable(left: Any, right: Any) -> bool:
     except (TypeError, ValueError, OverflowError):
         return False
     return math.isfinite(a) and math.isfinite(b)
+
+
+#: Symboles qui nomment un booléen : seuls noms simples qu'une garde peut lire
+#: comme une valeur de vérité sans que rien ne les ait liés.
+_BOOLEAN_WORDS = frozenset({"true", "yes"}) | FALSY_SYMBOLS
+
+
+def _unbound(ev: Any, side: Any) -> bool:
+    """Nom simple que le programme renseigne quelque part, et pas encore ici.
+
+    Un identifiant nu que rien ne résout vaut la constante symbolique du même
+    nom — c'est ainsi que `open` ou `contained` sont des valeurs. Mais un nom
+    que le **programme lie lui-même** (`SET`, `PRODUCE`, `EXPECT`, `OUTPUT`…)
+    est une variable : avant sa première liaison il est *indéfini*, pas égal
+    à son propre nom. Sans cette distinction,
+
+        NEVER send_reply WHEN draft_ok == no
+
+    comparait `Symbol("draft_ok")` à `no` tant qu'aucun brouillon n'avait été
+    relu : faux, donc l'interdit tombait — exactement le cas qu'il garde. Les
+    chemins pointés échouaient déjà fermé ; les noms simples, l'idiome
+    recommandé, non (1.17). `verify` lit ces noms comme des variables depuis
+    la 1.11 : l'exécution rejoint l'analyse.
+    """
+    return (isinstance(side, PathExpr) and len(side.parts) == 1
+            and side.parts[0] in getattr(ev, "variables", ())
+            and ev.state.get(side.parts[0]) is UNDEFINED)
+
+
+def _nan(value: Any) -> bool:
+    return isinstance(value, float) and value != value
+
+
+def _member(left: Any, right: Any) -> Any:
+    """`left IN right`, en Kleene : un élément indéfini peut être celui-là."""
+    if isinstance(right, (list, tuple)) and any(
+            item is UNDEFINED or _nan(item) for item in right):
+        known = [item for item in right
+                 if item is not UNDEFINED and not _nan(item)]
+        return True if left in known else UNKNOWN
+    return left in right
 
 
 def evaluate(ev: Any, node: Optional[Node]) -> Any:
@@ -135,12 +176,20 @@ def evaluate(ev: Any, node: Optional[Node]) -> Any:
                     and side.dotted in locals_
                     and locals_[side.dotted] is UNDEFINED):
                 return UNKNOWN
+        if _unbound(ev, node.left) or _unbound(ev, node.right):
+            return UNKNOWN
         try:
             left = ev.eval(node.left)
             right = ev.eval(node.right)
         except Exception:                              # noqa: BLE001
             return UNKNOWN
         if left is UNDEFINED or right is UNDEFINED:
+            return UNKNOWN
+        # `NaN` n'est égal à rien, pas même à lui-même : `x != 5` était donc
+        # *vrai* sur une mesure invalide, et un `ALLOW … IF x != 5` s'ouvrait
+        # sur une panne de capteur. Même famille que le P0 NaN des
+        # comparaisons d'ordre (v1.8.2), côté égalité (1.17).
+        if _nan(left) or _nan(right):
             return UNKNOWN
         # Une comparaison que les types rendent **indécidable** n'est pas
         # fausse : elle est indéterminée. L'évaluateur rend `False` pour
@@ -154,6 +203,8 @@ def evaluate(ev: Any, node: Optional[Node]) -> Any:
         if node.op == "IN" and not isinstance(right, _CONTAINERS):
             return UNKNOWN
         try:
+            if node.op == "IN":
+                return _member(left, right)
             return bool(ev.eval(node))
         except Exception:                              # noqa: BLE001
             return UNKNOWN
@@ -167,6 +218,17 @@ def evaluate(ev: Any, node: Optional[Node]) -> Any:
             return UNKNOWN
         try:
             value = ev.eval(node)
+            # Un nom simple que rien ne lie revient de l'évaluateur sous la
+            # forme d'un symbole, donc « vrai » : `ALLOW wipe IF approved`
+            # autorisait sans que personne n'ait posé `approved`, et `NEVER
+            # wipe WHEN NOT safe_mode` tombait. Le commentaire ci-dessus
+            # annonçait l'inverse depuis la v1.6 ; seul un chemin pointé le
+            # tenait. Une constante n'est pas une valeur de vérité, hors les
+            # mots qui en nomment une (1.17).
+            if len(node.parts) == 1 and isinstance(value, Symbol) \
+                    and ev.state.get(node.dotted) is UNDEFINED \
+                    and node.dotted.lower() not in _BOOLEAN_WORDS:
+                return UNKNOWN
         except Exception:                              # noqa: BLE001
             return UNKNOWN
         return UNKNOWN if value is UNDEFINED else truthy(value)

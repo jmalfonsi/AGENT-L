@@ -149,9 +149,26 @@ class FileStore:
         return self.dir / self.WAL
 
     def load(self) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        return self._read(repair=True)
+
+    def peek(self) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """Lit sans rien réparer : ce qu'un examen (`durable status`) attend.
+
+        `load` retire la ligne déchirée de queue — c'est la reprise. Le faire
+        aussi pour un simple examen modifiait le journal qu'on venait
+        inspecter, et pouvait couper la ligne qu'une exécution **en cours**
+        était en train d'écrire (1.17).
+        """
+        return self._read(repair=False)
+
+    def _read(self, repair: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         meta_path = self.dir / self.META
-        meta = (json.loads(meta_path.read_text(encoding="utf-8"))
-                if meta_path.exists() else {})
+        try:
+            meta = (json.loads(meta_path.read_text(encoding="utf-8"))
+                    if meta_path.exists() else {})
+        except (ValueError, UnicodeDecodeError):
+            raise DurableError(f"{meta_path} illisible — méta-données "
+                               f"corrompues, reprise refusée") from None
         if not self.wal.exists():
             return meta, []
         data = self.wal.read_bytes()
@@ -177,7 +194,7 @@ class FileStore:
             entries.append(raw)
             offset += len(chunk) + 1
             keep = offset
-        if keep != len(data):
+        if repair and keep != len(data):
             with open(self.wal, "r+b") as fh:
                 fh.truncate(min(keep, len(data)))
                 if keep > len(data):          # ligne complète sans « \n » final
@@ -268,8 +285,12 @@ class SQLiteStore:
             rows = self._db.execute(
                 "SELECT body FROM entries WHERE run_id = ? ORDER BY seq",
                 (self.run_id,)).fetchall()
-        meta = json.loads(row[0]) if row else {}
-        return meta, [json.loads(body) for (body,) in rows]
+        try:
+            meta = json.loads(row[0]) if row else {}
+            return meta, [json.loads(body) for (body,) in rows]
+        except (ValueError, TypeError):
+            raise DurableError(f"{self.run_id} : journal illisible — "
+                               f"reprise refusée") from None
 
     def append(self, raw: Dict[str, Any]) -> None:
         body = json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
@@ -349,7 +370,17 @@ class DurableJournal(Journal):
     @classmethod
     def open(cls, store: Any, key: Optional[bytes] = None, *,
              repair: bool = True) -> "DurableJournal":
-        meta, raws = store.load()
+        # Un examen (`repair=False`) ne doit rien écrire : `peek` quand le
+        # magasin sait lire sans réparer.
+        meta, raws = (store.load if repair
+                      else getattr(store, "peek", store.load))()
+        # La forme d'abord : un journal abîmé est refusé comme tel, pas par
+        # une erreur d'attribut trois lignes plus bas (1.17).
+        if not isinstance(meta, dict) or not all(
+                isinstance(raw, dict) for raw in raws):
+            raise DurableError("journal durable malformé (méta-données ou "
+                               "entrée qui n'est pas un objet) — reprise "
+                               "refusée")
         fresh = not (meta or raws)
         keyed = bool(meta.get("keyed")) or (fresh and key is not None)
         if keyed and key is None:

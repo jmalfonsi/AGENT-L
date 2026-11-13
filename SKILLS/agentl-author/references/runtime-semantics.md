@@ -188,7 +188,7 @@ Erreurs `E` (refus d'exécuter) :
 | `E015` | **fonction inconnue** dans une expression : elle serait inévaluable à l'exécution, et une garde `NEVER` qui la contient interdirait l'outil pour toujours sans que rien ne le dise (v1.9 ; avant, `CONFIDENCE(x)` ou `len(xs)` étaient signalés E009 à tort) |
 | `E016` | **fonction de provenance mal employée** (v1.9) : premier argument qui n'est pas un chemin, `action` hors d'une garde de politique, `ATTESTED(action)`, second argument d'`ATTESTED` qui ne nomme pas un `TOOL` déclaré |
 | `W127` | `DELEGATE` vers un sous-agent qu'aucun `TOOL` ne décrit — risque supposé `CRITICAL` |
-| `W128` | garde `NEVER`/`DENY`/`APPROVAL` portant sur un identifiant **nu** que rien ne renseigne : lu comme constante symbolique, la règle ne s'appliquerait pas — préférer un chemin pointé |
+| `W128` | garde de politique portant sur un identifiant **nu** que rien ne renseigne. Dans une comparaison (`NEVER wipe WHEN dry_run == no`), le nom est lu comme constante symbolique et la règle ne s'appliquerait pas — de même `ALLOW … IF mode != prod` serait toujours vrai. En position de vérité (`ALLOW wipe IF approved`, `NEVER wipe WHEN NOT safe_mode`), la garde est indéterminée, donc figée : l'interdit s'applique toujours, l'autorisation jamais (1.17). Poser le nom ou préférer un chemin pointé |
 | `V150` | `EFFECT` sur le monde qu'aucune `OBSERVE` ne recouvre : la postcondition ne peut **jamais** être démentie (T9). Ajouter l'observation, ou marquer l'effet `INTERNAL` s'il porte sur la comptabilité de l'agent |
 | `W129` | `REASON` sans `USING` : tout l'état part au modèle (croyances, buts, plans, outils et leur risque). `USING` **borne** le contexte depuis la v1.6 — l'exposition maximale doit être une décision, pas une omission |
 | `W126` | opérateur sans `DURATION` alors que `PLANNER` déclare `DEADLINE` ou `TIME_WEIGHT` — la durée absente vaut 0 s dans la recherche |
@@ -333,6 +333,8 @@ dans les listes ci-dessus. La table complète, avec leur théorème, est dans
 | `W142` | outil accordé que le délégué déclare à un risque inférieur à celui du parent (v1.16) : le plafond du parent juge sur le sien |
 | `W143` | `MAX_DEPTH` trop bas pour les délégations imbriquées du délégué (v1.16) : elles seront refusées |
 | `W144` | outil `HIGH`/`CRITICAL` accordé à un délégué (v1.16) : le T1 du parent n'examine pas ses appels, celui du délégué ignore le plafond du parent — `SCENARIO` sur le parent et `agentl mutate` |
+| `W145` | `ON MESSAGE` déclaré alors que la `LOOP` écrite à la main n'a pas de phase `RECEIVE` (1.17) : la boîte n'est jamais lue, le message n'est ni traité ni tracé comme ignoré. Ajouter `RECEIVE` au début de la boucle |
+| `W146` | `EVIDENCE` portant sur un chemin ou un nom que rien ne renseigne (1.17) : toujours indéterminée, elle ne déplacera jamais le postérieur (faute de frappe ?). Un nom nu n'est signalé qu'en tête de comparaison ou en position de vérité |
 | `V153` | T1 (avertissement, v1.13) — outil `HIGH`/`CRITICAL` qu'aucune règle de `POLICY` ne gouverne et sans `DEFAULT DENY` : T1 n'a rien à démontrer pour lui |
 | `V152` | T9 (avertissement, v1.11) — `EFFECT` dont la seule `OBSERVE` est conditionnelle (`WHEN`) : non créditée, elle peut ne jamais démentir la postcondition. Observer sans `WHEN` |
 | `B002` | filtrage d'une collection sur un critère métier dans l'hôte (erreur) |
@@ -416,6 +418,32 @@ gardée, l'interdit ne s'appliquait pas. C'était le pire mode de défaillance d
 langage — une garantie disparue sans un seul signal — et il touchait
 `sensors.*.available` depuis son introduction. Un chemin **jamais posé** reste,
 lui, indéterminé : sous un `NEVER`, il s'applique.
+
+**Un nom simple pas encore lié est indéterminé lui aussi (1.17).** Un
+identifiant nu que rien ne résout vaut la constante du même nom — c'est ce qui
+fait de `open` ou `contained` des valeurs. Dans une garde de politique, cette
+lecture ne s'applique plus à ce que le programme renseigne lui-même (`SET`,
+`PRODUCE`, `EXPECT`, `OUTPUT`, `EFFECT`, `OBSERVE`, `BELIEF`, variable de
+`FOREACH`) :
+
+```agentl
+NEVER send_reply WHEN draft_ok == no      // draft_ok : PRODUCE d'un REASON
+ALLOW wipe IF approved                    // approved : jamais posé
+```
+
+Tant que `draft_ok` n'est pas lié, `draft_ok == no`, `draft_ok != no` et
+`draft_ok IN [no]` sont **indéterminés** : le `NEVER` s'applique, un `ALLOW`
+ne s'ouvre pas. En position de vérité (`IF approved`, `WHEN NOT safe_mode`),
+tout nom non lié est indéterminé, déclaré ou non — sauf les mots qui nomment
+une valeur de vérité (`yes`, `true`, `no`, `false`, `none`, `null`,
+`unknown`). Les mêmes règles valent pour le test d'une `EVIDENCE` : une
+évidence qu'on n'a pas pu observer (capteur muet, `NaN`, nom non lié) ne
+déplace pas le postérieur. Un nom que le programme ne renseigne **nulle part**
+reste une constante dans une comparaison : c'est `W128` qui le signale.
+
+`no` est **faux** (1.17), comme `false`, `none`, `null` et `unknown` :
+`IF approved` ne passe plus quand `approved = no`. `NaN` n'est égal ni
+différent de rien : `x != 5` sur une mesure invalide est indéterminé.
 
 ---
 

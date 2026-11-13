@@ -138,7 +138,14 @@ LOCK_PATH = SKILL / "grammar-lock.json"
 # délégués. Un identifiant `GRANT` ou `MAX_TICKS` cesse d'être valide : mineur.
 # 2.17.2 : v1.15.2 — `tools/check_noncircumvention.py` (porte de CI : seul le
 # noyau atteint l'hôte), SPEC §45. Aucune surface d'auteur ne change : patch.
-AUTHORING_CONTRACT_VERSION = "2.18.1"
+# 2.19.0 : v1.17 (en préparation) — sémantique resserrée, aucune grammaire
+# nouvelle : garde de politique et test d'`EVIDENCE` indéterminés sur un nom
+# simple non lié, `no` faux, `NaN` indéterminé dans `==`/`!=`/`IN`, `W128`
+# étendu (position de vérité, `ALLOW … !=`). Un programme
+# qui s'appuyait sur l'ancienne lecture change de conduite ; `W145` et `W146`
+# sont deux diagnostics de plus, et T1 périme la garde d'un plan que
+# l'exécution d'un plan co-sélectionné a pu réécrire : mineur.
+AUTHORING_CONTRACT_VERSION = "2.19.0"
 LOCK_SCHEMA_VERSION = 1
 
 GRAMMAR_FILES = (

@@ -25,7 +25,8 @@ from .kernel.action import ActionRequest
 from .kernel.gate import action_from_tool
 from .kernel import provenance as P
 from .kernel.provenance import UNKNOWN_LABEL, Prov
-from .nodes import Agent, PolicyRule
+from .nodes import (Agent, BinOp, CallExpr, ListExpr, Literal, PathExpr,
+                    PolicyRule, UnOp)
 from .state import Evaluator, State, label_key
 from .trivalent import UNKNOWN, applies_when_unknown, evaluate as _tri
 
@@ -48,11 +49,48 @@ class PolicyDecision:
         return self.verdict == ALLOWED
 
 
+#: Constructions qui **lient** un nom dans l'état, et le champ qui le porte.
+_BINDERS = {"SetStmt": "target", "ReasonStmt": "produce", "JudgeStmt": "produce",
+            "DelegateStmt": "expect", "ToolDecl": "outputs", "Effect": "path",
+            "Observer": "path", "BeliefDecl": "path", "ForEachStmt": "var"}
+
+
+#: Une expression ne lie rien et ne contient que des expressions : inutile d'y
+#: descendre. Tout autre nœud — y compris un type ajouté demain — est parcouru.
+_EXPRESSIONS = (Literal, PathExpr, BinOp, UnOp, ListExpr, CallExpr)
+
+
+def state_names(agent: Any) -> frozenset:
+    """Noms simples que le programme renseigne lui-même, quelque part (1.17).
+
+    Ce sont des variables : non liées, une garde de politique les lit comme
+    indéfinies et non comme la constante du même nom (`trivalent._unbound`).
+    Les paramètres `INPUT` n'en sont pas — `_ActionScope` les lie exactement
+    quand l'appel jugé les porte — ni les `GIVEN` d'un scénario, qui décrivent
+    un monde d'essai et non ce que le programme écrit.
+    """
+    names: set = set()
+    stack = [value for key, value in vars(agent).items()
+             if key not in ("scenarios", "policies")]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            stack.extend(node)
+        elif hasattr(node, "__dataclass_fields__") and not isinstance(node, _EXPRESSIONS):
+            bound = getattr(node, _BINDERS.get(type(node).__name__, ""), ())
+            names.update([bound] if isinstance(bound, str) else bound)
+            stack.extend(vars(node).values())
+    return frozenset(name for name in names if "." not in name)
+
+
 class PolicyEngine:
     def __init__(self, agent: Agent):
         self.agent = agent
         self.rules = agent.policies
         self.default = agent.policy_default
+        self.variables = state_names(agent)
 
     # ------------------------------------------------------------------ API
     def check(self, request: ActionRequest, state: State) -> PolicyDecision:
@@ -64,6 +102,7 @@ class PolicyEngine:
     def _check(self, request: ActionRequest,
                scope: "_ActionScope") -> PolicyDecision:
         ev = Evaluator(scope)
+        ev.variables = self.variables
 
         def matches(rule: PolicyRule) -> bool:
             """La règle s'applique-t-elle ? Sens de sûreté propre à l'effet."""

@@ -34,6 +34,7 @@ Ces garanties se paient, et rien dans le langage ne les promet.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -101,10 +102,13 @@ class Society:
                                f"{sender} → destinataire inconnu : {to}")
                 return 0
         for recipient in recipients:
-            envelope = Envelope(sender, recipient, name, dict(payload))
+            # Copie profonde, comme `AsyncSociety` : deux destinataires ne
+            # partagent pas une liste imbriquée, et ce qu'en fait l'un ne
+            # réécrit pas le registre des messages (1.17).
+            envelope = Envelope(sender, recipient, name, deepcopy(payload))
             self.log.append(envelope)
             self.runtimes[recipient].inbox.append(
-                {"name": name, "from": sender, "payload": dict(payload)})
+                {"name": name, "from": sender, "payload": deepcopy(payload)})
         return len(recipients)
 
     # ----------------------------------------------------------- ordonnancement
@@ -128,11 +132,7 @@ class Society:
         for round_no in range(1, max_ticks + 1):
             self.tick()
             yield round_no
-            if until is not None:
-                if self.runtimes[until].state.get("goal.satisfied") is True:
-                    break
-            elif all(rt.state.get("goal.satisfied") is True
-                     for rt in self.runtimes.values() if rt.agent.goals):
+            if settled(self.runtimes, until):
                 break
 
     # ------------------------------------------------------------- rapports
@@ -178,6 +178,18 @@ class Society:
                 lines.append("      · " + ", ".join(f"{k}={fmt(v)}"
                                                     for k, v in record.items()))
         return "\n".join(lines)
+
+
+def settled(runtimes: Dict[str, Runtime], until: Optional[str] = None) -> bool:
+    """La société a-t-elle fini ? Règle unique, synchrone et asynchrone.
+
+    Avec `until`, l'appelant a nommé l'agent dont l'objectif fait foi. Sans
+    lui, tous les agents qui ont un objectif doivent l'avoir atteint.
+    """
+    if until is not None:
+        return runtimes[until].state.get("goal.satisfied") is True
+    return all(rt.state.get("goal.satisfied") is True
+               for rt in runtimes.values() if rt.agent.goals)
 
 
 def _matches(agent_name: str, target: str) -> bool:

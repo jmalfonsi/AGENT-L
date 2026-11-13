@@ -402,7 +402,10 @@ def _sloc(path: Path) -> int:
 #: Budget de la TCB d'exécution, en lignes de code. Le relever est une
 #: décision d'architecture, pas un ajustement : il se justifie dans le
 #: CHANGELOG. Mesuré à l'extraction (v1.9) : voir `test_tcb_is_measured`.
-TCB_BUDGET = 1400
+#: 1 350 → 1 400 (1.16, plafond du parent) → 1 440 (1.17 : la garde sur un
+#: nom non lié, `NaN` et l'appartenance trivalente se décident dans la TCB,
+#: pas à côté — 1 435 lignes mesurées).
+TCB_BUDGET = 1440
 
 
 def test_tcb_is_measured_and_within_budget():

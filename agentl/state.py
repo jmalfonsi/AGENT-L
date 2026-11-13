@@ -296,6 +296,8 @@ def _dig_key(store: Dict[str, Any], path: str) -> Tuple[Any, str]:
     """
     if path in store:
         return store[path], path
+    if not store or "." not in path:
+        return UNDEFINED, path          # rien à descendre (chemin le plus fréquent)
     parts = path.split(".")
     for cut in range(len(parts) - 1, 0, -1):
         head = ".".join(parts[:cut])

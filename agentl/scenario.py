@@ -311,39 +311,43 @@ class _ScenarioSubagents(dict):
         super().__init__()
         self._agent = agent
         self._world = world
+        #: Champs `EXPECT` par sous-agent. L'AST ne change pas pendant un
+        #: scénario : le parcourir à chaque délégation coûtait, sur un
+        #: superviseur, le quart d'un `agentl mutate` (1.17). Un seul
+        #: parcours, à la première délégation.
+        self._fields: Optional[Dict[str, List[str]]] = None
 
     def get(self, name: str, default: Any = None) -> Any:
+        if self._fields is None:
+            self._fields = _expected_fields(self._agent)
+        fields = self._fields.get(name, ())
         return lambda payload: {
-            key: self._world[key]
-            for key in _expected_fields(self._agent, name)
-            if key in self._world
+            key: self._world[key] for key in fields if key in self._world
         }
 
     def __contains__(self, name: object) -> bool:       # pragma: no cover
         return True
 
 
-def _expected_fields(agent: Agent, subagent: str) -> List[str]:
-    """Champs `EXPECT` déclarés pour ce sous-agent, tous sites confondus."""
-    from .nodes import DelegateStmt
+def _expected_fields(agent: Agent) -> Dict[str, List[str]]:
+    """Champs `EXPECT` par sous-agent, tous sites de délégation confondus."""
+    from .nodes import BinOp, DelegateStmt, Literal, PathExpr
 
-    fields: List[str] = []
-
-    def walk(node: Any) -> None:
-        if isinstance(node, DelegateStmt) and node.agent == subagent:
-            for key in node.expect:
-                if key not in fields:
-                    fields.append(key)
-        for child in getattr(node, "__dict__", {}).values():
-            if isinstance(child, list):
-                for item in child:
-                    if hasattr(item, "__dict__"):
-                        walk(item)
-            elif hasattr(child, "__dict__"):
-                walk(child)
-
-    walk(agent)
-    return fields
+    found: Dict[str, List[str]] = {}
+    stack: List[Any] = [agent]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, DelegateStmt):
+            fields = found.setdefault(node.agent, [])
+            fields.extend(key for key in node.expect if key not in fields)
+        children = [
+            item for child in vars(node).values()
+            for item in (child if isinstance(child, list) else (child,))
+            # Les expressions (l'essentiel des nœuds) ne délèguent rien.
+            if hasattr(item, "__dict__")
+            and not isinstance(item, (BinOp, PathExpr, Literal))]
+        stack.extend(reversed(children))    # ordre du source : celui des champs
+    return found
 
 
 class _WorldState:
@@ -423,17 +427,50 @@ def _initial_world(scenario: Scenario) -> Dict[str, Any]:
     return world
 
 
-def _expectation_holds(agent, state, expression):
+def known_paths(agent) -> frozenset:
+    """Chemins que le programme fait exister : dans un `EXPECT`, ils se lisent
+    dans l'état même sous un nom simple, jamais comme une constante."""
     from .analyzer import Analyzer
+    return frozenset(Analyzer(agent)._known_state_paths())
+
+
+class _ExpectEvaluator(Evaluator):
+    def __init__(self, state, known) -> None:
+        super().__init__(state, strict_undefined=True)
+        self.known = known
+
+    def _path(self, node):
+        if node.dotted in self.known:
+            return self.state.get(node.dotted)
+        return super()._path(node)
+
+
+class _MonitoredState:
+    """L'état du runtime, vu à travers les effets que le double vient de poser."""
+
+    def __init__(self, runtime, overrides) -> None:
+        self._runtime, self._overrides = runtime, overrides
+
+    def __getattr__(self, key):
+        return getattr(self._runtime.state, key)
+
+    def get(self, path):
+        overrides = self._overrides
+        if overrides and path in overrides:
+            return overrides[path]
+        return self._runtime.state.get(path)
+
+
+def _expectation_holds(agent, state, expression, known=None):
+    """`known` : `known_paths(agent)`, calculé une fois par l'appelant. Un
+    moniteur d'attente tourne après chaque instruction ; recalculer cet
+    ensemble statique à chaque appel coûtait 40 % d'un `agentl mutate` (1.17).
+    """
     from .trivalent import evaluate
-    known = Analyzer(agent)._known_state_paths()
-    class ExpectEvaluator(Evaluator):
-        def _path(self, node):
-            if node.dotted in known:
-                return self.state.get(node.dotted)
-            return super()._path(node)
+    if known is None:
+        known = known_paths(agent)
     # Kleene garde UNKNOWN sous NOT ; strict_undefined seul ne le fait pas.
-    return evaluate(ExpectEvaluator(state, strict_undefined=True), expression) is True
+    return evaluate(_ExpectEvaluator(state, known), expression) is True
 
 
 def _scenario_errors(agent, scenario):
@@ -461,9 +498,10 @@ def initial_expectations(agent: Agent, scenario: Scenario
     runtime._apply_initial_values(host.world, "scenario", host.untrusted)
 
     invariants, eventualities = [], []
+    known = known_paths(agent)
     for expectation in scenario.expect:
         try:
-            held = _expectation_holds(agent, runtime.state, expectation)
+            held = _expectation_holds(agent, runtime.state, expectation, known)
         except Exception:                                 # noqa: BLE001
             held = False
         (invariants if held else eventualities).append(expectation)
@@ -514,13 +552,11 @@ def run_scenario(agent: Agent, scenario: Scenario, echo: bool = False
         invariants = []
         eventualities = []
 
+        known = known_paths(agent)
+
         def holds(expectation, overrides=None):
-            class View:
-                def __getattr__(self, key):
-                    return getattr(runtime.state, key)
-                def get(self, path):
-                    return overrides[path] if overrides and path in overrides else runtime.state.get(path)
-            return _expectation_holds(agent, View(), expectation)
+            return _expectation_holds(
+                agent, _MonitoredState(runtime, overrides), expectation, known)
 
         def monitor(overrides=None):
             for i, inv in enumerate(invariants):

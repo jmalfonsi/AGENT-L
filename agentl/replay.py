@@ -385,16 +385,32 @@ class Journal:
         *examiner* le dommage — et laisse le verdict dans `chain_report`.
         """
         raw = json.loads(text)
-        meta = raw.get("meta", {})
+        # La forme d'abord (1.17) : un fichier qui n'est pas un journal est
+        # refusé comme tel, pas par une erreur interne à la première lecture.
+        meta = raw.get("meta", {}) if isinstance(raw, dict) else None
+        if not isinstance(meta, dict) \
+                or not isinstance(raw.get("entries", []), list):
+            raise ReplayError("journal malformé : un objet "
+                              "{meta, entries} est attendu")
         fmt = meta.get("format")
-        if fmt not in READABLE_FORMATS:
+        if type(fmt) is not int or fmt not in READABLE_FORMATS:
             raise ReplayError(
                 f"format de journal {fmt!r} illisible par cette version "
                 f"(attendus {', '.join(map(str, READABLE_FORMATS))})")
+        for name, kind in (("ticks", int), ("source", str), ("lossy", list)):
+            if meta.get(name) is not None and (
+                    not isinstance(meta[name], kind)
+                    or isinstance(meta[name], bool)):
+                raise ReplayError(f"journal malformé : méta-donnée "
+                                  f"`{name}` de type inattendu")
+        try:
+            entries = [Entry.from_json(e) for e in raw.get("entries", [])]
+        except (KeyError, TypeError, AttributeError):
+            raise ReplayError("journal malformé : entrée sans `seq`, `kind` "
+                              "ou `key`") from None
 
-        j = cls(entries=[Entry.from_json(e) for e in raw.get("entries", [])],
-                meta=meta)
-        j.lossy = list(meta.get("lossy", []))
+        j = cls(entries=entries, meta=meta)
+        j.lossy = list(meta.get("lossy") or [])
         if fmt == 1:
             j.chain_report = ChainReport(
                 False, "journal au format 1 : antérieur au scellement, son "

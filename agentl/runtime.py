@@ -91,7 +91,27 @@ class Trace:
             except Exception:  # le journal externe ne pilote jamais le runtime
                 pass
         if self.echo:
-            print(self.line(ev))
+            self._print(self.line(ev))
+
+    def _print(self, line: str) -> None:
+        """Affiche une ligne sans jamais laisser l'écran arrêter l'agent.
+
+        Un terminal qui n'encode pas les glyphes (`LANG=C`, console Windows,
+        `PYTHONIOENCODING=ascii`) levait `UnicodeEncodeError` **au milieu d'un
+        tick** : l'agent mourait d'un problème d'affichage, parfois entre une
+        action et sa vérification. Même règle que pour `sink` : ce qui
+        observe l'exécution ne la pilote pas (1.17). Un flux fermé (`| head`)
+        coupe l'écho, pas la boucle.
+        """
+        try:
+            print(line)
+        except UnicodeEncodeError:
+            try:
+                print(line.encode("ascii", "replace").decode("ascii"))
+            except Exception:                         # noqa: BLE001
+                self.echo = False
+        except Exception:                             # noqa: BLE001
+            self.echo = False
 
     def line(self, ev: TraceEvent) -> str:
         if ev.kind == "TICK":
@@ -248,6 +268,25 @@ class Runtime:
                            f"repli {'vrai' if on_error else 'fermé (faux)'}")
             return on_error
 
+    def _safe_eval(self, node: Any, context: str,
+                   evaluator: Optional[Evaluator] = None) -> Any:
+        """Valeur d'une expression déclarée, ou `UNDEFINED` si elle ne se
+        calcule pas — jamais une exception.
+
+        Pendant de `_safe_test` pour les **valeurs** : `DEFAULT`, repli
+        `DEGRADE`, `EXPLAINS`, `PAYLOAD`, `EFFECT`. Ces expressions
+        s'évaluaient en direct, et `m.x + 1` sur un capteur qui rend un
+        symbole faisait tomber le tick (1.17). Indéfini est le repli fermé :
+        toute garde qui lira la valeur manquante sera indéterminée.
+        """
+        try:
+            return (evaluator or Evaluator(self.state)).eval(node)
+        except Exception as exc:                      # noqa: BLE001
+            self.trace.log(self.state.tick, "ERROR",
+                           f"expression inévaluable ({context})",
+                           f"{type(exc).__name__}: {exc} — valeur indéfinie")
+            return UNDEFINED
+
     # ---------------------------------------------------- frontière de l'hôte
     def _read(self, path: str) -> Any:
         """Lecture de capteur, tolérante aux pannes : un capteur qui lève ne
@@ -302,7 +341,26 @@ class Runtime:
                 self.state.tick, "ERROR", "file d'événements non conforme",
                 f"attendu list, reçu {type(events).__name__} — contenu ignoré")
             return []
-        return events
+        # Chaque événement est une donnée de l'hôte : `{"source": str,
+        # "payload": {str: …}}`. Une chaîne, une charge utile en liste ou une
+        # clé non textuelle faisaient remonter `TypeError`/`KeyError` hors du
+        # tick (1.17). L'élément fautif est écarté et nommé ; les autres
+        # passent — un producteur défaillant ne rend pas l'agent sourd.
+        sound: List[Dict[str, Any]] = []
+        for event in events:
+            payload = event.get("payload") if isinstance(event, dict) else None
+            payload = {} if payload is None else payload
+            if not (isinstance(event, dict)
+                    and isinstance(event.get("source"), str)
+                    and isinstance(payload, dict)
+                    and all(isinstance(key, str) for key in payload)):
+                self.trace.log(
+                    self.state.tick, "ERROR", "événement non conforme ignoré",
+                    f"attendu {{source: str, payload: dict}}, reçu "
+                    f"{_short(event)}")
+                continue
+            sound.append({"source": event["source"], "payload": payload})
+        return sound
 
     # -------------------------------------------------- action gouvernée
     def _authorize(self, request: ActionRequest, kind: str = "invoke"):
@@ -472,7 +530,10 @@ class Runtime:
     def _bootstrap(self) -> None:
         ev = Evaluator(self.state)
         for decl in self.agent.beliefs:
-            self.state.set_belief(decl.path, ev.eval(decl.value),
+            value = self._safe_eval(decl.value, f"BELIEF {decl.path}", ev)
+            if value is UNDEFINED:
+                continue      # pas de croyance plutôt qu'une croyance inventée
+            self.state.set_belief(decl.path, value,
                                   decl.confidence, decl.source, decl.updated,
                                   _DECLARED | self._label(decl.value, ev))
         for bucket, names in (("SHORT_TERM", self.agent.memory.short_term),
@@ -701,8 +762,11 @@ class Runtime:
         self.metrics["sensor_unknown"] += 1
         self.state.set_world(f"sensors.{obs.path}.available", False, _RUNTIME)
 
-        if obs.on_unknown == "DEGRADE":
-            value = Evaluator(self.state).eval(obs.fallback)
+        value = (self._safe_eval(obs.fallback, f"repli DEGRADE de {obs.path}")
+                 if obs.on_unknown == "DEGRADE" else UNDEFINED)
+        # Un repli qui ne se calcule pas n'est pas un repli : le chemin reste
+        # indéfini, comme si rien n'avait été déclaré.
+        if value is not UNDEFINED:
             label = Prov({P.FALLBACK}) | self._label(obs.fallback)
             self.metrics["sensor_degraded"] += 1
             self.state.set_world(obs.path, value, label)
@@ -914,7 +978,7 @@ class Runtime:
 
         best: Optional[Any] = None
         for hypothesis in self.agent.hypotheses:
-            inference = infer(hypothesis, self.state)
+            inference = infer(hypothesis, self.state, self.policy.variables)
             evidence = P.join(_INFERRED, *[self._label(item.test)
                                            for item in hypothesis.evidence])
             publish(inference, self.state, evidence)
@@ -925,9 +989,12 @@ class Runtime:
             if best is None or inference.posterior > best.posterior:
                 best = inference
             if inference.supported and hypothesis.explains_path:
-                value = (Evaluator(self.state).eval(hypothesis.explains_value)
+                value = (self._safe_eval(hypothesis.explains_value,
+                                         f"EXPLAINS de {hypothesis.name}")
                          if hypothesis.explains_value is not None
                          else Symbol(hypothesis.name))
+                if value is UNDEFINED:
+                    continue
                 self.state.set_belief(hypothesis.explains_path, value,
                                       inference.posterior,
                                       f"hypothesis:{hypothesis.name}",
@@ -946,7 +1013,18 @@ class Runtime:
         if self.planner is None or self.plan_queue:
             return
         self.state.set_world("planner.exhausted", False, _RUNTIME)
-        result = self.planner.synthesize(self.state)
+        try:
+            result = self.planner.synthesize(self.state)
+        except KernelAbort:
+            raise
+        except Exception as exc:                      # noqa: BLE001
+            # Filet : une faute du planificateur est une mauvaise
+            # *proposition*, pas une raison d'arrêter la surveillance. Aucun
+            # plan n'est engendré, et le programme peut le lire.
+            self.state.set_world("planner.exhausted", True, _RUNTIME)
+            self.trace.log(self.state.tick, "ERROR", "planification en échec",
+                           f"{type(exc).__name__}: {exc} — aucun plan")
+            return
         for note in result.pruned_by_policy:
             self.trace.log(self.state.tick, "PLANNER",
                            "action écartée à la planification", note)
@@ -1478,8 +1556,9 @@ class Runtime:
         for key, typ in stmt.produce.items():
             rendered = (f"{typ} IN {stmt.domains[key].render()}"
                         if key in stmt.domains else typ)
-            if key in stmt.defaults:
-                default = Evaluator(self.state).eval(stmt.defaults[key])
+            default = (self._safe_eval(stmt.defaults[key], f"DEFAULT de {key}")
+                       if key in stmt.defaults else UNDEFINED)
+            if default is not UNDEFINED:
                 import json
                 literal = json.dumps(default) if isinstance(default, str) and not isinstance(default, Symbol) else str(default).lower() if isinstance(default, bool) else str(default)
                 rendered += f" DEFAULT {literal}"
@@ -1536,7 +1615,7 @@ class Runtime:
         )
         for key, node in stmt.defaults.items():
             if key not in produced or key in missing:
-                produced[key] = Evaluator(self.state).eval(node)
+                produced[key] = self._safe_eval(node, f"DEFAULT de {key}")
         # Un champ absent sans DEFAULT explicite reste indéterminé. Inventer
         # 0, faux ou une chaîne neutre ici contredit la logique trivalente :
         # une panne d'oracle pourrait rendre définitivement fausse la garde
@@ -1669,7 +1748,7 @@ class Runtime:
                            schema)
         for key, node in stmt.defaults.items():
             if key in missing:
-                produced[key] = Evaluator(self.state).eval(node)
+                produced[key] = self._safe_eval(node, f"DEFAULT de {key}")
         for key in missing:
             if key not in stmt.defaults:
                 produced[key] = UNDEFINED
@@ -1739,8 +1818,8 @@ class Runtime:
                 except (TypeError, ValueError, OverflowError):
                     replacement: Any = UNDEFINED
                     if key in stmt.defaults:
-                        candidate = Evaluator(self.state).eval(
-                            stmt.defaults[key])
+                        candidate = self._safe_eval(stmt.defaults[key],
+                                                    f"DEFAULT de {key}")
                         try:
                             finite = float(candidate)
                             if (math.isfinite(finite)
@@ -1761,8 +1840,8 @@ class Runtime:
                 clamped = min(max(number, domain.low), domain.high)
                 if clamped != number:
                     if key in stmt.defaults:
-                        candidate = Evaluator(self.state).eval(
-                            stmt.defaults[key])
+                        candidate = self._safe_eval(stmt.defaults[key],
+                                                    f"DEFAULT de {key}")
                         try:
                             finite = float(candidate)
                             clamped = (candidate
@@ -1786,7 +1865,8 @@ class Runtime:
                                    f"{fmt(value)} ∉ {domain.render()} — "
                                    f"remplacé par {allowed[-1]}")
                     if key in stmt.defaults:
-                        produced[key] = Evaluator(self.state).eval(stmt.defaults[key])
+                        produced[key] = self._safe_eval(stmt.defaults[key],
+                                                        f"DEFAULT de {key}")
                     else:
                         produced[key] = (Symbol(allowed[-1])
                                          if isinstance(domain.values[-1], Symbol)
@@ -1947,8 +2027,10 @@ class Runtime:
         answer = self._ask(stmt.question, stmt.reason)
         if answer is None or (isinstance(answer, Symbol)
                               and answer.name == "no_answer"):
-            answer = Evaluator(self.state).eval(stmt.default) \
-                if stmt.default is not None else Symbol("no_answer")
+            answer = self._safe_eval(stmt.default, "DEFAULT de ASK") \
+                if stmt.default is not None else UNDEFINED
+            if answer is UNDEFINED:
+                answer = Symbol("no_answer")
         self.state.set_local("answer", answer, _HUMAN)
         self.state.set_local(f"answer.{stmt.addressee}", answer, _HUMAN)
         self.trace.log(self.state.tick, "ASK", f"réponse = {fmt(answer)}")
@@ -2043,7 +2125,15 @@ class Runtime:
 
     def _exec_message(self, stmt: MessageStmt) -> None:
         ev = Evaluator(self.state)
-        payload = {k: ev.eval(v) for k, v in stmt.payload.items()}
+        try:
+            payload = {k: ev.eval(v) for k, v in stmt.payload.items()}
+        except Exception as exc:                      # noqa: BLE001
+            # Un message à moitié construit ne part pas : le destinataire
+            # déciderait sur un champ que l'émetteur n'a pas su calculer.
+            self.trace.log(self.state.tick, "ERROR",
+                           f"MESSAGE {stmt.name} : charge utile inévaluable",
+                           f"{type(exc).__name__}: {exc} — message non émis")
+            return
         target = "tous" if stmt.broadcast else (stmt.to or "?")
         if self.society is None:
             self.trace.log(self.state.tick, "MESSAGE",
@@ -2227,11 +2317,20 @@ class Runtime:
             ev = Evaluator(_ActionScope(self.state, request))
             control = request.provenance.get("$control", UNKNOWN_LABEL)
             for effect in decl.effects:
+                # L'outil **a agi** : rien de ce qui suit ne doit lever. Une
+                # postcondition qui ne se calcule pas (`n = n + 1` sur un `n`
+                # jamais posé) faisait tomber le tick après l'effet réel, sans
+                # ligne `TOOL` ni résultat lié (1.17). Elle n'est pas crue —
+                # indéfinie, donc fermée — et les autres le restent.
+                value = self._safe_eval(
+                    effect.value, f"EFFECT {effect.path} de {name}()", ev)
+                if value is UNDEFINED:
+                    continue
                 self.state.set_belief(
-                    effect.path, ev.eval(effect.value),
+                    effect.path, value,
                     self._effect_confidence(name, effect.path),
                     f"effect:{name}", self.state.tick,
-                    _EFFECT | ev.label(effect.value) | control)
+                    _EFFECT | self._label(effect.value, ev) | control)
         self.trace.log(self.state.tick, "TOOL", request.render(),
                        f"risk={decl.risk} → {fmt(safe_result)}")
         return safe_result
@@ -2309,6 +2408,16 @@ class Runtime:
 
 
 # ------------------------------------------------------------------ helpers
+def _short(value: Any, limit: int = 80) -> str:
+    """`repr` borné, qui ne lève pas : une donnée fautive ne doit pas pouvoir
+    faire échouer le diagnostic qui la signale."""
+    try:
+        text = repr(value)
+    except Exception:                                 # noqa: BLE001
+        text = f"<{type(value).__name__}>"
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
 def _retry_count(handler: List[Stmt]) -> int:
     for stmt in handler:
         if isinstance(stmt, ControlStmt) and stmt.kind == "RETRY":

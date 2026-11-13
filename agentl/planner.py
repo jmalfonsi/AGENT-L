@@ -171,13 +171,52 @@ def _derive(node: _Overlay, extra: Dict[str, Any]) -> _Overlay:
 Belief = List[Tuple[_Overlay, float]]        # distribution sur états abstraits
 
 
+def _holds(state: Any, condition: Optional[Node]) -> bool:
+    """La condition tient-elle dans cet état abstrait ? Inévaluable : non.
+
+    Le planificateur évalue `REQUIRES`, les buts et `UTILITY` sur des états
+    qu'il a lui-même dérivés. Une expression qui ne se calcule pas — `load +
+    1 > 2` quand le capteur a rendu un symbole — levait hors de la recherche,
+    donc hors du tick (1.17). Le sens fermé est le même partout : une
+    précondition qu'on ne sait pas établir n'est pas établie, un but qu'on ne
+    sait pas constater n'est pas atteint.
+    """
+    try:
+        return Evaluator(state).test(condition)
+    except Exception:                                 # noqa: BLE001
+        return False
+
+
+def _value(evaluator: Evaluator, node: Optional[Node]) -> Any:
+    """Valeur d'un `EFFECT` dans un état abstrait ; inévaluable : indéfinie
+    (l'effet n'est pas présumé, la branche garde ce qu'elle savait)."""
+    try:
+        return evaluator.eval(node)
+    except Exception:                                 # noqa: BLE001
+        return UNDEFINED
+
+
+def _signature(state: _Overlay, tracked: Sequence[str]) -> Tuple:
+    """Ce qu'un état abstrait vaut sur les chemins suivis.
+
+    Un calque ne change plus une fois dérivé : sa signature est calculée une
+    fois par recherche (`tracked` en est la liste, comparée par identité), au
+    lieu d'une fois par comparaison — la moitié du temps d'une synthèse (1.17).
+    """
+    cached = getattr(state, "_signed", None)
+    if cached is None or cached[0] is not tracked:
+        cached = state._signed = (
+            tracked, tuple((p, repr(state.get(p))) for p in tracked))
+    return cached[1]
+
+
 def _normalise(belief: Belief, tracked: Sequence[str]) -> Belief:
     """Fusionne les branches indiscernables sur les chemins suivis."""
     merged: Dict[Tuple, Tuple[_Overlay, float]] = {}
     for state, probability in belief:
         if probability < EPS:
             continue
-        key = tuple((p, repr(state.get(p))) for p in tracked)
+        key = _signature(state, tracked)
         if key in merged:
             existing, weight = merged[key]
             merged[key] = (existing, weight + probability)
@@ -214,16 +253,15 @@ class Planner:
     def utility(self, state: _Overlay) -> float:
         if not self.agent.utility:
             return 0.0
-        evaluator = Evaluator(state)
         return sum(term.value for term in self.agent.utility
-                   if evaluator.test(term.condition))
+                   if _holds(state, term.condition))
 
     def expected_utility(self, belief: Belief) -> float:
         return sum(p * self.utility(s) for s, p in belief)
 
     def goal_probability(self, belief: Belief, goals: Sequence[Node]) -> float:
         return sum(p for s, p in belief
-                   if all(Evaluator(s).test(g) for g in goals))
+                   if all(_holds(s, g) for g in goals))
 
     def synthesize(self, state: State) -> PlanningResult:
         goals = self.goal_conditions()
@@ -370,8 +408,8 @@ class Planner:
                 args = self._bind(tool, state)
                 if args is None:
                     continue
-                if tool.requires is not None and not Evaluator(state).test(
-                        tool.requires):
+                if tool.requires is not None and not _holds(
+                        state, tool.requires):
                     continue
                 # L'origine doit être celle que l'action portera à
                 # l'exécution : un plan synthétisé est matérialisé puis exécuté
@@ -414,7 +452,7 @@ class Planner:
                     continue
                 evaluator = Evaluator(state)
                 for branch in tool.branches:
-                    changes = {e.path: evaluator.eval(e.value)
+                    changes = {e.path: _value(evaluator, e.value)
                                for e in branch.effects}
                     successor.append((_derive(state, changes),
                                       probability * branch.probability))
@@ -460,7 +498,7 @@ class Planner:
         de buts encore faux et f le coût uniforme : le comportement v0.5 est
         conservé à l'identique.
         """
-        heuristic = sum(1.0 - sum(p for s, p in belief if Evaluator(s).test(g))
+        heuristic = sum(1.0 - sum(p for s, p in belief if _holds(s, g))
                         for g in goals)
         return cost - self.expected_utility(belief) + heuristic
 
@@ -482,8 +520,7 @@ class Planner:
 
     def _key(self, belief: Belief, tracked: Sequence[str]) -> Tuple:
         return tuple(sorted(
-            (tuple((p, repr(s.get(p))) for p in tracked), round(w, 6))
-            for s, w in belief))
+            (_signature(s, tracked), round(w, 6)) for s, w in belief))
 
     # --------------------------------------------------------- exécutable
     def as_plan(self, result: PlanningResult, name: str) -> Plan:

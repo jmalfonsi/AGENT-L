@@ -69,6 +69,11 @@ tick suivant du destinataire — jamais dans le même souffle que l'émission.
 `Society` (`agentl/society.py`) ordonne les runtimes en tour de rôle et achemine
 les enveloppes. Exemple : `examples/soc_team.agent`.
 
+La société s'arrête quand tous les agents qui ont un `GOAL` l'ont atteint (ou
+à `max_ticks`) ; sans aucun `GOAL`, elle s'arrête après le premier tour. Un
+destinataire dont la `LOOP` n'a pas de phase `RECEIVE` ne lit jamais sa boîte :
+son `ON MESSAGE` est mort — `W145` le signale.
+
 **`agentl run` ordonnance la société lui-même** — il n'y a pas de script à
 lancer à la main. Ce qui change, c'est le contrat de `build()`, qui rend alors
 `(hosts, llms)` **indexés par nom d'agent** :

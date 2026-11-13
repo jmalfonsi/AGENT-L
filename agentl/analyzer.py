@@ -61,6 +61,8 @@ Un langage agentique n'a d'intérêt que s'il permet de démontrer des propriét
   W139  garde de politique sur la confiance (`action.confidence`) que rien ne produit
   W140  charge utile externe passée au paramètre-cible d'un outil risqué, sans attestation
   W141  donnée non fiable (flot statique) passée à un outil risqué, sans attestation ni garde de provenance
+  W145  ON MESSAGE déclaré mais LOOP sans phase RECEIVE : la boîte n'est jamais lue (v1.17)
+  W146  EVIDENCE portant sur un chemin ou un nom que rien ne renseigne (v1.17)
 
 Contrôles inter-agents (`check_program`) :
 
@@ -71,7 +73,7 @@ Contrôles inter-agents (`check_program`) :
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Set
+from typing import Any, List, Set
 
 from .kernel.provenance import PROVENANCE_FUNCS
 from .mcp import UNSET_RISK
@@ -84,7 +86,8 @@ KNOWN_FUNCS = frozenset(PURE_FUNCS) | frozenset(EPISTEMIC_FUNCS) \
     | PROVENANCE_FUNCS
 from .nodes import (
     Agent, CallExpr, CallStmt, ControlStmt, Decide, DelegateStmt, IfStmt,
-    ForEachStmt, ListExpr, LoopStmt, MessageStmt, Node, PathExpr, Plan, Program,
+    ForEachStmt, ListExpr, Literal, LoopStmt, MessageStmt, Node, PathExpr, Plan,
+    Program,
     JudgeStmt, ReasonStmt, SetStmt, Step, Stmt, ThenPlan, UnOp, BinOp, VerifyStmt,
 )
 
@@ -148,6 +151,8 @@ class Analyzer:
         self._check_vacuous_confidence_guard()
         self._check_sensor_unknown()
         self._check_policy_guard_names()
+        self._check_dead_message_handlers()
+        self._check_evidence_names()
         self._check_symbol_shadowing()
         self._check_undefined_inequality()
         self._check_risky_tools()
@@ -370,6 +375,74 @@ class Analyzer:
             names.add("payload")
         return names
 
+    def _check_dead_message_handlers(self) -> None:
+        """W145 — un `ON MESSAGE` que la boucle ne lira jamais.
+
+        Un message déposé reste dans la boîte du destinataire jusqu'à la phase
+        `RECEIVE`, qui seule le remet au gestionnaire. Une `LOOP` écrite à la
+        main sans cette phase compile, tourne, et ne traite jamais rien : le
+        message n'est ni refusé ni tracé comme ignoré, il attend. Sans `LOOP`
+        déclarée, le cycle par défaut contient `RECEIVE` : rien à signaler.
+        """
+        loop = self.agent.loop
+        if not loop or not self.agent.messages:
+            return
+        phases = {stmt.arg for stmt in loop.body
+                  if isinstance(stmt, ControlStmt) and stmt.kind == "PHASE"}
+        if "RECEIVE" in phases:
+            return
+        for handler in self.agent.messages:
+            self.diags.append(Diagnostic(
+                "W145", "warning",
+                f"ON MESSAGE {handler.name} : la LOOP n'a pas de phase "
+                f"RECEIVE, le message ne sera jamais remis au gestionnaire "
+                f"— ajouter RECEIVE au début de la boucle", handler.line))
+
+    def _check_evidence_names(self) -> None:
+        """W146 — évidence que rien ne peut jamais observer.
+
+        Le test d'une `EVIDENCE` sur un chemin ou un nom que le programme ne
+        renseigne nulle part est toujours indéterminé : l'évidence ne déplace
+        jamais le postérieur, et le modèle paraît plus informé qu'il ne l'est
+        (typiquement une faute de frappe dans le chemin). `W107` voit une
+        évidence sans pouvoir informatif ; celle-ci en voit une sans source.
+        Même prudence que `W135` : aucun préfixe publié par le runtime, et un
+        nom nu n'est signalé qu'en tête de comparaison ou en position de
+        vérité (ailleurs, c'est une constante — `high` dans `load == high`).
+        """
+        known = self._known_state_paths()
+        bare = self._declared_names()
+        for hyp in self.agent.hypotheses:
+            if hyp.explains_path:
+                known.add(hyp.explains_path)
+        hypotheses = {hyp.name for hyp in self.agent.hypotheses} | {"hypothesis"}
+
+        def provided(path: str) -> bool:
+            # `_declared_names` ajoute la tête de chaque chemin (`sandbox` pour
+            # `sandbox.count`) : bonne pour un nom nu, trop large pour un
+            # chemin pointé, où elle rendrait `sandbox.cuont` « renseigné ».
+            if "." not in path:
+                return path in bare or path in known
+            return (path in known
+                    or any(k.startswith(path + ".") or path.startswith(k + ".")
+                           for k in known))
+
+        for hyp in self.agent.hypotheses:
+            for item in hyp.evidence:
+                for name, dotted in _evidence_subjects(item.test):
+                    root = name.split(".")[0]
+                    if root in _RUNTIME_PATH_PREFIXES or root in hypotheses \
+                            or root in _RESERVED_GUARD_NAMES \
+                            or name.lower() in _BOOLEAN_WORDS \
+                            or provided(name):
+                        continue
+                    self.diags.append(Diagnostic(
+                        "W146", "warning",
+                        f"{hyp.name} : l'évidence porte sur `{name}`, que "
+                        f"rien ne renseigne — elle restera indéterminée et ne "
+                        f"déplacera jamais le postérieur (faute de frappe ?)",
+                        item.line or hyp.line))
+
     def _check_policy_guard_names(self) -> None:
         """W128 — garde de politique portant sur un identifiant nu non déclaré.
 
@@ -392,30 +465,56 @@ class Analyzer:
         (`run.dry_run`) rétablit la sémantique trivalente.
         """
         declared = self._declared_names()
+
+        def unknown(side: Any) -> bool:
+            return (isinstance(side, PathExpr) and len(side.parts) == 1
+                    and side.parts[0] not in declared
+                    and side.parts[0] not in _RESERVED_GUARD_NAMES)
+
         for rule in self.agent.policies:
-            # Seules les règles dont la **non-application** est dangereuse.
-            # Sur un `ALLOW`, un nom non résolu empêche l'autorisation d'être
-            # satisfaite : le verdict retombe sur `DEFAULT`, donc fermé. Y
-            # crier serait du bruit — et le bruit fait ignorer le signal.
-            if not applies_when_unknown(rule.effect):
-                continue
-            for node in _walk_expr(rule.guard):
-                suspects: List[str] = []
-                if isinstance(node, BinOp) and node.op in _COMPARISON_OPS:
-                    if isinstance(node.left, PathExpr) \
-                            and len(node.left.parts) == 1:
-                        suspects.append(node.left.parts[0])
-                if not suspects:
+            closed = applies_when_unknown(rule.effect)
+            # Position de vérité (1.17) : `ALLOW wipe IF approved`, `NEVER wipe
+            # WHEN NOT safe_mode`. Le runtime lit désormais ce nom comme
+            # indéterminé — fermé dans les deux sens — mais la règle est alors
+            # figée : l'auteur doit le savoir avant l'exécution.
+            for name in _truth_names(rule.guard):
+                if name in declared or name in _RESERVED_GUARD_NAMES \
+                        or name.lower() in _BOOLEAN_WORDS:
                     continue
-                for name in suspects:
-                    if name in declared or name in _RESERVED_GUARD_NAMES:
-                        continue
+                self.diags.append(Diagnostic(
+                    "W128", "warning",
+                    f"garde de politique sur `{name}`, que rien ne renseigne : "
+                    f"sa valeur de vérité est indéterminée, donc "
+                    + ("la règle s'appliquera toujours" if closed else
+                       "l'autorisation ne sera jamais accordée")
+                    + " — poser le nom (BELIEF, SET, OBSERVE) ou préférer un "
+                    "chemin pointé", rule.line))
+            for node in _walk_expr(rule.guard):
+                if not (isinstance(node, BinOp) and node.op in _COMPARISON_OPS
+                        and unknown(node.left)):
+                    continue
+                name = node.left.parts[0]
+                if closed:
+                    # Seules les règles dont la **non-application** est
+                    # dangereuse : la comparaison est fausse, l'interdit tombe.
                     self.diags.append(Diagnostic(
                         "W128", "warning",
                         f"garde de politique sur `{name}`, que rien ne "
                         f"renseigne : lu comme une constante symbolique, la "
                         f"comparaison sera fausse et la règle ne "
                         f"s'appliquera pas — préférer un chemin pointé",
+                        rule.line))
+                elif node.op == "!=" and (unknown(node.right)
+                                          or isinstance(node.right, Literal)):
+                    # Sur un `ALLOW`, `==` à un nom inconnu ne s'ouvre jamais
+                    # (fermé, et silencieux à dessein). `!=`, lui, est
+                    # **toujours vrai** : l'autorisation est acquise d'avance.
+                    self.diags.append(Diagnostic(
+                        "W128", "warning",
+                        f"garde de politique sur `{name}`, que rien ne "
+                        f"renseigne : lu comme une constante symbolique, "
+                        f"`{name} != …` est toujours vrai et l'autorisation "
+                        f"toujours accordée — préférer un chemin pointé",
                         rule.line))
 
     def _check_symbol_shadowing(self) -> None:
@@ -1646,6 +1745,17 @@ class Analyzer:
             yield from _walk_stmts(step.body)
 
     def _all_statements(self):
+        """`(instruction, origine)` de tous les corps exécutables.
+
+        Une trentaine de contrôles relisent cette liste ; l'AST ne change pas
+        pendant une analyse, elle se calcule donc une fois par `Analyzer`.
+        """
+        cached = self.__dict__.get("_statements")
+        if cached is None:
+            cached = self._statements = list(self._iter_statements())
+        return cached
+
+    def _iter_statements(self):
         for plan in self.agent.plans:
             for stmt in self._plan_statements(plan):
                 yield stmt, plan.name
@@ -1790,6 +1900,46 @@ def _walk_stmts(stmts):
             yield from _walk_stmts(stmt.on_fail)
         elif isinstance(stmt, (LoopStmt, ForEachStmt)):
             yield from _walk_stmts(stmt.body)
+
+
+#: Symboles qui nomment un booléen : lisibles en position de vérité.
+_BOOLEAN_WORDS = frozenset({"true", "yes", "false", "no", "none", "unknown",
+                            "null"})
+
+
+def _truth_names(node) -> List[str]:
+    """Noms simples lus comme valeur de vérité : nus, ou sous NOT/AND/OR."""
+    if isinstance(node, PathExpr):
+        return [node.parts[0]] if len(node.parts) == 1 else []
+    if isinstance(node, UnOp) and node.op == "NOT":
+        return _truth_names(node.operand)
+    if isinstance(node, BinOp) and node.op in ("AND", "OR"):
+        return _truth_names(node.left) + _truth_names(node.right)
+    return []
+
+
+def _evidence_subjects(test: Any):
+    """`(nom, pointé)` des sujets d'un test d'évidence qu'on peut juger.
+
+    Un chemin pointé, où qu'il soit ; un nom nu seulement en tête d'une
+    comparaison ou en position de vérité.
+    """
+    seen: Set[str] = set()
+    for node in _walk_expr(test):
+        candidates = []
+        if isinstance(node, PathExpr) and len(node.parts) > 1:
+            candidates.append(node)
+        elif isinstance(node, BinOp) and node.op in _COMPARISON_OPS \
+                and isinstance(node.left, PathExpr) and len(node.left.parts) == 1:
+            candidates.append(node.left)
+        for side in candidates:
+            if side.dotted not in seen:
+                seen.add(side.dotted)
+                yield side.dotted, len(side.parts) > 1
+    for name in _truth_names(test):
+        if name not in seen:
+            seen.add(name)
+            yield name, False
 
 
 def _walk_expr(node):

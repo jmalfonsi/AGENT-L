@@ -48,9 +48,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
-from .core import UNDEFINED
 from .nodes import EvidenceItem, Hypothesis
 from .state import Evaluator, State
+from .trivalent import UNKNOWN, evaluate as _tri
 
 EPS = 1e-6
 
@@ -133,22 +133,32 @@ class Inference:
         return " | ".join(parts)
 
 
-def _test(item: EvidenceItem, state: State) -> Optional[bool]:
+def _test(item: EvidenceItem, state: State,
+          variables: Any = frozenset()) -> Optional[bool]:
     """Un test dont un opérande est indéfini reste **indéterminé**.
 
     C'est la différence essentielle avec `Evaluator.test`, qui renvoie faux :
     en inférence, ignorer une évidence et l'observer fausse n'ont pas du tout
     le même effet sur le postérieur.
+
+    « Indéfini » se décide par la logique trivalente des gardes, et non plus
+    par l'évaluateur seul (1.17). Celui-ci lit un nom simple que rien ne lie
+    comme une constante : `flagged` valait donc *vrai* et `load != high`
+    aussi tant que le capteur n'avait rien rendu — l'hypothèse se confirmait
+    sur une absence de mesure, et `EXPLAINS` en faisait une croyance. Une
+    mesure invalide (`NaN`, type non ordonnable) et un `P(h)` pas encore
+    publié suivent la même règle. `variables` : les noms que le programme
+    renseigne lui-même (`policy.state_names`).
     """
     ev = Evaluator(state)
+    ev.variables = variables
     try:
-        value = ev.eval(item.test)
+        verdict = _tri(ev, item.test)
     except Exception:                                  # noqa: BLE001
         return None
-    if value is UNDEFINED or ev.notes:
+    if verdict is UNKNOWN or ev.notes:
         return None
-    from .core import truthy
-    return truthy(value)
+    return bool(verdict)
 
 
 def empirical_prior(hypothesis: Hypothesis,
@@ -186,7 +196,8 @@ def empirical_prior(hypothesis: Hypothesis,
     return value, origin
 
 
-def infer(hypothesis: Hypothesis, state: State) -> Inference:
+def infer(hypothesis: Hypothesis, state: State,
+          variables: Any = frozenset()) -> Inference:
     measured = empirical_prior(hypothesis, state)
     prior_value = measured[0] if measured else hypothesis.prior
     prior_origin = measured[1] if measured else "déclaré"
@@ -194,7 +205,7 @@ def infer(hypothesis: Hypothesis, state: State) -> Inference:
 
     outcomes: List[EvidenceOutcome] = []
     for index, item in enumerate(hypothesis.evidence):
-        observed = _test(item, state)
+        observed = _test(item, state, variables)
         label = item.label or _label(item, index)
         if observed is None:
             outcomes.append(EvidenceOutcome(label, None, 1.0, 0.0, item.group))

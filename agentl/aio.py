@@ -665,14 +665,10 @@ class AsyncSociety:
         self._deliver()
 
     async def run(self, max_ticks: int = 6, until: Optional[str] = None) -> "AsyncSociety":
+        from .society import settled
         for _ in range(max_ticks):
             await self.tick()
-            runtimes = self.society.runtimes
-            if until is not None:
-                if runtimes[until].state.get("goal.satisfied") is True:
-                    break
-            elif all(rt.state.get("goal.satisfied") is True
-                     for rt in runtimes.values() if rt.agent.goals):
+            if settled(self.society.runtimes, until):
                 break
         return self
 

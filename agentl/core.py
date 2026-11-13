@@ -123,11 +123,18 @@ def ordinal(value: Any):
     return None
 
 
+#: Symboles qui valent « faux » en position de vérité. `no` en fait partie
+#: depuis la 1.17 : `yes`/`no` est le vocabulaire booléen du langage (`_eq`
+#: les ponte déjà avec `True`/`False`), et pourtant `IF approved` était vrai
+#: quand `approved = no` — un `ALLOW wipe IF approved` autorisait sur un refus.
+FALSY_SYMBOLS = frozenset({"none", "false", "unknown", "null", "no"})
+
+
 def truthy(value: Any) -> bool:
     if value is UNDEFINED:
         return False
     if isinstance(value, Symbol):
-        return value.name.lower() not in ("none", "false", "unknown", "null")
+        return value.name.lower() not in FALSY_SYMBOLS
     return bool(value)
 
 

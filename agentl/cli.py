@@ -738,7 +738,8 @@ def _inspect(agent, args) -> int:
             print("Aucune HYPOTHESIS déclarée.")
             return 0
         for hypothesis in agent.hypotheses:
-            result = run_infer(hypothesis, runtime.state)
+            result = run_infer(hypothesis, runtime.state,
+                               runtime.policy.variables)
             print(f"\n{result.render()}")
             for outcome in sorted(result.outcomes,
                                   key=lambda o: -abs(o.weight_bits)):
@@ -763,8 +764,28 @@ def _inspect(agent, args) -> int:
     return 0
 
 
+def _tolerant_streams() -> None:
+    """Une sortie qui n'encode pas un glyphe le remplace, elle ne lève pas.
+
+    Diagnostics, certificats et traces portent des caractères hors ASCII
+    (`—`, `✔`, `⛔`). Sur un flux non UTF-8 — console Windows, `LANG=C` avec
+    `PYTHONIOENCODING` — chaque commande s'arrêtait sur un
+    `UnicodeEncodeError` nu, `check` et `verify` compris : une porte de
+    qualité ne doit pas échouer à cause du terminal qui l'affiche (1.17).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower()
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None and encoding.replace("-", "") != "utf8":
+            try:
+                reconfigure(errors="replace")
+            except Exception:                         # noqa: BLE001
+                pass
+
+
 def main(argv=None) -> int:
     from . import __version__
+    _tolerant_streams()
     parser = argparse.ArgumentParser(prog="agentl", description="AGENT-L")
     parser.add_argument("--version", action="version",
                         version=f"agentl {__version__}")
