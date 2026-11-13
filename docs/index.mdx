@@ -60,6 +60,34 @@ AGENT SOC_ANALYST {
   </Card>
 </Columns>
 
+## Nouveautés de la v1.17
+
+<Columns cols={2}>
+  <Card title="Un nom non lié reste indéterminé" icon="shield-check" href="/core/policies">
+    `ALLOW wipe IF approved` ne s’ouvre plus tant que personne n’a posé `approved`, et `NEVER send WHEN draft_ok == no` ne tombe plus sur un nom pas encore lié. `no` est faux, `NaN` est indéterminé, `EVIDENCE` ne se confirme plus sur une absence de mesure.
+  </Card>
+  <Card title="Des journaux qu’on peut lire sans les abîmer" icon="database" href="/core/durable-execution">
+    `durable status` et `durable export` n’écrivent plus dans le journal ; un journal malformé est refusé proprement. Le tick ne tombe plus sur un événement d’hôte ou une expression inévaluable.
+  </Card>
+  <Card title="T1 tient compte des plans co-sélectionnés" icon="scan-search" href="/core/verifier">
+    Une garde de plan n’est plus tenue pour vraie après l’exécution d’un autre plan mis en file avec elle : des expositions V102 qui étaient masquées apparaissent.
+  </Card>
+  <Card title="Deux nouveaux diagnostics" icon="triangle-alert" href="/core/quality-gates">
+    `W145` signale un `ON MESSAGE` sans `RECEIVE` correspondant, `W146` une `EVIDENCE` sur un nom que rien ne renseigne. `W128` couvre aussi la position de vérité.
+  </Card>
+</Columns>
+
+## Nouveautés de la v1.16
+
+<Columns cols={2}>
+  <Card title="Déléguer à un agent AGENT-L" icon="git-fork" href="/core/delegation">
+    `DELEGATE … AGENT … GRANT` : l’enfant n’a que les outils accordés, chaque action passe par sa politique puis par celle du parent, avec un journal commun.
+  </Card>
+  <Card title="Un banc d’équipe contre LangGraph" icon="gauge" href="/core/benchmarks">
+    Superviseur et deux spécialistes, sans contourner le noyau : AGENT-L tient 3 scénarios sur 3, dont l’injection et la panne après effet.
+  </Card>
+</Columns>
+
 ## Nouveautés de la v1.15
 
 <Columns cols={2}>
